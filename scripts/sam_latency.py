@@ -5,8 +5,8 @@ same image with the boxes the concept pass returned (box-prompt request, up to 1
 to measure the box-prompt path. Reports p50/p95 total latency, time-to-first-event, match
 counts and confidence.
 
-    python scripts/sam_latency.py --images data/frames --concepts "red brick,black wheel" \
-        --max-sides 640,960,1280 --repeat 3
+    python scripts/sam_latency.py --images data/frames --max-sides 640,960,1280 --repeat 3
+    python scripts/sam_latency.py --images data/frames --concepts "mug,laptop"   # override the defaults
 """
 from __future__ import annotations
 
@@ -28,10 +28,14 @@ from common import (
 from meta_sam_parser import PromptBox, FramePrompt, PromptObject, build_object_prompt
 
 
+DEFAULT_CONCEPTS = "keys,headphones,mug,notebook,remote control,water bottle,charger,scissors,laptop"
+
+
 def parse_args():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--images", type=Path, default=Path("data/frames"), help="image file or directory")
-    ap.add_argument("--concepts", required=True, help="comma separated short noun phrases, one SAM request each")
+    ap.add_argument("--concepts", default=DEFAULT_CONCEPTS,
+                    help="comma separated short noun phrases, one SAM request each (default: common desk objects)")
     ap.add_argument("--max-sides", default="960", help="comma separated long-side sizes to test")
     ap.add_argument("--quality", type=int, default=80, help="JPEG quality")
     ap.add_argument("--repeat", type=int, default=2, help="repeats per (image, size, concept)")

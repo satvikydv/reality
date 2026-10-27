@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reality OS orientation test</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 12px; background: #111; color: #e8e8e8; font: 14px/1.4 system-ui, sans-serif; }
+  button { font: inherit; padding: 12px 14px; margin: 4px 4px 4px 0; border-radius: 8px; border: 1px solid #555; background: #222; color: #fff; }
+  button.primary { background: #1a73e8; border-color: #1a73e8; }
+  .card { background: #000; border-radius: 8px; padding: 8px 10px; margin: 8px 0; font: 13px/1.45 ui-monospace, monospace; white-space: pre; overflow-x: auto; }
+  .big { font-size: 26px; line-height: 1.2; }
+  h3, h4 { margin: 8px 0 2px; }
+  ol { padding-left: 20px; margin: 4px 0; }
+  .bad { color: #ff8a80; } .ok { color: #8bd48b; }
+</style>
+</head>
+<body>
+<h3>Orientation drift test</h3>
+<ol>
+  <li>Tap <b>Start sensors</b>. Hold the phone in front of you, camera pointing at a fixed target.</li>
+  <li>Tap <b>Mark START</b>, then turn on the spot a full 360° (about 30 s, steady) back to the same target and hold still 2 s.</li>
+  <li>Tap <b>Mark END</b>. Repeat 3 times; <b>Copy results</b> at the end.</li>
+</ol>
+<button id="go" class="primary">Start sensors</button>
+<button id="s">Mark START</button>
+<button id="e">Mark END</button>
+<button id="c">Copy results</button>
+<button id="x">Clear</button>
+<div id="live" class="card big">sensors off</div>
+<div id="trial" class="card">no trial running</div>
+<h4>Trials</h4>
+<div id="results" class="card">none yet</div>
+<script type="module">
+import { OrientationTracker, wrap180 } from "/js/orientation.js";
+
+const T = new OrientationTracker();
+const SRC = ["absolute", "relative"];
+const $ = (id) => document.getElementById(id);
+const f = (v, d = 1) => v == null ? "  n/a" : v.toFixed(d).padStart(6 + d - 1);
+const trials = [];
+let current = null; // {t0, start:{abs,rel}, prevYaw:{}, net:{}, n:{}}
+const rate = { absolute: { c: 0, t: performance.now() }, relative: { c: 0, t: performance.now() } };
+const hz = { absolute: 0, relative: 0 };
+
+T.onSample((src, s) => {
+  if (current) {
+    const p = current.prev[src];
+    if (p != null) current.net[src] += wrap180(s.yaw - p);
+    current.prev[src] = s.yaw;
+  }
+});
+
+setInterval(() => {
+  const now = performance.now();
+  for (const s of SRC) {
+    hz[s] = (T.counts[s] - rate[s].c) / ((now - rate[s].t) / 1000);
+    rate[s] = { c: T.counts[s], t: now };
+  }
+  if (!T.started) return;
+  $("live").textContent = SRC.map((s) => {
+    const x = T.latest[s];
+    return `${s.toUpperCase().padEnd(8)} yaw ${x ? f(x.yaw) : "  n/a"}  pitch ${x ? f(x.pitch) : "  n/a"}  roll ${x ? f(x.roll) : "  n/a"}\n         ${hz[s].toFixed(0)} Hz  ${T.status[s]}`;
+  }).join("\n");
+  if (current) {
+    const secs = ((performance.now() - current.t0) / 1000).toFixed(0);
+    $("trial").textContent = `trial running ${secs}s\n` + SRC.map((s) => `${s}: net turn so far ${f(current.net[s], 0)}°`).join("\n");
+  }
+}, 250);
+
+function render() {
+  $("results").textContent = trials.length ? trials.map((t, i) => {
+    const head = `#${i + 1}  ${t.duration_s.toFixed(0)} s`;
+    const rows = SRC.map((s) => {
+      const r = t[s];
+      if (!r) return `  ${s}: no data`;
+      const flag = Math.abs(Math.abs(r.net_turn_deg) - 360) > 45 ? "  <-- not a full turn" : "";
+      return `  ${s.padEnd(8)} dYaw ${f(r.drift_yaw_deg, 2)}°  dPitch ${f(r.drift_pitch_deg, 2)}°  dRoll ${f(r.drift_roll_deg, 2)}°  net turn ${f(r.net_turn_deg, 0)}°${flag}`;
+    });
+    return [head, ...rows].join("\n");
+  }).join("\n") + "\n\n" + summary() : "none yet";
+}
+
+function summary() {
+  const valid = trials.filter((t) => SRC.every((s) => t[s] && Math.abs(Math.abs(t[s].net_turn_deg) - 360) <= 45));
+  if (!valid.length) return "no valid full-turn trials yet";
+  const mean = (s) => valid.reduce((a, t) => a + Math.abs(t[s].drift_yaw_deg), 0) / valid.length;
+  const a = mean("absolute"), r = mean("relative");
+  return `mean |yaw drift| over ${valid.length} valid trial(s): absolute ${a.toFixed(2)}°, relative ${r.toFixed(2)}°\nlower drift: ${a < r ? "ABSOLUTE" : "RELATIVE"}`;
+}
+
+$("go").onclick = async () => { await T.start(); $("go").textContent = "Sensors running"; };
+
+$("s").onclick = () => {
+  if (!T.started) return alert("Start sensors first");
+  const start = {};
+  for (const s of SRC) start[s] = T.averaged(s, 500);
+  if (SRC.some((s) => !start[s])) return alert("No samples yet from both sources; wait a second");
+  current = { t0: performance.now(), start, prev: {}, net: { absolute: 0, relative: 0 } };
+  current.prev = { absolute: T.latest.absolute?.yaw, relative: T.latest.relative?.yaw };
+};
+
+$("e").onclick = () => {
+  if (!current) return;
+  const t = { duration_s: (performance.now() - current.t0) / 1000, ended_at: new Date().toISOString() };
+  for (const s of SRC) {
+    const end = T.averaged(s, 500), a = current.start[s];
+    t[s] = end && a ? {
+      api: T.latest[s]?.api,
+      drift_yaw_deg: wrap180(end.yaw - a.yaw),
+      drift_pitch_deg: end.pitch - a.pitch,
+      drift_roll_deg: end.roll != null && a.roll != null ? wrap180(end.roll - a.roll) : null,
+      net_turn_deg: current.net[s],
+      start: a, end,
+    } : null;
+  }
+  trials.push(t);
+  current = null;
+  $("trial").textContent = "no trial running";
+  render();
+};
+
+$("c").onclick = () => navigator.clipboard?.writeText(JSON.stringify({ ua: navigator.userAgent, status: T.status, trials }, null, 2)).catch(() => {});
+$("x").onclick = () => { trials.length = 0; current = null; render(); };
+window.__orientation = { T, trials }; // for DevTools reads
+</script>
+</body>
+</html>

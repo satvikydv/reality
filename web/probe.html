@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reality OS probe</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 12px; background: #111; color: #e8e8e8; font: 14px/1.4 system-ui, sans-serif; }
+  button { font: inherit; padding: 10px 12px; margin: 4px 4px 4px 0; border-radius: 8px; border: 1px solid #555; background: #222; color: #fff; }
+  pre { white-space: pre-wrap; background: #000; padding: 8px; border-radius: 6px; font: 12px/1.35 ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<h3>Secure-context / sensor probe</h3>
+<button id="cam">Test camera</button>
+<button id="sens">Test sensors</button>
+<button id="copy">Copy report</button>
+<pre id="out"></pre>
+<script>
+const lines = {};
+const out = document.getElementById("out");
+const set = (k, v) => { lines[k] = typeof v === "string" ? v : JSON.stringify(v); out.textContent = Object.entries(lines).map(([a, b]) => `${a}: ${b}`).join("\n"); };
+
+set("userAgent", navigator.userAgent);
+set("origin", location.origin);
+set("isSecureContext", window.isSecureContext);
+set("getUserMedia available", !!navigator.mediaDevices?.getUserMedia);
+set("DeviceOrientationEvent", typeof DeviceOrientationEvent);
+set("DeviceOrientationEvent.requestPermission (iOS-style prompt)", typeof DeviceOrientationEvent?.requestPermission);
+set("DeviceMotionEvent.requestPermission (iOS-style prompt)", typeof DeviceMotionEvent?.requestPermission);
+set("AbsoluteOrientationSensor (Generic Sensor API)", typeof AbsoluteOrientationSensor);
+
+(async () => {
+  for (const name of ["camera", "microphone", "accelerometer", "gyroscope", "magnetometer"]) {
+    try { set(`permission.${name}`, (await navigator.permissions.query({ name })).state); }
+    catch (e) { set(`permission.${name}`, `query failed: ${e.name}`); }
+  }
+})();
+
+document.getElementById("cam").onclick = async () => {
+  set("camera", "requesting… (note any prompt that appears)");
+  const t0 = performance.now();
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: false });
+    const st = s.getVideoTracks()[0].getSettings();
+    set("camera", `OK in ${(performance.now() - t0).toFixed(0)} ms (includes time on prompt): ${st.width}x${st.height} ${st.facingMode || ""}`);
+    s.getTracks().forEach((t) => t.stop());
+  } catch (e) { set("camera", `FAILED ${e.name}: ${e.message}`); }
+};
+
+document.getElementById("sens").onclick = async () => {
+  let n = 0, last = null, m = 0, lastM = null;
+  const dop = (e) => { n++; last = [e.alpha, e.beta, e.gamma].map((v) => v == null ? null : +v.toFixed(1)); };
+  const dmo = (e) => { m++; const a = e.accelerationIncludingGravity; lastM = a && [a.x, a.y, a.z].map((v) => v == null ? null : +v.toFixed(2)); };
+  try {
+    if (typeof DeviceOrientationEvent?.requestPermission === "function") set("orientation.permission", await DeviceOrientationEvent.requestPermission());
+  } catch (e) { set("orientation.permission", `${e.name}: ${e.message}`); }
+  addEventListener("deviceorientation", dop);
+  addEventListener("devicemotion", dmo);
+  set("sensors", "listening 3 s — move/rotate the phone");
+  setTimeout(() => {
+    removeEventListener("deviceorientation", dop);
+    removeEventListener("devicemotion", dmo);
+    set("deviceorientation", `${n} events in 3 s, last [alpha,beta,gamma]=${JSON.stringify(last)}`);
+    set("devicemotion", `${m} events in 3 s, last accelG=${JSON.stringify(lastM)}`);
+    set("sensors", n && m ? "WORKING" : "NO EVENTS (blocked, or no sensor)");
+  }, 3000);
+};
+
+document.getElementById("copy").onclick = () => navigator.clipboard?.writeText(out.textContent).catch(() => {});
+</script>
+</body>
+</html>

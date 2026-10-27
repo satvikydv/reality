@@ -12,3 +12,4 @@ mcp
 # M0 scripts only
 sounddevice
 cryptography
+pytest

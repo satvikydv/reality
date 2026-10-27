@@ -36,6 +36,10 @@
 <script type="module">
 import { startCamera, grabJpeg } from "/js/camera.js";
 import { FrameSocket } from "/js/ws.js";
+import { OrientationTracker } from "/js/orientation.js";
+
+const orient = new OrientationTracker();
+const ensureOrientation = () => orient.start().catch(() => {});
 
 const $ = (id) => document.getElementById(id);
 const video = $("v");
@@ -70,6 +74,7 @@ setInterval(hud, 250);
 function showMsg(t) { const m = $("msg"); m.textContent = t; m.style.display = t ? "flex" : "none"; }
 
 async function boot() {
+  ensureOrientation();
   try {
     const { settings } = await startCamera(video, facing);
     info = `camera ${settings.width}x${settings.height} ${settings.facingMode || facing} @${Math.round(settings.frameRate || 0)}fps`;
@@ -102,8 +107,10 @@ $("flip").onclick = () => { facing = facing === "environment" ? "user" : "enviro
 $("stream").onclick = () => setStreaming(!streaming);
 $("fps").onchange = () => streaming && setStreaming(true);
 $("save").onclick = async () => {
+  ensureOrientation();
   const blob = await grabJpeg(video, 1920, 0.9);
-  if (blob && sock.ready) { const t0 = performance.timeOrigin + performance.now(); sentAt.set(await sock.send(blob, { save: true }), t0); }
+  const meta = { orientation: orient.snapshot(), camera: { facing, video_w: video.videoWidth, video_h: video.videoHeight, screen_angle: screen.orientation?.angle ?? null } };
+  if (blob && sock.ready) { const t0 = performance.timeOrigin + performance.now(); sentAt.set(await sock.send(blob, { save: true, meta }), t0); }
 };
 boot();
 </script>

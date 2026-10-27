@@ -23,13 +23,34 @@ copy .env.example .env        # then set MODEL_API_KEY
 .\.venv\Scripts\python.exe backend\run.py         # https://0.0.0.0:8443
 ```
 
-Phone (same Wi-Fi): open `https://<laptop-LAN-IP>:8443`, accept the certificate warning once, allow the camera. The Windows Wi-Fi profile must be **Private**, or allow inbound TCP 8443 (admin PowerShell):
+HTTPS mode binds `0.0.0.0`, so it needs `ACCESS_TOKEN` in `.env` (the server refuses to start without it). Phone (same Wi-Fi): open `https://<laptop-LAN-IP>:8443/?token=<ACCESS_TOKEN>` once (it is then kept in a cookie), accept the certificate warning, allow the camera. The Windows Wi-Fi profile must be **Private**, or allow inbound TCP 8443 (admin PowerShell):
 
 ```powershell
 New-NetFirewallRule -DisplayName "RealityOS dev 8443" -Direction Inbound -Protocol TCP -LocalPort 8443 -Action Allow -Profile Any
 ```
 
 Use **Save sample** on the phone page to drop full-size frames into `data/frames/`.
+
+## Phone over USB
+
+Android only. No Wi-Fi, firewall rules, certificates or tunnels: `adb reverse` makes the phone's `localhost:8000` reach the server on your machine, and `http://localhost` counts as a secure context in Chrome, so the camera works over plain HTTP. In this mode the server binds `127.0.0.1` only and needs no `ACCESS_TOKEN`.
+
+1. On the phone: Settings, About phone, tap **Build number** 7 times to enable Developer options. Then Settings, System, Developer options, turn on **USB debugging**.
+2. On your computer, install [Android platform-tools](https://developer.android.com/tools/releases/platform-tools) and add the extracted folder to `PATH`. Check with `adb version`.
+3. Connect the phone with a data-capable USB cable. Unlock it and accept the **Allow USB debugging?** prompt.
+4. Start the server in plain HTTP mode:
+   ```powershell
+   $env:PLAIN_HTTP = "1"; .\.venv\Scripts\python.exe backend\run.py   # http://127.0.0.1:8000
+   ```
+   (bash: `PLAIN_HTTP=1 python backend/run.py`)
+5. Forward the port (the script checks that `adb` exists and that an authorized device is listed):
+   ```powershell
+   .\scripts\usb_connect.ps1        # bash: scripts/usb_connect.sh
+   ```
+   With several devices attached, pass `-Serial <id>` (bash: the serial as the first argument).
+6. On the phone, open Chrome and go to **http://localhost:8000**. Allow the camera when asked. `http://localhost:8000/probe` shows whether the camera and motion sensors work (results go in `docs/measurements.md`).
+
+If the port is already in use, set `PLAIN_HTTP_PORT` and change the port in `scripts/usb_connect.*` to match.
 
 ## M0 scripts
 
