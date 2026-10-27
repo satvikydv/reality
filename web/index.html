@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reality OS</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; background: #000; color: #e8e8e8; font: 14px/1.4 system-ui, sans-serif; }
+  #stage { position: relative; width: 100vw; height: 100vh; height: 100dvh; background: #000; }
+  video { width: 100%; height: 100%; object-fit: cover; }
+  #hud { position: absolute; left: 8px; top: 8px; padding: 6px 8px; background: #000a; border-radius: 6px;
+         font: 12px/1.35 ui-monospace, monospace; white-space: pre; max-width: 92vw; }
+  #bar { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+         display: flex; gap: 8px; flex-wrap: wrap; background: #000a; }
+  button, select { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #555; background: #222; color: #fff; }
+  button.primary { background: #1a73e8; border-color: #1a73e8; }
+  #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px;
+         text-align: center; background: #000d; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="v" playsinline muted></video>
+  <div id="hud">starting…</div>
+  <div id="msg"></div>
+  <div id="bar">
+    <button id="start" class="primary">Start camera</button>
+    <button id="flip">Flip</button>
+    <button id="stream">Stream</button>
+    <button id="save">Save sample</button>
+    <select id="fps"><option>1</option><option selected>2</option><option>4</option></select>
+    <select id="side"><option>640</option><option selected>960</option><option>1280</option></select>
+  </div>
+</div>
+<script type="module">
+import { startCamera, grabJpeg } from "/js/camera.js";
+import { FrameSocket } from "/js/ws.js";
+
+const $ = (id) => document.getElementById(id);
+const video = $("v");
+let facing = "environment", streaming = false, timer = null, info = "", state = "connecting";
+const rtts = [];
+const sentAt = new Map();
+let lastReply = null, framesSent = 0, framesDropped = 0, savedMsg = "";
+
+const pct = (a, p) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.floor((s.length - 1) * p)]; };
+
+const sock = new FrameSocket((r, tNow) => {
+  const t0 = sentAt.get(r.seq);
+  sentAt.delete(r.seq);
+  if (t0 !== undefined) { rtts.push(tNow - t0); if (rtts.length > 60) rtts.shift(); }
+  lastReply = r;
+  if (r.saved) savedMsg = `saved ${r.saved} (${r.saved_total} on server)`;
+}, (s) => { state = s; });
+
+function hud() {
+  const l = [
+    `secure=${window.isSecureContext} ws=${state}`,
+    info || "camera off",
+    `sent=${framesSent} dropped=${framesDropped} backlog=${sock.backlog}B`,
+    rtts.length ? `RTT ms p50=${pct(rtts, .5).toFixed(0)} p95=${pct(rtts, .95).toFixed(0)} n=${rtts.length}` : "RTT n/a",
+    lastReply ? `server saw ${lastReply.w}x${lastReply.h} ${(lastReply.bytes / 1024).toFixed(0)}KB decode+handle ${lastReply.server_ms}ms` : "",
+    savedMsg,
+  ];
+  $("hud").textContent = l.filter(Boolean).join("\n");
+}
+setInterval(hud, 250);
+
+function showMsg(t) { const m = $("msg"); m.textContent = t; m.style.display = t ? "flex" : "none"; }
+
+async function boot() {
+  try {
+    const { settings } = await startCamera(video, facing);
+    info = `camera ${settings.width}x${settings.height} ${settings.facingMode || facing} @${Math.round(settings.frameRate || 0)}fps`;
+    showMsg("");
+  } catch (e) {
+    showMsg(`${e.name || "Error"}: ${e.message}`);
+  }
+}
+
+async function tick() {
+  if (!streaming || !sock.ready) return;
+  if (sock.backlog > 512 * 1024) { framesDropped++; return; } // don't queue behind a slow link
+  const blob = await grabJpeg(video, +$("side").value, 0.8);
+  if (!blob) return;
+  const t0 = performance.timeOrigin + performance.now();
+  const seq = await sock.send(blob);
+  sentAt.set(seq, t0);
+  framesSent++;
+}
+
+function setStreaming(on) {
+  streaming = on;
+  $("stream").textContent = on ? "Stop" : "Stream";
+  clearInterval(timer);
+  if (on) timer = setInterval(tick, 1000 / +$("fps").value);
+}
+
+$("start").onclick = boot;
+$("flip").onclick = () => { facing = facing === "environment" ? "user" : "environment"; boot(); };
+$("stream").onclick = () => setStreaming(!streaming);
+$("fps").onchange = () => streaming && setStreaming(true);
+$("save").onclick = async () => {
+  const blob = await grabJpeg(video, 1920, 0.9);
+  if (blob && sock.ready) { const t0 = performance.timeOrigin + performance.now(); sentAt.set(await sock.send(blob, { save: true }), t0); }
+};
+boot();
+</script>
+</body>
+</html>

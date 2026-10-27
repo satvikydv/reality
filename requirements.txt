@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+openai
+httpx
+pydantic>=2
+numpy
+opencv-python
+meta-sam-parser>=0.1.0
+websockets
+python-dotenv
+mcp
+# M0 scripts only
+sounddevice
+cryptography
