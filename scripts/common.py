@@ -27,9 +27,7 @@ API_BASE = os.getenv("META_API_BASE", "https://api.meta.ai/v1")
 SPARK_MODEL = os.getenv("SPARK_MODEL", "muse-spark-1.3")
 SAM_MODEL = os.getenv("SAM_MODEL", "sam-3.1")
 
-SAM_USD_PER_IMAGE = 2.50 / 1000
-SPARK_USD_PER_M_IN = 1.25
-SPARK_USD_PER_M_OUT = 4.25
+from app.pricing import SAM_USD_PER_IMAGE, SPARK_USD_PER_M_IN, SPARK_USD_PER_M_OUT  # noqa: E402,F401
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png"}
 
@@ -112,87 +110,13 @@ def box_iou(a: tuple[float, float, float, float], b: tuple[float, float, float, 
     return inter / ua if ua > 0 else 0.0
 
 
-# ---------------------------------------------------------------- SAM
+# ---------------------------------------------------------------- SAM (client lives in app.sam_client)
 
-
-@dataclass
-class SamObject:
-    object_id: str
-    box: tuple[float, float, float, float] | None  # x1,y1,x2,y2 (half-open right/bottom), image px
-    confidence: float | None
-    mask_area_px: int | None
-
-
-@dataclass
-class SamCall:
-    objects: list[SamObject]
-    total_ms: float
-    first_event_ms: float | None
-    outcome: str
-    n_diagnostics: int
-    error: str | None = None
+from app.sam_client import SamCall, SamObject, sam_call as _sam_call  # noqa: E402,F401
 
 
 async def sam_call(client, frame: Frame, prompt: str) -> SamCall:
-    """One sam-3.1 request (concept or box/point prompt text). Streams, parses with meta-sam-parser."""
-    from meta_sam_parser import (
-        decode_mask_to_raster,
-        image_segmentation_format,
-        parse_responses_stream,
-    )
-
-    t0 = time.perf_counter()
-    first = None
-    try:
-        raw = await client.responses.create(
-            model=SAM_MODEL,
-            input=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt},
-                        {"type": "input_image", "image_url": frame.data_url},
-                    ],
-                }
-            ],
-            stream=True,
-            metadata={"mask_encoding": "one_bit", "include_confidence": "true"},
-        )
-
-        async def tap():
-            nonlocal first
-            async for ev in raw:
-                if first is None:
-                    first = (time.perf_counter() - t0) * 1000
-                yield ev
-
-        parsed = parse_responses_stream(tap(), image_segmentation_format())
-        async for _ in parsed:
-            pass
-        result = await parsed.final_result()
-    except Exception as e:  # noqa: BLE001 - measurement script, record and continue
-        return SamCall([], (time.perf_counter() - t0) * 1000, first, "error", 0, f"{type(e).__name__}: {e}")
-    total = (time.perf_counter() - t0) * 1000
-
-    boxes: dict[str, SamObject] = {}
-    for rec in result.records:
-        if rec.kind == "text":
-            continue
-        o = boxes.setdefault(rec.object_id, SamObject(rec.object_id, None, None, None))
-        if rec.confidence is not None:
-            o.confidence = rec.confidence
-        if rec.kind == "box":
-            o.box = (rec.left, rec.top, rec.right, rec.bottom)
-        elif rec.kind == "mask":
-            b = rec.bounds
-            if o.box is None:
-                o.box = (b.left, b.top, b.right, b.bottom)
-            try:
-                o.mask_area_px = int(np.frombuffer(decode_mask_to_raster(rec.mask), dtype=np.uint8).sum())
-            except Exception:  # noqa: BLE001
-                o.mask_area_px = None
-    outcome = result.outcome.status
-    return SamCall(list(boxes.values()), total, first, outcome, len(result.diagnostics))
+    return await _sam_call(client, frame.data_url, prompt)
 
 
 def log_cost(script: str, usd: float, detail: str = "") -> None:

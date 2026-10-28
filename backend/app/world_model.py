@@ -148,6 +148,10 @@ class WorldModel:
         f = self.get_frame(frame_id)
         return Path(f["path"]).read_bytes() if f and f["path"] and Path(f["path"]).exists() else None
 
+    def list_frames(self, scan_id: int) -> list[dict]:
+        with self.lock:
+            return [dict(r) for r in self.db.execute("SELECT * FROM frames WHERE scan_id=? ORDER BY ts, id", (scan_id,))]
+
     def scan_start_pose(self, scan_id: int) -> dict | None:
         with self.lock:
             r = self.db.execute("SELECT yaw, pitch FROM frames WHERE scan_id=? ORDER BY ts, id LIMIT 1", (scan_id,)).fetchone()
@@ -306,8 +310,11 @@ class WorldModel:
             nbrs = self.neighbors(o["id"])
             where = describe_offset(offset["dyaw"], offset["dpitch"]) if offset else "at an unknown direction"
             speech = f"The {o['label']} was last seen {where}"
-            if nbrs:
-                speech += f", {nbrs[0]['relation']} the {nbrs[0]['label']}"
+            other = next((n for n in nbrs if label_match_score(n["label"], o["label"]) == 0), None)
+            if other:
+                speech += f", {other['relation']} the {other['label']}"
+            elif nbrs:
+                speech += f", {nbrs[0]['relation']} another {nbrs[0]['label']}"
             speech += "." if sid == latest else ", in an earlier scan; it was not in the latest scan."
             return {"object": o, "scan_id": sid, "is_latest_scan": sid == latest, "anchor": {"yaw": o["yaw"], "pitch": o["pitch"]},
                     "from_scan_start": offset, "neighbors": nbrs, "replay": self.replay(o["id"]), "speech": speech}

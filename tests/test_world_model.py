@@ -147,3 +147,14 @@ def test_describe_offset():
     assert describe_offset(2, 0) == "straight ahead of where the scan started, roughly level"
     assert "left" in describe_offset(-40, 0) and "above level" in describe_offset(0, 25)
     assert describe_offset(170, 0).startswith("behind")
+
+
+def test_where_is_speech_names_a_different_object_first(wm):
+    s = wm.start_scan()
+    f = frame(wm, s, 1.0, 0.0)
+    wm.observe(f, [{"label": "mug", "box": centre_box(240, 320)}, {"label": "mug", "box": centre_box(300, 320)},
+                   {"label": "laptop", "box": centre_box(420, 320)}])
+    assert wm.where_is("mug")["speech"].endswith("left of the laptop.")
+    wm2 = wm.start_scan()
+    wm.observe(frame(wm, wm2, 5.0, 0.0), [{"label": "mug", "box": centre_box(240, 320)}, {"label": "mug", "box": centre_box(300, 320)}])
+    assert "of another mug" in wm.where_is("mug", scan_id=wm2)["speech"]

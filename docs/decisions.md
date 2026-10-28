@@ -26,6 +26,35 @@
 
 **Not updated (still describe the old hero).** PRD sections 14 and 16, the README M0 commands, and the default task list in `scripts/spark_plan.py`. `scripts/sam_latency.py` has no labels file, so counting accuracy against a true count per frame is not implemented yet.
 
+## 2026-10-28: Scan pipeline (F10)
+
+- **Spark names, SAM boxes, World Model anchors.** `app/scan.py:ScanPipeline.process` resizes the keyframe (max side 960), asks Spark for the object types in view, runs one SAM concept prompt per name concurrently, drops boxes under `min_conf` 0.5, collapses overlapping boxes (`suppress_overlaps`: IoU over 0.6, highest confidence wins, the more specific label wins a near tie) and observes the rest. Boxes are anchored with the resized dimensions because SAM returns pixels of the image it was sent.
+- **Concept prompts per name, not box batches (for now).** The PRD's "Spark lists, then box-prompt batches of 16" needs boxes from Spark, and Spark's box convention is unmeasured (`spark_grounding.py` has not run). One concept prompt per name costs one SAM request each ($0.0025) but needs no boxes. Switch when Spark grounding is verified.
+- **A frame is stored only if every SAM call succeeded** (one retry each). A stored frame says "this direction was looked at", which what-changed uses to call an object gone; a half-failed look would fake that. The caller gets `FrameReport(stored=False, errors=[...])` and can retry.
+- **Known names are fed back.** Names already in the scan are passed to Spark as "reuse a name from this list" to keep labels stable across frames (what merging depends on).
+- **What it cannot do yet.** Spark forgetting to list an object means that object is not looked for in that frame, and coverage still counts the direction as scanned. Cable-like objects fragment into several boxes. Frames are processed in the order given and not deduplicated by pose. Not wired into `main.py`.
+- **Refactor.** `sam_call` moved from `scripts/common.py` to `app/sam_client.py` (takes a data URL; closes the stream; never raises), prices to `app/pricing.py`. Scripts keep working through `common.py` wrappers.
+- **Speech fix.** `where_is` no longer says "left of the water bottle" about a water bottle; it names a different object first, else "another water bottle".
+
+## 2026-10-28: orientation source = absolute
+
+On the Realme RMX2001 the "relative" sensor is not gyro-only: both sources gave the same yaw (to 0.01 degrees) and under 0.5 degrees of drift over three 360 degree turns (`docs/measurements.md`). The pick is a tie, so use the absolute source: it keeps a shared yaw frame between scans. `app/changes.py:estimate_yaw_offset` stays as the fallback for devices where the relative source has its own zero. Heading error mid-turn (magnetic distortion) is not measured yet, so `MOVE_DEG` and `merge_deg` stay placeholders.
+
+## 2026-10-28: Guidance and what-changed (F12, F13)
+
+- **Guidance in image axes.** `app/guidance.py` expresses the target direction in the camera's right/up/forward basis, so the overlay arrow (`arrow_deg`, clockwise from up) and the hint ("Turn right", "Tilt up", "A bit more left", "Almost there, a little right", "Turn around", "That's it.") stay correct when the phone is rolled or pitched steeply. `dyaw`/`dpitch` are returned for display only. Hint bands (`ARRIVE_DEG` 6, `FAR_DEG` 45, `TURN_AROUND_DEG` 110) are untested guesses until a person walks it [VERIFY]. No smoothing of the live heading yet; add it if the arrow jitters on the phone.
+- **Yaw frames need an explicit offset.** The relative sensor's yaw zero is arbitrary per session, so a stored anchor is mapped to the live frame with `yaw_offset` (live minus scan). `app/changes.py:estimate_yaw_offset` finds it by majority vote over same-label object pairs (most agreeing objects, then the smallest rotation), so a few moved objects do not spoil it. It reports `confident` only with two or more agreeing objects; with one shared label a moved object cannot be told from a rotated frame. Pitch is gravity-referenced and is not shifted.
+- **What-changed matches by label, then angle.** Pairs are taken nearest-first across scans (label match score above 0). A pair closer than `MOVE_DEG` (15 degrees, placeholder until the drift measurements are in) is unchanged; farther is moved. Leftovers are added or removed.
+- **Coverage guard.** Removed and added are only claimed if the other scan's frames actually looked at that direction (projected inside the image with a 5% margin). Otherwise the object goes to `unverified` and the spoken summary says part of the room was not scanned both times. This prevents the commonest false alarm: a partial second scan.
+- **Known limits.** A label that vanishes in one place and appears in another reads as "moved"; swapping two identical objects is invisible; appearance is not compared; the coverage test ignores occlusion. Both modules are pure logic and are not wired into `main.py` yet. `WorldModel.list_frames` was added for coverage. Tests: `pytest tests` (60 pass).
+
+## 2026-10-28: Reasoner and semantic resolver
+
+- **Reasoner interface.** `app/reasoner/`: a `Reasoner.respond(messages, tools, schema, effort)` protocol with neutral message parts (`text`, `image`). `MetaApiReasoner` uses the Responses API with strict `json_schema`; `OpenAICompatReasoner` uses Chat Completions for Modal Glimmer and Baseten Spark Open and is only mock-tested [VERIFY live]. `make_reasoner()` picks by `REASONER_BACKEND`. Every call goes through `with_retries` (429, 5xx and connection errors; exponential backoff with jitter; honours `Retry-After`). `MetaApiReasoner` refuses any model id containing "contributor".
+- **Resolver judges the raw phrase.** `clean()` checks SAM-friendliness before normalising, because normalising strips the commas that make a phrase unfriendly (caught by a test: "a, b" became "b").
+- **Skip the model for exact labels.** If the query is already a known label, `semantic_find` goes straight to the World Model. Only whole-query matches skip; "where are my keys" still goes to Spark.
+- **Not-in-memory is explicit.** A resolved concept with no World Model hit returns `needs_live_look`; the SAM live-lookup step is not built yet.
+
 ## 2026-10-28: World Model and anchoring (first memory-first build)
 
 - **Anchors are directions, not positions.** `backend/app/anchoring.py` turns a pixel plus the frame's camera pose (yaw, pitch, roll) into a world (yaw, pitch) with a pinhole model. Image roll is sensor roll plus `screen.orientation.angle`, assuming Chrome rotates the video with the screen [VERIFY]. `DEFAULT_HFOV_DEG = 60` is a placeholder until the phone is calibrated [VERIFY]; every frame stores the FOV it was anchored with.

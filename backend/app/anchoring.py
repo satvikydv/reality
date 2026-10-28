@@ -32,12 +32,18 @@ def _unit(yaw_deg: float, pitch_deg: float) -> tuple[float, float, float]:
     return (math.cos(p) * math.sin(y), math.cos(p) * math.cos(y), math.sin(p))
 
 
+direction_vector = _unit
+
+
 def _cross(a, b):
     return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
 
 
 def _dot(a, b):
     return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+
+
+dot = _dot
 
 
 def _to_yaw_pitch(v) -> tuple[float, float]:
