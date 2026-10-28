@@ -31,6 +31,15 @@ SCHEMA = """
 -- A room ("space"): a user-named place. Its memory is its latest saved scan; older saved scans are kept for what-changed.
 CREATE TABLE IF NOT EXISTS rooms (
   id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at REAL NOT NULL, active INTEGER NOT NULL DEFAULT 0);
+-- Every manual correction of what the memory believes, in order: merge, detach, delete, mark_not_object, unmark_not_object.
+-- merge / detach / delete are stored as sets of detection ids, which is what a rebuild works from, so they are applied again
+-- every time the scan's objects are recomputed.
+CREATE TABLE IF NOT EXISTS corrections (
+  id INTEGER PRIMARY KEY, ts REAL NOT NULL, room_id INTEGER, scan_id INTEGER, kind TEXT NOT NULL, payload TEXT NOT NULL, source TEXT);
+CREATE INDEX IF NOT EXISTS corr_scan ON corrections(scan_id);
+-- labels the user said are not objects in this room ("wall", "ceiling light"): never made into objects there
+CREATE TABLE IF NOT EXISTS not_objects (
+  room_id INTEGER NOT NULL, label TEXT NOT NULL, ts REAL NOT NULL, PRIMARY KEY (room_id, label));
 -- confirm / dismiss marks on the changes between two scans of one room
 CREATE TABLE IF NOT EXISTS change_reviews (
   room_id INTEGER NOT NULL, scan_before INTEGER NOT NULL, scan_after INTEGER NOT NULL, change_key TEXT NOT NULL, state TEXT NOT NULL,
@@ -250,6 +259,7 @@ class WorldModel:
                 self.db.execute(f"DELETE FROM {table} WHERE scan_id=?", (scan_id,))
             self.db.execute("DELETE FROM scans WHERE id=?", (scan_id,))
             self.db.execute("DELETE FROM change_reviews WHERE scan_before=? OR scan_after=?", (scan_id, scan_id))
+            self.db.execute("DELETE FROM corrections WHERE scan_id=?", (scan_id,))
             self.db.commit()
             self._logged.pop(scan_id, None)
         root = self.frames_dir.resolve() if self.frames_dir else None
@@ -354,6 +364,8 @@ class WorldModel:
             for s in self.db.execute("SELECT id FROM scans WHERE room_id=?", (room_id,)).fetchall():
                 self.delete_scan(s["id"])
             self.db.execute("DELETE FROM change_reviews WHERE room_id=?", (room_id,))
+            self.db.execute("DELETE FROM corrections WHERE room_id=?", (room_id,))
+            self.db.execute("DELETE FROM not_objects WHERE room_id=?", (room_id,))
             self.db.execute("DELETE FROM rooms WHERE id=?", (room_id,))
             self.db.commit()
             return True
@@ -514,22 +526,55 @@ class WorldModel:
                  memory.fov_error_deg(A.angular_distance(yaw, pitch, r["cy"], r["cp"]), self.fov_rel_error),
                  int(self._sliver(box, r["width"], r["height"])), r["poly"], r["object_id"]))
 
+    def _load_dets(self, scan_id: int):
+        """({detection id: row}, [memory.Det]) for a scan, from the detections table."""
+        self._ensure_detections(scan_id)
+        rows = self.db.execute(
+            "SELECT d.*, f.ts AS fts, f.yaw AS cam_yaw, f.pitch AS cam_pitch FROM detections d JOIN frames f ON f.id=d.frame_id"
+            " WHERE d.scan_id=? ORDER BY d.id", (scan_id,)).fetchall()
+        dets = [memory.Det(id=r["id"], frame_id=r["frame_id"], ts=r["fts"], cam_yaw=r["cam_yaw"], cam_pitch=r["cam_pitch"], label=r["label"],
+                           box=tuple(json.loads(r["box"])), conf=r["conf"], yaw=r["yaw"], pitch=r["pitch"],
+                           ext=tuple(json.loads(r["ext"])) if r["ext"] else None, fragment=bool(r["fragment"]),
+                           hist=json.loads(r["hist"]) if r["hist"] else None, fov_err=r["fov_err"], track_id=r["track_id"],
+                           prev_object=r["object_id"], idx=r["idx"]) for r in rows]
+        return {r["id"]: r for r in rows}, dets
+
+    def _constraints(self, scan_id: int, dets: list) -> memory.Constraints:
+        """The user's corrections for a scan, replayed in the order they were made: a later correction wins over an earlier one."""
+        exclude: set[int] = set()
+        separate: set[int] = set()
+        groups: list[set[int]] = []
+        for r in self.db.execute("SELECT kind, payload FROM corrections WHERE scan_id=? AND kind IN ('merge','detach','delete') ORDER BY id", (scan_id,)):
+            p = json.loads(r["payload"])
+            if r["kind"] == "merge":
+                g = set(p["dets"])
+                separate -= g  # merging an object that had been detached puts it back
+                groups.append(g)
+            elif r["kind"] == "detach":
+                separate.add(p["det"])
+                groups = [g - {p["det"]} for g in groups]
+            else:
+                exclude |= set(p["dets"])
+        room = self.scan_room_id(scan_id)
+        hidden = {r["label"] for r in self.db.execute("SELECT label FROM not_objects WHERE room_id=?", (room,))} if room is not None else set()
+        if hidden:
+            exclude |= {d.id for d in dets if d.label in hidden}
+        return memory.Constraints(frozenset(exclude), frozenset(separate - exclude), tuple(frozenset(g - exclude) for g in groups if len(g - exclude) > 1))
+
+    def explain(self, scan_id: int) -> list[dict]:
+        """Every decision the memory takes for this scan, recomputed from its detections and corrections (it does not depend on what
+        the server happened to log since it started, and writes nothing)."""
+        with self.lock:
+            _, dets = self._load_dets(scan_id)
+            return memory.cluster(dets, self.memory_cfg, self._constraints(scan_id, dets)).decisions
+
     def rebuild(self, scan_id: int, newest_frame: int | None = None) -> int:
         """Recompute a scan's objects from all its detections (see app/memory.py). The result depends only on the
         detections and their capture timestamps, not on the order they were stored in. Object ids are kept where an
         object still contains the same detections. Returns how many objects the scan has."""
         with self.lock:
-            self._ensure_detections(scan_id)
-            rows = self.db.execute(
-                "SELECT d.*, f.ts AS fts, f.yaw AS cam_yaw, f.pitch AS cam_pitch FROM detections d JOIN frames f ON f.id=d.frame_id"
-                " WHERE d.scan_id=? ORDER BY d.id", (scan_id,)).fetchall()
-            by_id = {r["id"]: r for r in rows}
-            dets = [memory.Det(id=r["id"], frame_id=r["frame_id"], ts=r["fts"], cam_yaw=r["cam_yaw"], cam_pitch=r["cam_pitch"], label=r["label"],
-                               box=tuple(json.loads(r["box"])), conf=r["conf"], yaw=r["yaw"], pitch=r["pitch"],
-                               ext=tuple(json.loads(r["ext"])) if r["ext"] else None, fragment=bool(r["fragment"]),
-                               hist=json.loads(r["hist"]) if r["hist"] else None, fov_err=r["fov_err"], track_id=r["track_id"],
-                               prev_object=r["object_id"], idx=r["idx"]) for r in rows]
-            res = memory.cluster(dets, self.memory_cfg)
+            by_id, dets = self._load_dets(scan_id)
+            res = memory.cluster(dets, self.memory_cfg, self._constraints(scan_id, dets))
             self._record_decisions(scan_id, res.decisions, newest_frame)
 
             # keep ids: an object continues the old object that shares the most detections with it
@@ -588,6 +633,118 @@ class WorldModel:
 
     def decisions(self, scan_id: int | None = None) -> list[dict]:
         return [d for d in self.decision_log if scan_id is None or d["scan"] == scan_id]
+
+    # ------------------------------------------------------------------ manual corrections
+
+    def record_correction(self, kind: str, scan_id: int | None, payload: dict, source: str = "api") -> dict:
+        """Write one correction to the log (every correction is kept, in order, with who made it)."""
+        with self.lock:
+            room = self.scan_room_id(scan_id) if scan_id is not None else payload.get("room_id")
+            ts = time.time()
+            cur = self.db.execute("INSERT INTO corrections (ts, room_id, scan_id, kind, payload, source) VALUES (?,?,?,?,?,?)",
+                                  (ts, room, scan_id, kind, json.dumps(payload), source))
+            self.db.commit()
+            row = {"id": cur.lastrowid, "ts": ts, "room_id": room, "scan_id": scan_id, "kind": kind, "payload": payload, "source": source}
+            log.info("correction %s", row)
+            return row
+
+    def list_corrections(self, scan_id: int | None = None, room_id: int | None = None, limit: int = 200) -> list[dict]:
+        with self.lock:
+            q, args = "SELECT * FROM corrections WHERE 1=1", []
+            if scan_id is not None:
+                q += " AND scan_id=?"
+                args.append(scan_id)
+            if room_id is not None:
+                q += " AND room_id=?"
+                args.append(room_id)
+            return [{**dict(r), "payload": json.loads(r["payload"])} for r in self.db.execute(q + " ORDER BY id DESC LIMIT ?", args + [limit])]
+
+    def _object_dets(self, object_id: int) -> list[int]:
+        return [r["id"] for r in self.db.execute("SELECT id FROM detections WHERE object_id=? ORDER BY id", (object_id,))]
+
+    def merge_objects(self, object_ids: list[int], source: str = "api") -> dict:
+        """The user says these instances are one object. They must be in the same scan and have the same label. Returns the
+        resulting object. Raises KeyError (no such object) or ValueError (cannot be merged)."""
+        with self.lock:
+            objs = []
+            for oid in dict.fromkeys(object_ids):
+                o = self.get_object(oid)
+                if o is None:
+                    raise KeyError(f"no object {oid}")
+                objs.append(o)
+            if len(objs) < 2:
+                raise ValueError("merging needs at least two different objects")
+            if len({o["scan_id"] for o in objs}) > 1:
+                raise ValueError("those objects are from different scans; only instances in one scan can be merged")
+            if len({o["label"] for o in objs}) > 1:
+                raise ValueError("those objects have different labels: " + ", ".join(sorted({o["label"] for o in objs})))
+            scan_id = objs[0]["scan_id"]
+            dets = sorted({d for o in objs for d in self._object_dets(o["id"])})
+            self.record_correction("merge", scan_id, {"objects": [o["id"] for o in objs], "label": objs[0]["label"], "dets": dets}, source)
+            self.rebuild(scan_id)
+            oid = self.db.execute("SELECT object_id FROM detections WHERE id=?", (dets[0],)).fetchone()["object_id"]
+            return self.get_object(oid)
+
+    def detach_sighting(self, detection_id: int, source: str = "api") -> dict:
+        """Take one sighting out of its object: it becomes an object of its own. Returns that new object."""
+        with self.lock:
+            d = self.db.execute("SELECT id, scan_id, label, object_id FROM detections WHERE id=?", (detection_id,)).fetchone()
+            if d is None:
+                raise KeyError(f"no sighting {detection_id}")
+            if d["object_id"] is None:
+                raise ValueError("that sighting is not part of an object")
+            if len(self._object_dets(d["object_id"])) < 2:
+                raise ValueError("that sighting is already an object of its own")
+            self.record_correction("detach", d["scan_id"], {"det": d["id"], "from_object": d["object_id"], "label": d["label"]}, source)
+            self.rebuild(d["scan_id"])
+            return self.get_object(self.db.execute("SELECT object_id FROM detections WHERE id=?", (detection_id,)).fetchone()["object_id"])
+
+    def delete_object(self, object_id: int, source: str = "api") -> dict:
+        """The user says this is not a real object: all its sightings are ignored from now on. Returns what was deleted."""
+        with self.lock:
+            o = self.get_object(object_id)
+            if o is None:
+                raise KeyError(f"no object {object_id}")
+            dets = self._object_dets(object_id)
+            self.record_correction("delete", o["scan_id"], {"object": object_id, "label": o["label"], "dets": dets}, source)
+            self.rebuild(o["scan_id"])
+            return {"id": object_id, "label": o["label"], "scan_id": o["scan_id"], "sightings": len(dets)}
+
+    # -- "not an object" labels, per room
+
+    def not_object_labels(self, room_id: int) -> list[str]:
+        with self.lock:
+            return [r["label"] for r in self.db.execute("SELECT label FROM not_objects WHERE room_id=? ORDER BY label", (room_id,))]
+
+    def _rebuild_room(self, room_id: int) -> None:
+        for s in self.db.execute("SELECT id FROM scans WHERE room_id=?", (room_id,)).fetchall():
+            self.rebuild(s["id"])
+
+    def mark_not_object(self, room_id: int, label: str, source: str = "api") -> dict:
+        """Objects with this label are not objects in this room: they disappear from every scan of the room, now and in the future."""
+        with self.lock:
+            if self.get_room(room_id) is None:
+                raise KeyError(f"no room {room_id}")
+            label = normalize_label(label)
+            if not label:
+                raise ValueError("a label is needed")
+            n = self.db.execute("SELECT COUNT(*) AS n FROM objects o JOIN scans s ON s.id=o.scan_id WHERE s.room_id=? AND o.label=?", (room_id, label)).fetchone()["n"]
+            self.db.execute("INSERT OR REPLACE INTO not_objects VALUES (?,?,?)", (room_id, label, time.time()))
+            self.db.commit()
+            self.record_correction("mark_not_object", None, {"room_id": room_id, "label": label, "objects_hidden": n}, source)
+            self._rebuild_room(room_id)
+            return {"room_id": room_id, "label": label, "objects_hidden": n}
+
+    def unmark_not_object(self, room_id: int, label: str, source: str = "api") -> bool:
+        with self.lock:
+            label = normalize_label(label)
+            cur = self.db.execute("DELETE FROM not_objects WHERE room_id=? AND label=?", (room_id, label))
+            self.db.commit()
+            if not cur.rowcount:
+                return False
+            self.record_correction("unmark_not_object", None, {"room_id": room_id, "label": label}, source)
+            self._rebuild_room(room_id)
+            return True
 
     # ------------------------------------------------------------------ queries
 

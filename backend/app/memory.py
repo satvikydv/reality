@@ -34,6 +34,15 @@ class Config:
     order: str = "capture"          # "capture": by timestamp (deterministic); "arrival": by frame id (legacy, order dependent)
 
 
+@dataclass(frozen=True)
+class Constraints:
+    """What the user has corrected by hand (see WorldModel.record_correction). Every rebuild applies them again, so a correction
+    is not undone by the next frame."""
+    exclude: frozenset = frozenset()   # detections that are not objects (a deleted object, or a label marked "not an object")
+    separate: frozenset = frozenset()  # detections detached from their object: each stands alone
+    merge: tuple = ()                  # groups of detections the user says are one object
+
+
 @dataclass
 class Det:
     """One detection, as stored. `key` orders detections inside a frame; `frame_key` orders frames."""
@@ -174,9 +183,14 @@ def _best(d: Det, clusters: list, cfg: Config, decisions: list):
     return (best, info) if best is not None else (None, None)
 
 
-def cluster(dets: list[Det], cfg: Config = Config()) -> Result:
-    order = sorted(dets, key=lambda d: d.sort_key(cfg.order))
+def cluster(dets: list[Det], cfg: Config = Config(), constraints: Constraints | None = None) -> Result:
+    k = constraints or Constraints()
     decisions: list[dict] = []
+    for d in sorted((x for x in dets if x.id in k.exclude), key=lambda x: x.id):
+        decisions.append({"action": "excluded", "det": d.id, "label": d.label})
+    live = [d for d in dets if d.id not in k.exclude]
+    held = [d for d in live if d.id in k.separate]
+    order = sorted((d for d in live if d.id not in k.separate), key=lambda d: d.sort_key(cfg.order))
     clusters: list[Cluster] = []
 
     # 1. greedy matching in capture order
@@ -218,9 +232,11 @@ def cluster(dets: list[Det], cfg: Config = Config()) -> Result:
             continue  # seen together in one frame: two objects
         sim = hist_similarity(a.hist, b.hist) if cfg.use_appearance else None
         if sim is not None and sim < cfg.appearance_min:
-            decisions.append({"action": "veto_merge", "label": a.label, "clusters": [ri, rj], "overlap": round(-neg, 3), "similarity": round(sim, 3)})
+            decisions.append({"action": "veto_merge", "label": a.label, "clusters": [ri, rj], "overlap": round(-neg, 3), "similarity": round(sim, 3),
+                              "dets": sorted(m.id for m in a.members + b.members)})
             continue
         keep, gone = (ri, rj) if a.first_key <= b.first_key else (rj, ri)
+        kept_dets, gone_dets = sorted(m.id for m in clusters[keep].members), sorted(m.id for m in clusters[gone].members)
         for m in clusters[gone].members:
             clusters[keep].members.append(m)
         clusters[keep].frames |= clusters[gone].frames
@@ -228,7 +244,8 @@ def cluster(dets: list[Det], cfg: Config = Config()) -> Result:
         clusters[keep].refresh()
         clusters[gone].members = []
         parent[gone] = keep
-        decisions.append({"action": "merge_objects", "label": a.label, "kept": keep, "absorbed": gone, "overlap": round(-neg, 3), "similarity": None if sim is None else round(sim, 3)})
+        decisions.append({"action": "merge_objects", "label": a.label, "kept": keep, "absorbed": gone, "overlap": round(-neg, 3), "similarity": None if sim is None else round(sim, 3),
+                          "dets": gone_dets, "into": kept_dets})
     clusters = sorted((c for c in clusters if c.members), key=lambda c: c.first_key)
 
     # 3. edge-clipped fragments: join an object when one matches, else wait for a second frame
@@ -252,6 +269,26 @@ def cluster(dets: list[Det], cfg: Config = Config()) -> Result:
         else:
             left.extend(p.members)
             decisions.append({"action": "hold_fragment", "label": p.label, "frames": len(p.frames), "dets": [m.id for m in p.members]})
+
+    # 4. the user's corrections: forced merges, then detached detections as objects of their own
+    for g in k.merge:
+        hit = [i for i, c in enumerate(clusters) if any(m.id in g for m in c.members)]
+        if len(hit) < 2:
+            continue
+        keep = clusters[hit[0]]
+        for i in hit[1:]:
+            keep.members.extend(clusters[i].members)
+            keep.frames |= clusters[i].frames
+            keep.first_key = min(keep.first_key, clusters[i].first_key)
+            clusters[i].members = []
+        keep.refresh()
+        decisions.append({"action": "manual_merge", "label": keep.label, "dets": sorted(m.id for m in keep.members)})
+        clusters = [c for c in clusters if c.members]
+    for d in sorted(held, key=lambda x: x.sort_key(cfg.order)):
+        c = Cluster(d.label)
+        c.add(d, cfg.order)
+        clusters.append(c)
+        decisions.append({"action": "detached", "det": d.id, "label": d.label})
     clusters.sort(key=lambda c: c.first_key)
     return Result(clusters, left, decisions)
 

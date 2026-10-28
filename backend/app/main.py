@@ -21,7 +21,7 @@ from starlette.routing import Route
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.auth import AccessTokenMiddleware
-from app import mcp_server, reality_api, scan_service, status
+from app import inspector, mcp_server, reality_api, scan_service, status
 from app.world_model import RoomNameError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -331,6 +331,123 @@ async def api_room_changes(room_id: int, before: int | None = None, after: int |
 async def api_review_change(room_id: int, body: ReviewIn):
     _room_or_404(room_id)
     return _http_for(reality_api.review_change(_svc(), room_id, body.before, body.after, body.key, body.state))
+
+
+class MergeIn(BaseModel):
+    ids: list[int]
+    source: str = "api"
+
+
+class LabelIn(BaseModel):
+    label: str
+    source: str = "api"
+
+
+def _announce(svc, kind: str, **info) -> None:
+    """Every correction is also an event, so the dashboard's log shows it as it happens."""
+    last = svc.wm.list_corrections(limit=1)
+    svc.bus.publish({"type": "correction", "kind": kind, "source": (last[0]["source"] if last else "api"), **info})
+
+
+@app.get("/api/scans/{scan_id}/objects")
+async def api_scan_objects(scan_id: int):
+    """What a scan believes, grouped by label: instances, sightings, mean confidence, with a thumbnail per instance."""
+    r = inspector.scan_objects(_svc().wm, scan_id)
+    if r is None:
+        raise HTTPException(404, f"no scan {scan_id}")
+    return r
+
+
+@app.get("/api/scans/{scan_id}/duplicates")
+async def api_scan_duplicates(scan_id: int):
+    """Pairs of objects in this scan that may be one thing (close, never seen in one frame), strongest first."""
+    if _svc().wm.get_scan(scan_id) is None:
+        raise HTTPException(404, f"no scan {scan_id}")
+    return {"scan_id": scan_id, "duplicates": inspector.possible_duplicates(_svc().wm, scan_id)}
+
+
+@app.get("/api/objects/{object_id}")
+async def api_object(object_id: int):
+    """One instance: its sightings (frame, box, mask, camera pose, SAM confidence), the memory's decisions and the corrections made to it."""
+    r = inspector.object_detail(_svc().wm, object_id)
+    if r is None:
+        raise HTTPException(404, f"no object {object_id}")
+    return r
+
+
+@app.post("/api/objects/merge")
+async def api_merge_objects(body: MergeIn):
+    """The user says these instances are one object (same scan, same label). Recorded as a correction and kept by every later rebuild."""
+    svc = _svc()
+    try:
+        o = svc.wm.merge_objects(body.ids, source=body.source)
+    except KeyError as e:
+        raise HTTPException(404, str(e).strip("'"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _announce(svc, "merge", object_id=o["id"], label=o["label"])
+    return {"merged_into": o["id"], "label": o["label"], "scan_id": o["scan_id"], "detail": inspector.object_detail(svc.wm, o["id"])}
+
+
+@app.post("/api/sightings/{sighting_id}/detach")
+async def api_detach_sighting(sighting_id: int, source: str = "api"):
+    """Take one sighting out of its object; it becomes an object of its own."""
+    svc = _svc()
+    try:
+        o = svc.wm.detach_sighting(sighting_id, source=source)
+    except KeyError as e:
+        raise HTTPException(404, str(e).strip("'"))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _announce(svc, "detach", object_id=o["id"], label=o["label"])
+    return {"object_id": o["id"], "label": o["label"], "scan_id": o["scan_id"]}
+
+
+@app.delete("/api/objects/{object_id}")
+async def api_delete_object(object_id: int, source: str = "api"):
+    """The user says this is not a real object: its sightings are ignored from now on."""
+    svc = _svc()
+    try:
+        r = svc.wm.delete_object(object_id, source=source)
+    except KeyError as e:
+        raise HTTPException(404, str(e).strip("'"))
+    _announce(svc, "delete", **r)
+    return r
+
+
+@app.get("/api/rooms/{room_id}/not-objects")
+async def api_not_objects(room_id: int):
+    _room_or_404(room_id)
+    return {"room_id": room_id, "labels": _svc().wm.not_object_labels(room_id)}
+
+
+@app.post("/api/rooms/{room_id}/not-objects")
+async def api_mark_not_object(room_id: int, body: LabelIn):
+    """Objects with this label are not objects in this room: they leave every scan of the room, now and in future scans."""
+    svc = _svc()
+    _room_or_404(room_id)
+    try:
+        r = svc.wm.mark_not_object(room_id, body.label, source=body.source)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _announce(svc, "mark_not_object", **r)
+    return r
+
+
+@app.delete("/api/rooms/{room_id}/not-objects/{label}")
+async def api_unmark_not_object(room_id: int, label: str, source: str = "api"):
+    svc = _svc()
+    _room_or_404(room_id)
+    if not svc.wm.unmark_not_object(room_id, label, source=source):
+        raise HTTPException(404, f"{label!r} is not marked as not an object in this room")
+    _announce(svc, "unmark_not_object", room_id=room_id, label=label)
+    return {"room_id": room_id, "label": label}
+
+
+@app.get("/api/corrections")
+async def api_corrections(scan_id: int | None = None, room_id: int | None = None, limit: int = 200):
+    """Every manual correction, newest first."""
+    return {"corrections": _svc().wm.list_corrections(scan_id=scan_id, room_id=room_id, limit=min(limit, 1000))}
 
 
 @app.get("/api/search")
