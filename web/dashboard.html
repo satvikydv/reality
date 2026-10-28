@@ -3,6 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Reality OS · Dashboard</title>
 <link rel="stylesheet" href="css/theme.css">
+<link rel="stylesheet" href="css/inspector.css">
 <style>
 :root{--blue:#8ab4ff}
 :root{--accent:#FFD54F}
@@ -76,6 +77,7 @@ button.small:disabled{opacity:.35;cursor:default}
 <header>
   <div class="brand"><i></i>Reality OS</div>
   <span id="phase">Waiting for a scan</span>
+  <button class="small go" id="objbtn" title="Review and correct what the memory believes">Objects</button>
   <span class="pill panel"><span class="dot" id="conn"></span><span id="connt">connecting…</span></span>
   <div class="cnt">
     <div class="panel"><span class="label">Frames</span><b id="cf">0</b></div>
@@ -117,5 +119,17 @@ button.small:disabled{opacity:.35;cursor:default}
   <div class="vb" id="vbody"></div>
   <div class="vf" id="vtext"></div>
 </div>
+<section id="insp" role="dialog" aria-modal="true" aria-label="Objects inspector">
+  <div class="ih"><h1>Objects</h1>
+    <select id="irooms" aria-label="Room"></select><select id="iscans" aria-label="Scan"></select>
+    <button class="small" id="idups">Possible duplicates (0)</button><button class="small" id="ilog">Corrections log</button>
+    <span class="hide" id="isum"></span><span id="imsg" role="status" style="font:500 13px var(--mono);color:var(--amber)"></span><button class="small grow" id="iclose">Close ✕</button></div>
+  <div class="im">
+    <div class="pane panel" id="ilabels"></div>
+    <div class="pane panel" id="iinst"></div>
+    <div class="pane panel"><div class="detail" id="idetail"></div></div>
+  </div>
+</section>
 <script type="module" src="js/dashboard.js"></script>
+<script type="module" src="js/inspector.js"></script>
 </body></html>
