@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { guide } from "../../web/js/guide.js";
+import { guide, coneDeg } from "../../web/js/guide.js";
 
 // Expected values come from backend/app/guidance.py (width 540, height 960, hfov 60) for the same inputs,
 // so the phone's arrow and hint agree with the server-side maths.
@@ -40,3 +40,13 @@ for (const [[ty, tp, cy, cp, roll, off], dist, arrow, inView, pixel, arrived, te
     }
   });
 }
+
+test("the arrow's cone is narrow for a far target, wide for a near one, and the half-turn inside the error", () => {
+  assert.equal(coneDeg(50, 0), 0);
+  assert.ok(Math.abs(coneDeg(100, 10) - 5.739) < 1e-3);   // asin(10 / 100)
+  assert.ok(coneDeg(20, 10) > coneDeg(60, 10));
+  assert.equal(coneDeg(8, 10), 90);
+  const g = guide({ yaw: 40, pitch: 0 }, { yaw: 0, pitch: 0, roll: 0, width: 540, height: 960, hfov: 60 }, { uncertaintyDeg: 8 });
+  assert.ok(Math.abs(g.coneDeg - (Math.asin(8 / g.distanceDeg) * 180) / Math.PI) < 1e-9);
+  assert.equal(guide({ yaw: 40, pitch: 0 }, { yaw: 0, pitch: 0, roll: 0, width: 540, height: 960, hfov: 60 }).coneDeg, 0);
+});

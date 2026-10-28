@@ -2,6 +2,7 @@ import {drawRing,drawMap,drawReplay,drawPhoto} from './ui.js';
 import {drawAR,drawBearing,nd} from './ar.js';
 import {guide} from './guide.js';
 import {WorldLayer} from './world.js';
+import {diffCalibration} from './camera-lock.js';
 const $=id=>document.getElementById(id),el=$,P=new URLSearchParams(location.search);
 const body=document.body;let demo=P.has('demo'),scrn='home';
 const cur={yaw:0,tyaw:0,pitch:0,tpitch:0,roll:0,bins:Array(36).fill(false),frac:0,pulse:0,sent:0,shutter:9,gap:null};
@@ -32,7 +33,7 @@ export function onChange(st,cov){
   if(ph==='finishing'){if(scrn!=='summary')go('summary');el('sumsheet').classList.add('busy');el('proctxt').textContent=st.status||'Reading frames…'}
   if(ph==='done'&&scrn==='scan')go('summary');
   if(ph==='idle'&&scrn==='scan')go('home');
-  if(ph==='error'){toast(st.error||'Error');if(scrn==='scan'||scrn==='summary')go('home')}
+  if(ph==='error'){toast(st.error||'Error',st.error&&/Camera settings changed/.test(st.error)?60000:3500);if(scrn==='scan'||scrn==='summary')go('home')}
   el('pct').innerHTML=Math.round(f*100)+'<i>%</i>';
   el('fcount').textContent=st.sent+' frames';el('nfr').textContent=st.sent;
   el('nob').textContent=st.objects??0;
@@ -71,7 +72,7 @@ const ago=s=>s<90?'just now':s<5400?Math.round(s/60)+' min ago':s<172800?Math.ro
 function renderFind(m){
   find=m;el('resulttext').textContent=m.speech;el('resq').textContent='“'+(m.query||m.concept||'')+'”';
   const o=m.object||{},off=m.from_scan_start,d=dirTxt(off?off.dyaw:(o.yaw||0),off?off.dpitch:(o.pitch||0));el('dyaw').textContent=d.yaw;el('dpit').textContent=d.pit;
-  el('dseen').textContent=o.n_obs!=null?`${o.n_obs} sighting${o.n_obs===1?'':'s'} · last ${ago(o.age_s??0)}`:'–';
+  el('dseen').textContent=o.n_obs!=null?`${o.n_obs} sighting${o.n_obs===1?'':'s'} · last ${ago(o.age_s??0)}${o.uncertainty_deg>0?' · ±'+Math.round(o.uncertainty_deg)+'°':''}`:'–';
   world.highlight(m.found!==false?o.id:null);
   el('rtag').textContent=((m.concept||'')+' · FRAME '+(m.replay?.frame_id??'–')).toUpperCase();
   el('guidebtn').style.display=m.found===false?'none':'';el('gobj').textContent=m.concept||'Object';
@@ -81,13 +82,16 @@ function renderFind(m){
 
 /* ---------- guide ---------- */
 let found=false,lastBand=99;
-export function setGuide({angle=0,deg=0,hint='',found:f=false}){
+// The cone behind the arrow: the arrow may really point anywhere within +-coneDeg of where it shows, because the stored direction is uncertain.
+function coneD(c){c=Math.min(90,Math.max(0,c));if(c<1)return '';const r=138,a=c*Math.PI/180,x=Math.sin(a)*r,y=150-Math.cos(a)*r;return `M150 150 L${150-x} ${y} A${r} ${r} 0 0 1 ${150+x} ${y} Z`}
+export function setGuide({angle=0,deg=0,hint='',found:f=false,coneDeg=0}){
+  el('cone').setAttribute('d',f?'':coneD(coneDeg));
   let d=((angle-arrowA+540)%360)-180;arrowA+=d;
   el('arrow').style.transform=`rotate(${arrowA}deg)`;el('gnum').textContent=Math.round(deg);el('ghint').textContent=hint;
   const was=el('guide').classList.contains('found');found=f;
   el('guide').classList.toggle('found',f);if(f){el('ghint').textContent='Found it';el('gfound').style.display='block';if(!was){buzz([30,60,30,60,80]);speak('Found it')}}else el('gfound').style.display='none';
 }
-const guideTarget=()=>find?.object&&find.found!==false?{yaw:find.object.yaw,pitch:find.object.pitch||0,label:find.concept}:null;
+const guideTarget=()=>find?.object&&find.found!==false?{yaw:find.object.yaw,pitch:find.object.pitch||0,label:find.concept,uncertainty:find.object.uncertainty_deg||0}:null;
 // Live guidance: the stored anchor (compass yaw, pitch) against the current camera pose, ten times a second.
 let guideT=null;
 function startGuide(){
@@ -97,8 +101,8 @@ function startGuide(){
   let lastSpoken='',lastAt=0;
   const tick=()=>{
     const p=pose();if(!p)return setGuide({angle:0,deg:0,hint:'Waiting for the sensors'});
-    const v=el('v'),g=guide(t,{yaw:p.yaw,pitch:p.pitch,roll:p.roll,width:v.videoWidth||540,height:v.videoHeight||960,hfov:world.hfov});
-    setGuide({angle:g.arrowDeg,deg:g.distanceDeg,hint:g.instruction,found:g.arrived});
+    const v=el('v'),g=guide(t,{yaw:p.yaw,pitch:p.pitch,roll:p.roll,width:v.videoWidth||540,height:v.videoHeight||960,hfov:world.hfov},{uncertaintyDeg:t.uncertainty});
+    setGuide({angle:g.arrowDeg,deg:g.distanceDeg,hint:g.instruction,found:g.arrived,coneDeg:g.coneDeg});
     const band=g.distanceDeg<6?0:g.distanceDeg<15?1:g.distanceDeg<30?2:3;if(band<lastBand&&band<3)buzz(band===0?40:12);lastBand=band;
     const now=performance.now();if(!g.arrived&&g.instruction!==lastSpoken&&now-lastAt>2500){lastSpoken=g.instruction;lastAt=now;speak(g.instruction)}
   };
@@ -151,7 +155,7 @@ const MOCK_CHG={status:'ok',scan_before:3,scan_after:4,summary:'The mug moved: i
   unverified:[{label:'phone',reason:'that direction was not rescanned'}]};
 
 /* ---------- pose and the AR overlay ---------- */
-let ctl=null,sock=null,cam=null,orient=null,facing='environment',streaming=null;
+let ctl=null,sock=null,cam=null,orient=null,facing='environment',streaming=null,guard=null,camAlarm=false;
 // The live camera pose: sensor yaw, pitch and the image roll (sensor roll plus the screen angle), as the server anchored it.
 function pose(){
   if(demo)return{yaw:cur.yaw,pitch:cur.pitch,roll:0};
@@ -178,7 +182,7 @@ function frame(now){
   if(scrn==='home'||scrn==='scan'||scrn==='guide'){
     const ar=el('ar'),tg=guideTarget(),sc=scrn==='scan',t0=performance.now();
     const objs=world.objects;
-    const s={mode:scrn,now,yaw:cur.yaw,pitch:cur.pitch,roll:cur.roll,view:{...viewSize(),hfov:world.hfov},world:objs,showWorld:arOn,
+    const s={mode:scrn,now,yaw:cur.yaw,pitch:cur.pitch,roll:cur.roll,view:{...viewSize(),hfov:world.hfov},world:objs,showWorld:arOn&&!camAlarm,
       bins:sc?cur.bins:null,gapBins:sc&&cur.gap?new Set(Array.from({length:cur.gap.len},(_,i)=>(cur.gap.start+i)%36)):null,gap:sc?cur.gap:null,
       markers:scrn==='guide'?(tg?[{yaw:tg.yaw,hl:true}]:[]):objs,target:tg,found,label:tg?.label,pulse:cur.pulse,shutter:cur.shutter,tapeY:M.tapeY,top:M.top,bot:M.bot};
     drawAR(ar,s);arStats=s.stats;drawMs+=((performance.now()-t0)-drawMs)*.1;
@@ -189,7 +193,7 @@ function frame(now){
   if(scrn==='scan')drawRing(el('ring'),cur.bins,cur.yaw,cur.pulse);
   if(scrn==='summary'&&summary&&!el('sumsheet').classList.contains('busy')){mapT+=dt;drawMap(el('mapc'),summary.objects.map((o,i)=>({...o,age:Math.min(1,Math.max(0,mapT*2-i*.08))})))}
   if(scrn==='find'&&find?.replay){rt+=dt*1.6;drawReplay(el('replay'),img,find.replay,rt)}
-  if(scrn==='find'){const o=find?.object||{};drawBearing(el('bear'),o.yaw||0,o.pitch||0)}
+  if(scrn==='find'){const o=find?.object||{};drawBearing(el('bear'),o.yaw||0,o.pitch||0,o.uncertainty_deg||0)}
   requestAnimationFrame(frame)}
 requestAnimationFrame(frame);
 
@@ -200,15 +204,26 @@ addEventListener('pointermove',e=>{if(!dragging||scrn==='scan')return;cur.tyaw=(
 addEventListener('pointerup',()=>dragging=false);
 
 /* ---------- wiring ---------- */
-const camMeta=()=>({facing,video_w:el('v').videoWidth,video_h:el('v').videoHeight,screen_angle:window.screen.orientation?.angle??null});
+// The camera state each frame was taken in. The server compares it with the state the FOV was calibrated for.
+const camMeta=()=>({facing,video_w:el('v').videoWidth,video_h:el('v').videoHeight,screen_angle:window.screen.orientation?.angle??null,
+  settings:guard?{...guard.current(),zoomLocked:guard.zoomLocked}:null});
 const active=()=>ctl&&['starting','scanning','finishing'].includes(ctl.phase);
 function onSockState(s){
   const ok=s==='connected';el('stat').textContent=ok?'Connected':'Reconnecting…';el('dotc').classList.toggle('bad',!ok);
   if(!ok&&active())ctl.abort('Connection lost, the scan stopped. Objects found so far are kept.');
 }
 async function startCam(){
-  try{await cam.startCamera(el('v'),facing)}
+  try{const r=await cam.startCamera(el('v'),facing);guard=r.guard;camAlarm=false;if(ctl)ctl.guard=guard;measure()}
   catch(e){toast((e.name||'Camera')+': '+e.message)}
+}
+// Outside a scan too: if the zoom, resolution or lens changes, say so at once and keep saying so (the FOV no longer applies).
+function watchCamera(){
+  setInterval(()=>{
+    const d=guard?[...guard.diff(),...diffCalibration(world.calibration,guard.current())]:[];
+    if(d.length&&!camAlarm){camAlarm=true;el('dotc').classList.add('bad');el('stat').textContent='Camera changed';
+      toast('Camera settings changed ('+d.map(x=>x.key+' '+x.was+' → '+x.now).join(', ')+'). Overlay and scans are off until the camera is restarted.',60000);
+      if(active())ctl.abort('Camera settings changed ('+d.map(x=>x.key).join(', ')+'). The scan was stopped.')}
+  },1000)
 }
 async function boot(){
   setAr(arOn);
@@ -217,9 +232,10 @@ async function boot(){
     const [c,w,o,k,s]=await Promise.all(['camera','ws','orientation','keyframe','scan'].map(n=>import('/js/'+n+'.js')));
     cam=c;orient=new o.OrientationTracker();
     sock=new w.FrameSocket(r=>{if(r.type==='find_result'||r.type==='guide_request')return handleEvent(r);if(r.type)return ctl.onEvent(r)},onSockState);
-    ctl=new s.ScanController({video:el('v'),orient,sock,grabJpeg:c.grabJpeg,camera:camMeta,onChange});
+    ctl=new s.ScanController({video:el('v'),orient,sock,grabJpeg:c.grabJpeg,camera:camMeta,onChange,fov:()=>world.hfov,guard});
     orient.start().catch(()=>{});
     await startCam();
+    watchCamera();
     world.start();renderQuick();measure();
   }catch(e){console.warn(e);demo=true;body.classList.add('demo');toast('Backend not found, demo mode');startDemo()}
 }
@@ -255,7 +271,7 @@ window.__scan=()=>ctl;window.__ui={cur,go,world};
 
 /* ---------- demo (open /?demo, or automatic when the backend is not reachable) ---------- */
 const MOCK_SUM={speech:'I found 14 objects: 3 laptops, 3 cables, 2 water bottles, a charger, a mug, keys and a phone.',coverage:.97,frames:42,seconds:31,cost_usd:.084,objects:[['laptop',-20,5],['laptop',35,0],['laptop',200,8],['cable',60,-25],['cable',-75,-30],['cable',150,-20],['bottle',95,-5],['bottle',250,0],['charger',-60,-10],['mug',120,2],['keys',300,-15],['phone',10,-12],['monitor',-5,20],['lamp',330,35]].map(([label,yaw,pitch],i)=>({id:i+1,label,yaw:(yaw+360)%360,pitch,n_obs:3}))};
-const MOCK_FIND={speech:'The charger was last seen about 60 degrees to the left of where the scan started, below the laptop.',concept:'charger',found:true,object:{id:9,label:'charger',yaw:300,pitch:-10,n_obs:3,age_s:120},replay:{frame_id:14,box:[180,190,330,300],width:640,height:480}};
+const MOCK_FIND={speech:'The charger was last seen about 60 degrees to the left of where the scan started, below the laptop.',concept:'charger',found:true,object:{id:9,label:'charger',yaw:300,pitch:-10,n_obs:3,age_s:120,uncertainty_deg:8,fov_error_deg:2.5},replay:{frame_id:14,box:[180,190,330,300],width:640,height:480}};
 // demo objects for the overlay: half with a mask outline captured facing them, half with only a footprint
 function demoWorld(){
   const blob=(rx,ry)=>Array.from({length:10},(_,i)=>{const a=i/10*Math.PI*2;return[270+Math.cos(a)*rx*(1+.12*Math.sin(a*3)),480+Math.sin(a)*ry*(1+.12*Math.cos(a*2))]});
@@ -286,6 +302,6 @@ function demoFind(q){const l=(MOCK_SUM.objects.find(o=>q.toLowerCase().includes(
   renderFind({...MOCK_FIND,concept:l,speech:l==='charger'?MOCK_FIND.speech:`The ${l} was last seen about ${Math.round(Math.abs(nd(o.yaw)))} degrees to the ${nd(o.yaw)<0?'left':'right'} of where the scan started.`,object:{id:o.id??9,label:l,yaw:o.yaw,pitch:o.pitch,n_obs:3,age_s:120}})}
 function demoGuide(){ // the real guide() against the dragged pose, so the demo behaves like the phone
   clearInterval(gt);const t=guideTarget();if(!t)return;
-  gt=setInterval(()=>{const g=guide(t,{yaw:cur.yaw,pitch:cur.pitch,roll:0,width:540,height:960,hfov:world.hfov});setGuide({angle:g.arrowDeg,deg:g.distanceDeg,hint:g.instruction,found:g.arrived})},100);
+  gt=setInterval(()=>{const g=guide(t,{yaw:cur.yaw,pitch:cur.pitch,roll:0,width:540,height:960,hfov:world.hfov},{uncertaintyDeg:t.uncertainty});setGuide({angle:g.arrowDeg,deg:g.distanceDeg,hint:g.instruction,found:g.arrived,coneDeg:g.coneDeg})},100);
 }
 boot();

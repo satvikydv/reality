@@ -6,6 +6,7 @@ export class WorldLayer {
     this.objects = [];       // as served, plus .born (when first seen here) and .hl (highlighted)
     this.hfov = 60;
     this.calibrated = false;
+    this.calibration = null; // {width, height, zoom}: the camera state the FOV was measured in
     this.scanId = null;
     this.timer = null;
     this.highlightId = null;
@@ -22,6 +23,7 @@ export class WorldLayer {
   apply(r) {
     this.hfov = r.hfov_deg ?? this.hfov;
     this.calibrated = !!r.fov_calibrated;
+    this.calibration = r.calibration ?? null;
     this.scanId = r.scan_id ?? null;
     const t = this.now(), seen = new Set();
     this.objects = (r.objects || []).map((o) => {

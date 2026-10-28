@@ -1,6 +1,7 @@
 // Room scan controller (F10): watches the camera heading, sends a keyframe whenever the phone has turned
 // far enough and is steady, tracks coverage, and folds the server's progress events into one state object.
 import { Coverage, KeyframePolicy } from "/js/keyframe.js";
+import { CameraSettingsChanged } from "/js/camera-lock.js";
 
 const MAX_IN_FLIGHT = 24; // frames sent but not yet answered; beyond this we ask the user to wait
 const MAX_BACKLOG = 1024 * 1024; // bytes still in the socket buffer
@@ -107,6 +108,10 @@ export class ScanController {
       const gap = this.coverage.nextGap(pose.yaw);
       if (gap && this.coverage.fraction > 0.3) st.hint = `gap ${gap.deg} deg to the ${gap.dir}`;
     }
+    if (this.guard) { // the field of view only holds for the locked camera state: a changed camera ends the scan
+      const changed = this.guard.diff();
+      if (changed.length) return this.abort(new CameraSettingsChanged(changed).message);
+    }
     if (d.capture && !this.busy) {
       if (this.sock.backlog > MAX_BACKLOG || st.sent - st.done - st.rejected > MAX_IN_FLIGHT) {
         this.policy.undo();
@@ -115,7 +120,9 @@ export class ScanController {
         this.busy = true;
         try {
           const blob = await this.grabJpeg(this.video, 960, 0.85);
-          if (blob) {
+          const changed = this.guard ? this.guard.diff() : [];
+          if (changed.length) { this.policy.undo(); this.abort(new CameraSettingsChanged(changed).message); } // the frame was grabbed in the new state: do not send it
+          else if (blob) {
             const meta = { orientation: this.orient.snapshot(), camera: this.camera() };
             await this.sock.send(blob, { scan: true, meta });
             st.sent++;

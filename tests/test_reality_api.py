@@ -173,3 +173,10 @@ def test_not_seen_says_when_the_scan_never_looked_up_or_down(tmp_path):
     r = run(go())
     assert r["status"] == "not_seen" and "The scan also never looked down toward the floor or up toward the ceiling." in r["message"]
     assert r["latest_scan_coverage"]["bands"]["mid"]["covered_deg"] > 0 and r["latest_scan_coverage"]["bands"]["high"]["covered_deg"] == 0
+
+
+def test_overlay_serves_the_camera_state_the_fov_was_calibrated_for(tmp_path, monkeypatch):
+    svc = make_service(tmp_path)
+    assert api.overlay(svc)["calibration"] is None  # nothing calibrated in the tests
+    monkeypatch.setattr(anchoring, "CALIBRATION", {"hfov_deg": 66.0, "width": 1080, "height": 1920, "zoom": 1.0})
+    assert api.overlay(svc)["calibration"] == {"width": 1080, "height": 1920, "zoom": 1.0}

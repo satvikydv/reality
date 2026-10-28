@@ -134,7 +134,10 @@ def overlay(svc: ScanService, scan_id: int | None = None) -> dict:
     """Everything the phone needs to draw a scan's objects over the live camera. Positions stay angular (no metric
     distances exist). `age_s` is measured on the server clock; `hfov_deg` is the one FOV both sides must use."""
     scan = _latest_scan(svc, scan_id)
-    base = {"hfov_deg": A.DEFAULT_HFOV_DEG, "fov_calibrated": A.FOV_CALIBRATED}
+    cal = A.CALIBRATION or {}
+    base = {"hfov_deg": A.DEFAULT_HFOV_DEG, "fov_calibrated": A.FOV_CALIBRATED,
+            # the camera state the FOV is valid for (None where it was not recorded): the phone refuses to draw outside it
+            "calibration": {k: cal.get(k) for k in ("width", "height", "zoom")} if cal.get("width") else None}
     if scan is None:
         return {**base, "status": "no_scans", "scan_id": None, "objects": []}
     now = time.time()

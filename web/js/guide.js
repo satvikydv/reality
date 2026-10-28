@@ -41,6 +41,14 @@ export function directionToPixel(yaw, pitch, width, height, camYaw, camPitch, ca
   return [width / 2 + (f * dot(d, right)) / z, height / 2 - (f * dot(d, up)) / z];
 }
 
+// Half-angle of the cone the arrow could really point into when the stored direction is only known to uncertaintyDeg.
+// Port of guidance.cone_deg.
+export function coneDeg(distanceDeg, uncertaintyDeg) {
+  if (!(uncertaintyDeg > 0)) return 0;
+  if (distanceDeg <= uncertaintyDeg) return 90;
+  return Math.asin(uncertaintyDeg / distanceDeg) * R2D;
+}
+
 export function instruction(distanceDeg, x, y, inView, arrived) {
   if (arrived) return "That's it.";
   if (distanceDeg > TURN_AROUND_DEG) return "Turn around.";
@@ -51,8 +59,8 @@ export function instruction(distanceDeg, x, y, inView, arrived) {
 }
 
 // target {yaw, pitch}; cam {yaw, pitch, roll, width, height, hfov}. Returns
-// {distanceDeg, dyaw, dpitch, arrowDeg (clockwise from up), inView, pixel, arrived, instruction}.
-export function guide(target, cam, { yawOffset = 0, margin = 0.1, arriveDeg = ARRIVE_DEG } = {}) {
+// {distanceDeg, dyaw, dpitch, arrowDeg (clockwise from up), coneDeg, inView, pixel, arrived, instruction}.
+export function guide(target, cam, { yawOffset = 0, margin = 0.1, arriveDeg = ARRIVE_DEG, uncertaintyDeg = 0 } = {}) {
   const { yaw: camYaw, pitch: camPitch, roll = 0, width, height, hfov = 60 } = cam;
   const tYaw = (((target.yaw + yawOffset) % 360) + 360) % 360;
   const { right, up } = cameraBasis(camYaw, camPitch, roll);
@@ -63,5 +71,5 @@ export function guide(target, cam, { yawOffset = 0, margin = 0.1, arriveDeg = AR
   const inView = pixel !== null && pixel[0] >= width * margin && pixel[0] <= width * (1 - margin) && pixel[1] >= height * margin && pixel[1] <= height * (1 - margin);
   const distanceDeg = angularDistance(camYaw, camPitch, tYaw, target.pitch);
   const arrived = inView && distanceDeg <= arriveDeg;
-  return { distanceDeg, dyaw: wrap180(tYaw - camYaw), dpitch: target.pitch - camPitch, arrowDeg, inView, pixel, arrived, instruction: instruction(distanceDeg, x, y, inView, arrived) };
+  return { distanceDeg, dyaw: wrap180(tYaw - camYaw), dpitch: target.pitch - camPitch, arrowDeg, coneDeg: coneDeg(distanceDeg, uncertaintyDeg), inView, pixel, arrived, instruction: instruction(distanceDeg, x, y, inView, arrived) };
 }

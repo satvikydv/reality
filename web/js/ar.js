@@ -87,7 +87,8 @@ export function drawAR(c,s){
   if(s.mode==='scan'&&s.gap){const dx=nd(s.gap.mid-s.yaw);if(Math.abs(dx)>v.hfov/2-4)edge(x,w,s,dx,0,A,'gap',s.gap.size,t)}
   // guide target
   if(s.mode==='guide'&&s.target){const dx=nd(s.target.yaw-s.yaw),dy=s.target.pitch-s.pitch,d=Math.hypot(dx,dy),pt=at(s.target.yaw,s.target.pitch),col=s.found?G:A;
-    if(pt&&pt[0]>20&&pt[0]<w-20&&pt[1]>s.top&&pt[1]<h-s.bot){const[px,py]=pt,r=s.found?34:Math.max(34,d*s.ppd*.9);x.strokeStyle=col;x.shadowColor=col;x.shadowBlur=16;x.lineWidth=2;x.setLineDash(s.found?[]:[6,6]);x.beginPath();x.arc(px,py,r,0,7);x.stroke();x.setLineDash([]);x.shadowBlur=0;
+    if(pt&&pt[0]>20&&pt[0]<w-20&&pt[1]>s.top&&pt[1]<h-s.bot){const[px,py]=pt,r=s.found?34:Math.max(34,d*s.ppd*.9);
+      if(s.target.uncertainty>0){x.save();x.strokeStyle=rgba(col,.55);x.fillStyle=rgba(col,.10);x.lineWidth=1.5;x.setLineDash([2,5]);x.beginPath();x.arc(px,py,Math.max(14,s.target.uncertainty*s.ppd),0,7);x.fill();x.stroke();x.restore()}x.strokeStyle=col;x.shadowColor=col;x.shadowBlur=16;x.lineWidth=2;x.setLineDash(s.found?[]:[6,6]);x.beginPath();x.arc(px,py,r,0,7);x.stroke();x.setLineDash([]);x.shadowBlur=0;
       brackets(x,px,py,s.found?70:46,col,3);chip(x,s.label||'target',s.found?'FOUND':Math.round(d)+'°',px,py+(s.found?48:34),col)}
     else edge(x,w,s,dx,dy,A,s.label||'target',d,t)}
   // reticle: the camera's optical centre
@@ -99,10 +100,11 @@ export function drawAR(c,s){
   if(s.shutter<1){const p=s.shutter,sy=s.top+(s.h-s.bot-s.top)*p,g=x.createLinearGradient(0,sy-70,0,sy);g.addColorStop(0,'rgba(94,230,160,0)');g.addColorStop(1,`rgba(94,230,160,${.3*(1-p)})`);x.fillStyle=g;x.fillRect(0,sy-70,w,70);x.fillStyle=`rgba(94,230,160,${.9*(1-p)})`;x.fillRect(0,sy,w,1.5)}
 }
 
-export function drawBearing(c,yaw,pitch){const{x,w,h}=fit(c),cx=w/2,cy=h/2,R=w/2-6,a=(yaw-90)*Math.PI/180;
+// The dial's cone is the object's direction uncertainty (half-angle, degrees); at least a few degrees so it stays visible.
+export function drawBearing(c,yaw,pitch,uncertaintyDeg=0){const{x,w,h}=fit(c),cx=w/2,cy=h/2,R=w/2-6,a=(yaw-90)*Math.PI/180,half=Math.max(4,Math.min(60,uncertaintyDeg))*Math.PI/180;
   x.strokeStyle='rgba(255,255,255,.25)';x.lineWidth=1;x.beginPath();x.arc(cx,cy,R,0,7);x.stroke();
   for(let d=0;d<360;d+=90){const b=(d-90)*Math.PI/180;x.beginPath();x.moveTo(cx+Math.cos(b)*(R-5),cy+Math.sin(b)*(R-5));x.lineTo(cx+Math.cos(b)*R,cy+Math.sin(b)*R);x.stroke()}
   x.fillStyle=A;x.font=`700 10px ${MONO}`;x.textAlign='center';x.textBaseline='middle';x.fillText('N',cx,cy-R+11);
-  x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R-4,a-.35,a+.35);x.closePath();x.fillStyle=rgba(A,.22);x.fill();
+  x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R-4,a-half,a+half);x.closePath();x.fillStyle=rgba(A,.22);x.fill();
   x.strokeStyle=A;x.lineWidth=2;x.beginPath();x.moveTo(cx,cy);x.lineTo(cx+Math.cos(a)*(R-6),cy+Math.sin(a)*(R-6));x.stroke();
   x.beginPath();x.arc(cx+Math.cos(a)*(R-6),cy+Math.sin(a)*(R-6),5,0,7);x.fill();x.beginPath();x.arc(cx,cy,3,0,7);x.fillStyle='#fff';x.fill()}
