@@ -1,4 +1,4 @@
-import {drawRing,drawMap,drawReplay} from './ui.js';
+import {drawRing,drawMap,drawReplay,drawPhoto} from './ui.js';
 import {guide} from './guide.js';
 const $=id=>document.getElementById(id),P=new URLSearchParams(location.search);
 const body=document.body;let demo=P.has('demo'),scrn='home';
@@ -7,7 +7,7 @@ let summary=null,shownSummary=null,find=null,img=null,rt=0,mapT=0,arrowA=0;
 const buzz=ms=>{try{navigator.vibrate&&navigator.vibrate(ms)}catch{}};
 const speak=t=>{try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.rate=1;speechSynthesis.speak(u)}catch{}};
 const toast=m=>{const e=$('toast');e.textContent=m;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',3500)};
-function go(s){scrn=s;body.dataset.screen=s;if(s==='find'){rt=0;}if(s==='summary')mapT=0;if(s!=='guide')stopGuide()}
+function go(s){const was=scrn;scrn=s;body.dataset.screen=s;if(s==='find'){rt=0;}if(s==='summary')mapT=0;if(was==='guide'&&s!=='guide')stopGuide()} // speak() after go(): leaving the guide cancels speech
 const el=x=>document.getElementById(x);
 
 /* ---------- ScanController callback ---------- */
@@ -45,16 +45,16 @@ function renderSummary(m){
   const c={};m.objects.forEach(o=>c[o.label]=(c[o.label]||0)+1);
   el('chips').innerHTML=Object.entries(c).map(([k,n])=>`<span class="chip"><em>${n}</em>${k}</span>`).join('');
   el('mf').textContent=frames;el('ms').textContent=Math.round(m.seconds);el('mc').textContent=Math.round((cover||0)*100)+'%';el('mu').textContent='$'+(m.cost_usd||0).toFixed(3);
-  mapT=0;speak(m.speech);buzz([20,40,20]);go('summary');
+  mapT=0;go('summary');speak(m.speech);buzz([20,40,20]);
 }
 const dirTxt=(y,p)=>{y=((y+540)%360)-180;return{yaw:Math.round(Math.abs(y))+'° '+(y<0?'L':'R'),pit:Math.round(Math.abs(p||0))+'° '+((p||0)>=0?'↑':'↓')}};
 function renderFind(m){
-  find=m;el('resulttext').textContent=m.speech;el('resq').textContent='“'+(m.query||m.concept||'')+'”';speak(m.speech);
+  find=m;el('resulttext').textContent=m.speech;el('resq').textContent='“'+(m.query||m.concept||'')+'”';
   const o=m.object||{},off=m.from_scan_start,d=dirTxt(off?off.dyaw:(o.yaw||0),off?off.dpitch:(o.pitch||0));el('dyaw').textContent=d.yaw;el('dpit').textContent=d.pit;
   el('rtag').textContent=((m.concept||'')+' · FRAME '+(m.replay?.frame_id??'–')).toUpperCase();
   el('guidebtn').style.display=m.found===false?'none':'';el('gobj').textContent=m.concept||'Object';
   img=null;if(m.replay&&!demo){img=new Image();img.src='/world/frame/'+m.replay.frame_id+'.jpg'}
-  rt=0;go('find');buzz(25);
+  rt=0;go('find');speak(m.speech);buzz(25);
 }
 
 /* ---------- guide ---------- */
@@ -82,12 +82,48 @@ function startGuide(){
 function stopGuide(){clearInterval(guideT);guideT=null;try{speechSynthesis.cancel()}catch{}}
 
 /* ---------- changes ---------- */
+// `d` is the /api/changes answer (same as the Reality API's what_changed). Model text only goes in via textContent.
+const CHG_GROUPS=[['moved','↔','var(--amber)','Moved'],['removed','−','var(--red)','Removed'],['added','+','var(--green)','Added']];
+const mk=(tag,cls,txt)=>{const e=document.createElement(tag);if(cls)e.className=cls;if(txt!=null)e.textContent=txt;return e};
 export function renderChanges(d){
-  const G=[['Added','+','var(--green)',d.added],['Removed','−','var(--red)',d.removed],['Moved','↔','var(--amber)',d.moved]];
-  el('chg').innerHTML=G.map(([n,i,c,a])=>`<div class="grp panel"><h2><span class="ic" style="background:${c}">${i}</span>${n}<span class="n">${a.length}</span></h2>${a.map(x=>`<div class="pair"><div class="stripe">${x.before?'':'—'}<i>BEFORE</i></div><div class="stripe"><i>AFTER</i></div></div><p>${x.text}</p>`).join('')}</div>`).join('')+
-  `<div class="grp panel unv"><h2><span class="ic" style="background:#fff3;color:#fff">?</span>Unverified<span class="n">${d.unverified.length}</span></h2>${d.unverified.map(x=>`<p style="margin:0 0 8px;color:var(--dim);font-size:14px">${x}</p>`).join('')}</div>`;
+  const box=el('chg'),slot=(label,rp)=>{
+    const s=mk('div','stripe');
+    if(rp){const cv=document.createElement('canvas');s.append(cv);requestAnimationFrame(()=>drawPhoto(cv,rp))}else s.append('—');
+    s.append(mk('i',null,label));return s};
+  el('chgpill').textContent='SCAN #'+d.scan_before+' → #'+d.scan_after;
+  const kids=[mk('div','grp panel sumline',d.summary)];
+  for(const[k,icon,color,name]of CHG_GROUPS){
+    if(!d[k].length)continue;
+    const g=mk('div','grp panel'),h=mk('h2'),ic=mk('span','ic',icon);ic.style.background=color;
+    h.append(ic,name,mk('span','n',d[k].length));g.append(h);
+    for(const e of d[k]){
+      const pair=mk('div','pair'+(k==='moved'?'':' one'));
+      if(k==='moved')pair.append(slot('BEFORE',e.from.replay),slot('AFTER',e.to.replay));else pair.append(slot(k==='removed'?'BEFORE':'AFTER',e.replay));
+      g.append(pair,mk('p',null,e.speech));
+    }
+    kids.push(g);
+  }
+  if(d.unverified.length){
+    const g=mk('div','grp panel unv'),h=mk('h2'),ic=mk('span','ic','?');ic.style.cssText='background:#fff3;color:#fff';
+    h.append(ic,'Not checked',mk('span','n',d.unverified.length));g.append(h);
+    for(const x of d.unverified){const p=mk('p',null,`${x.label}: ${x.reason}`);p.style.cssText='margin:0 0 8px;color:var(--dim);font-size:14px';g.append(p)}
+    kids.push(g);
+  }
+  box.replaceChildren(...kids);box.scrollTop=0;
 }
-const MOCK_CHG={added:[{text:'A water bottle appeared on the desk, about 40° right.'}],removed:[{text:'The keys are no longer near the door.'}],moved:[{text:'The mug moved from the shelf to the desk, 80° to the right.'}],unverified:['Behind you (170°–230°) was not rescanned in both scans, so nothing is reported there.']};
+async function openChanges(){
+  if(demo){renderChanges(MOCK_CHG);go('changes');return speak(MOCK_CHG.summary)}
+  let r;
+  try{r=await(await fetch('/api/changes')).json()}catch{return toast('Server not reachable')}
+  if(r.status!=='ok')return toast(r.message||r.detail||'Cannot compare yet');
+  renderChanges(r);go('changes');speak(r.summary);buzz(25);
+}
+const SHOT={frame_id:1,box:[180,190,330,300],width:640,height:480};
+const MOCK_CHG={status:'ok',scan_before:3,scan_after:4,summary:'The mug moved: it was 40 degrees left, now 80 degrees right. A water bottle is new. 1 object could not be checked because that part of the room was not scanned both times.',
+  moved:[{label:'mug',speech:'The mug moved: it was 40 degrees left, near the laptop, now 80 degrees right, on the desk.',from:{replay:SHOT},to:{replay:SHOT}}],
+  removed:[{label:'keys',speech:'The keys are gone; they were 150 degrees right, near the door.',replay:SHOT}],
+  added:[{label:'bottle',speech:'A bottle is new, 40 degrees right, on the desk.',replay:SHOT}],
+  unverified:[{label:'phone',reason:'that direction was not rescanned'}]};
 
 /* ---------- render loop ---------- */
 let last=performance.now();
@@ -137,6 +173,7 @@ el('mic').onclick=()=>{const R=window.SpeechRecognition||window.webkitSpeechReco
 el('resback').onclick=el('cback').onclick=()=>go('home');el('sumback').onclick=()=>go('home');el('sumfind').onclick=()=>{go('home');el('q').focus()};
 el('guidebtn').onclick=()=>{go('guide');if(demo)demoGuide();else startGuide()};el('gback').onclick=el('gfound').onclick=()=>{clearInterval(gt);go('find')};
 document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{const s=b.dataset.go;if(s==='summary'&&!summary)renderSummary(MOCK_SUM);else if(s==='find')renderFind(MOCK_FIND);else if(s==='guide'){go('guide');demoGuide()}else if(s==='changes'){renderChanges(MOCK_CHG);go('changes')}else if(s==='scan'){go('scan');demoScan(true)}else go(s);el('dev').open=false});
+el('chgbtn').onclick=openChanges;
 el('flipbtn').onclick=async()=>{if(!cam)return;facing=facing==='environment'?'user':'environment';await startCam()};
 // dev: stream frames to the server (echo only) and save full-size samples with their orientation (M0 measurements)
 el('streambtn').onclick=()=>{

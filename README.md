@@ -68,6 +68,8 @@ Tests: `pytest tests` (server), `node --test tests/js/keyframe.test.mjs tests/js
 
 The phone UI (`web/index.html`, `web/css/theme.css`, `web/js/app.js`) also runs without the backend: open `/?demo` for mock data, or `/?demo&screen=summary|find|guide|changes|scan` to jump to a screen. It falls back to demo mode by itself when the server is not reachable.
 
+After two scans of the same room, "What changed?" on the home screen compares the latest scan with the one before and shows what moved, disappeared or appeared, with before and after photos. Directions that were not scanned both times are listed as not checked rather than reported as changes.
+
 ## Laptop dashboard
 
 Open `http://127.0.0.1:8000/dashboard` on the laptop while the phone scans. It shows the room map filling in (compass, north up), counters (frames, objects, seconds, cost), a log of everything the phone and any agent does, the last Reality API call with the photo it was shown, and a compare panel (pick two scans, "What changed?") with before and after photos. A dashboard opened mid-scan catches up from the last 200 events. `/dashboard?demo` plays scripted data without the backend. The page needs the same `MODEL_API_KEY` setup as scanning, because it reads the same server state.

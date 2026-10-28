@@ -64,3 +64,14 @@ export function drawReplay(c,img,rp,t){
   [[bx,by,1,1],[bx+bw,by,-1,1],[bx,by+bh,1,-1],[bx+bw,by+bh,-1,-1]].forEach(([px,py,dx,dy])=>{x.beginPath();x.moveTo(px,py+dy*L);x.lineTo(px,py);x.lineTo(px+dx*L,py);x.stroke()});
   x.shadowBlur=0;x.lineWidth=1;x.globalAlpha=.5*e;x.strokeRect(bx,by,bw,bh);x.globalAlpha=1;
 }
+
+// A stored keyframe with its box, fully drawn (no animation); images are fetched once.
+const photos=new Map();
+export function drawPhoto(canvas,rp){
+  const url=rp.image_url||`/world/frame/${rp.frame_id}.jpg`;
+  let im=photos.get(url);
+  if(!im){im=new Image();im.src=url;photos.set(url,im)}
+  const paint=()=>drawReplay(canvas,im.naturalWidth?im:null,rp,1);
+  im.complete?paint():im.addEventListener('load',paint,{once:true});
+  paint();
+}

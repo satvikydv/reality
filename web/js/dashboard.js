@@ -1,7 +1,7 @@
 // Laptop dashboard: a live view of what the phone and any connected agent are doing with the room memory.
 // Everything arrives on /ws/events (see app/events.py); /api/scans and /api/changes feed the compare panel.
 // Text from the model (object names, answers) is only ever put in with textContent.
-import {drawMap, drawReplay} from './ui.js';
+import {drawMap, drawPhoto} from './ui.js';
 const $ = id => document.getElementById(id), P = new URLSearchParams(location.search);
 const S = {frames: 0, objects: [], seconds: 0, cost: 0, covDeg: 0, live: false, t0: 0, hl: null, calls: []};
 const born = new Map(); // object id -> when it first appeared on the map (ping animation)
@@ -16,16 +16,6 @@ function log(ts, who, text, cls = '') {
   d.append(t, w, m);
   const box = $('log'); box.prepend(d);
   while (box.children.length > 80) box.lastChild.remove();
-}
-
-const photoCache = new Map();
-function drawPhoto(canvas, rp) {
-  const url = rp.image_url || `/world/frame/${rp.frame_id}.jpg`;
-  let im = photoCache.get(url);
-  if (!im) { im = new Image(); im.src = url; photoCache.set(url, im); }
-  const paint = () => drawReplay(canvas, im.naturalWidth ? im : null, rp, 1);
-  im.complete ? paint() : im.addEventListener('load', paint, {once: true});
-  paint();
 }
 
 const fmtArgs = a => Object.entries(a || {}).filter(([, v]) => v != null && v !== '').map(([k, v]) => typeof v === 'string' ? JSON.stringify(v) : `${k}=${v}`).join(', ');
