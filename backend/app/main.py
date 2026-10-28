@@ -164,3 +164,4 @@ async def ws(sock: WebSocket):
 
 
 app.mount("/js", StaticFiles(directory=WEB / "js"), name="js")
+app.mount("/css", StaticFiles(directory=WEB / "css"), name="css")

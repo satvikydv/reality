@@ -1,227 +1,168 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Reality OS</title>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
+<meta name="theme-color" content="#07090b"><title>Reality OS</title>
+<link rel="stylesheet" href="css/theme.css">
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; background: #000; color: #e8e8e8; font: 14px/1.4 system-ui, sans-serif; }
-  #stage { position: relative; width: 100vw; height: 100vh; height: 100dvh; background: #000; overflow: hidden; }
-  video { width: 100%; height: 100%; object-fit: cover; }
-  #hud { position: absolute; left: 8px; top: 8px; padding: 6px 8px; background: #000a; border-radius: 6px;
-         font: 12px/1.35 ui-monospace, monospace; white-space: pre; max-width: 60vw; }
-  #ring { position: absolute; right: 8px; top: 8px; width: 112px; height: 112px; background: #000a; border-radius: 56px; }
-  #scan { position: absolute; left: 8px; right: 8px; top: 132px; padding: 8px 10px; background: #000b; border-radius: 8px; display: none; }
-  #scan b { font-size: 15px; }
-  #hint { color: #ffd54f; min-height: 1.4em; }
-  #result { position: absolute; left: 8px; right: 8px; bottom: 120px; max-height: 52vh; overflow: auto; padding: 8px 10px;
-            background: #000d; border-radius: 8px; display: none; }
-  #result canvas { width: 100%; max-height: 34vh; object-fit: contain; border-radius: 6px; margin-top: 6px; }
-  #bar { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
-         display: flex; gap: 8px; flex-wrap: wrap; background: #000a; align-items: center; }
-  #bar details { width: 100%; }
-  #bar summary { color: #aaa; }
-  #devtools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
-  button, select, input { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #555; background: #222; color: #fff; }
-  input { flex: 1; min-width: 0; }
-  button.primary { background: #1a73e8; border-color: #1a73e8; }
-  button.stop { background: #c62828; border-color: #c62828; }
-  #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px;
-         text-align: center; background: #000d; }
-</style>
-</head>
-<body>
-<div id="stage">
-  <video id="v" playsinline muted></video>
-  <div id="hud">starting…</div>
-  <canvas id="ring" width="224" height="224"></canvas>
-  <div id="scan"><b id="scanstatus"></b><div id="scanline"></div><div id="hint"></div></div>
-  <div id="result"><div id="resulttext"></div><canvas id="replay" width="10" height="10" hidden></canvas></div>
-  <div id="msg"></div>
-  <div id="bar">
-    <button id="scanbtn" class="primary">Scan room</button>
-    <button id="donebtn" class="stop" hidden>Done</button>
-    <input id="q" placeholder="find: the thing I drink water from" autocomplete="off">
-    <button id="findbtn">Find</button>
-    <details>
-      <summary>dev tools</summary>
-      <div id="devtools">
-        <button id="start">Restart camera</button>
-        <button id="flip">Flip</button>
-        <button id="stream">Stream</button>
-        <button id="save">Save sample</button>
-        <select id="fps"><option>1</option><option selected>2</option><option>4</option></select>
-        <select id="side"><option>640</option><option selected>960</option><option>1280</option></select>
-      </div>
-    </details>
+body{position:fixed;inset:0;--b:max(env(safe-area-inset-bottom),14px);--t:max(env(safe-area-inset-top),12px)}
+#v{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#0b0d0f}
+body.demo #v{display:none}
+#bg{position:absolute;inset:0;display:none;background:radial-gradient(circle at 30% 20%,#8a7a5a 0,transparent 35%),radial-gradient(circle at 75% 60%,#3d5a6e 0,transparent 40%),repeating-linear-gradient(100deg,#5b4f44 0 38px,#6d6054 38px 76px)}
+body.demo #bg{display:block}
+#hud{position:absolute;inset:0;background:linear-gradient(#000a 0,transparent 22%,transparent 55%,#000b 100%);pointer-events:none}
+#hud>*{pointer-events:auto}
+.scr{position:absolute;inset:0;display:none;flex-direction:column;padding:var(--t) 16px var(--b);pointer-events:none;animation:in .35s ease}
+.scr>*{pointer-events:auto}
+@keyframes in{from{opacity:0;transform:translateY(8px)}}
+body[data-screen=home] #home,body[data-screen=scan] #scan,body[data-screen=summary] #summary,body[data-screen=find] #result,body[data-screen=guide] #guide,body[data-screen=changes] #changes{display:flex}
+.top{display:flex;justify-content:space-between;align-items:center;min-height:48px}
+.pill{white-space:nowrap;display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 14px;border-radius:99px;font:500 12px var(--mono);letter-spacing:.06em}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+.dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
+.sp{flex:1}
+button{font:600 16px var(--sans);color:var(--ink);border:0;cursor:pointer;min-height:48px;border-radius:16px;background:none}
+.btn{white-space:nowrap;background:var(--amber);color:#14110a;height:64px;border-radius:20px;font-size:17px;letter-spacing:.02em;display:flex;align-items:center;justify-content:center;gap:10px;padding:0 22px}
+.btn:active{transform:scale(.97)}
+.btn.red{background:var(--red);color:#fff}.btn.ghost{background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(18px);color:var(--ink)}.btn.green{background:var(--green);color:#06150d}
+.row{display:flex;gap:10px;align-items:stretch}
+.find{flex:1;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;height:64px;min-width:0}
+.find input{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--ink);font:400 16px var(--sans)}
+.find input::placeholder{color:var(--dim)}
+.find button{width:48px;padding:0;border-radius:14px;background:rgba(255,255,255,.1)}
+.reticle{position:absolute;left:50%;top:44%;width:44px;height:44px;margin:-22px;pointer-events:none}
+.reticle:before,.reticle:after{content:"";position:absolute;background:#fff9}.reticle:before{left:21px;top:0;width:2px;height:44px}.reticle:after{top:21px;left:0;height:2px;width:44px}
+.cap{position:absolute;left:0;right:0;top:calc(var(--t) + 62px);text-align:center;pointer-events:none}
+.cap b{display:inline-block;font:600 15px var(--sans);padding:9px 16px;border-radius:99px;background:var(--panel);backdrop-filter:blur(14px);border:1px solid var(--line)}
+/* scan */
+.ringwrap{position:relative;width:min(100%,340px);aspect-ratio:1;margin:8px auto 0}
+#ring{position:absolute;inset:0;width:100%;height:100%}
+.pct{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+.pct b{font:700 64px/1 var(--mono);letter-spacing:-.04em}.pct b i{font:500 22px var(--mono);color:var(--dim);font-style:normal;margin-left:2px}
+.pct .label{margin-top:8px}
+.flash{position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 0 #fff;opacity:0;pointer-events:none}
+.flash.go{animation:sh .35s ease-out}
+@keyframes sh{0%{opacity:.9;box-shadow:inset 0 0 0 10px #fff6,0 0 0 0 #fff4}100%{opacity:0;box-shadow:inset 0 0 0 0 #fff0,0 0 0 18px #fff0}}
+#scanline{font:600 24px/1.25 var(--sans);text-align:center;margin:18px 8px 0;min-height:60px;text-shadow:0 1px 14px #000a}
+#hint{font:400 13px var(--mono);color:var(--dim);text-align:center;margin-top:4px;min-height:18px}
+.stats{display:flex;gap:10px;margin:12px 0 0}
+.stats>div{flex:1;padding:12px 14px}
+.stats b{display:block;font:600 22px var(--mono);margin-top:7px}
+/* summary */
+.sheet{margin-top:auto;padding:18px;max-height:84%;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:12px}
+.sheet h1{font:600 22px/1.3 var(--sans);margin:0}
+#mapc{width:100%;aspect-ratio:1;max-height:220px;flex:none}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:500 13px var(--sans);padding:7px 12px;border-radius:99px;border:1px solid var(--line);background:rgba(255,255,255,.07)}
+.chip em{font:700 13px var(--mono);font-style:normal;color:var(--amber);margin-right:6px}
+.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.meta div{display:flex;flex-direction:column;gap:7px}.meta b{font:600 18px var(--mono)}
+.proc{display:none;align-items:center;gap:12px;font:500 14px var(--mono);color:var(--dim)}
+.sheet.busy .proc{display:flex}.sheet.busy .after{display:none}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--amber);animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
+/* find */
+#result{background:linear-gradient(#07090bf2,#07090bcc)}
+.ans{font:600 28px/1.25 var(--sans);margin:6px 0 16px;text-wrap:pretty}
+.photo{position:relative;border-radius:20px;overflow:hidden;border:1px solid var(--line);aspect-ratio:4/3;background:#111}
+#replay{width:100%;height:100%;display:block}
+.tag{position:absolute;left:12px;bottom:12px;padding:7px 11px;border-radius:10px;font-size:11px}
+.dir{display:flex;gap:10px;margin:14px 0}
+.dir>div{flex:1;padding:12px 14px}.dir b{display:block;font:600 22px var(--mono);margin-top:8px;color:var(--amber)}
+/* guide */
+.garrow{position:relative;width:min(78%,300px);aspect-ratio:1;margin:auto}
+.garrow svg{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 4px 18px #000a)}
+#arrow{transition:transform .45s cubic-bezier(.3,.8,.3,1);transform-origin:150px 150px}
+.gdeg{text-align:center;font:700 56px/1 var(--mono)}.gdeg i{font:500 20px var(--mono);color:var(--dim);font-style:normal}
+#ghint{text-align:center;font:600 24px var(--sans);margin:10px 0 18px;text-shadow:0 1px 14px #000a}
+.found .garrow{display:none}.foundbox{display:none}
+.found .foundbox{display:block;position:absolute;left:50%;top:40%;width:56%;height:22%;transform:translate(-50%,-50%);border:3px solid var(--green);border-radius:10px;box-shadow:0 0 0 999px #0005,0 0 30px var(--green);animation:pop .5s cubic-bezier(.2,1.4,.4,1)}
+@keyframes pop{from{transform:translate(-50%,-50%) scale(1.5);opacity:0}}
+.found #gdeg{color:var(--green)}
+/* changes */
+.chg{overflow:auto;margin:6px -16px 0;padding:0 16px 14px;display:flex;flex-direction:column;gap:14px;flex:1;background:none}
+.chg h2{font:600 15px var(--sans);margin:0 0 10px;display:flex;align-items:center;gap:10px}
+.chg h2 .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font:700 16px var(--mono);color:#07090b}
+.chg h2 .n{margin-left:auto;font:500 12px var(--mono);color:var(--dim)}
+.grp{padding:14px}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.pair .stripe{aspect-ratio:4/3;border-radius:12px;position:relative}
+.pair .stripe i{position:absolute;left:8px;top:8px;font:500 10px var(--mono);font-style:normal;padding:4px 7px;background:#000a;border-radius:6px;color:#fff;letter-spacing:.1em}
+.pair+p{margin:0 0 14px;font:400 14px/1.4 var(--sans)}.grp p:last-child{margin-bottom:0}
+.unv{border-style:dashed}
+/* dev */
+#dev{position:absolute;right:10px;top:calc(var(--t) + 56px);z-index:9;font:12px var(--mono)}
+#dev summary{list-style:none;width:48px;height:34px;display:grid;place-items:center;margin-left:auto;color:var(--dim);cursor:pointer;border-radius:10px}
+#dev[open] summary{color:var(--amber)}
+#dev>div{margin-top:6px;padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;width:230px}
+#dev button{min-height:48px;font:500 12px var(--mono);background:rgba(255,255,255,.08);border-radius:10px}
+body:not([data-screen=home]) #dev{display:none}
+#home .row{flex-direction:column}#home .row>*{flex:none!important}#home .find{order:-1}
+.toast{position:absolute;left:16px;right:16px;top:calc(var(--t) + 56px);padding:12px 16px;font:500 14px var(--sans);border-color:var(--red);display:none;z-index:8}
+</style></head>
+<body data-screen="home">
+<video id="v" playsinline muted autoplay></video><div id="bg"></div>
+<div id="hud">
+
+<section class="scr" id="home">
+  <div class="top"><span class="pill panel"><span class="dot" id="dotc"></span><span id="stat">Connected · ok</span></span><span class="pill panel mono" id="homeyaw">YAW 000°</span></div>
+  <div class="reticle"></div>
+  <div class="sp"></div>
+  <div class="row">
+    <button class="btn" id="scanbtn" style="flex:0 0 auto;padding:0 18px"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8.5"/><circle cx="11" cy="11" r="2.5" fill="currentColor"/></svg>Scan room</button>
+    <div class="find panel"><input id="q" type="text" placeholder="Where is my charger?" enterkeyhint="search" autocomplete="off"><button id="mic" aria-label="Voice"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0012 0M10 16v3"/></svg></button><button id="findbtn" aria-label="Find" style="background:var(--amber);color:#14110a"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 10h12M11 5l5 5-5 5"/></svg></button></div>
   </div>
+</section>
+
+<section class="scr" id="scan">
+  <div class="top"><span class="pill panel"><span class="dot"></span><span id="scanstatus">Scanning</span></span><span class="pill panel mono" id="fcount">0 frames</span></div>
+  <div class="ringwrap"><canvas id="ring"></canvas><div class="flash" id="flash"></div>
+    <div class="pct"><b id="pct">0<i>%</i></b><span class="label">Coverage</span></div></div>
+  <div id="scanline">Turn slowly to the left</div><div id="hint"></div>
+  <div class="stats"><div class="panel"><span class="label">Frames</span><b id="nfr">0</b></div><div class="panel"><span class="label">Objects</span><b id="nob" style="color:var(--amber)">0</b></div><div class="panel"><span class="label">Seen now</span><b id="nnm" style="font-size:13px;line-height:1.3;font-family:var(--sans);font-weight:500;margin-top:8px;max-height:34px;overflow:hidden">—</b></div></div>
+  <div class="sp"></div>
+  <button class="btn red" id="donebtn" style="width:100%">Done</button>
+</section>
+
+<section class="scr" id="summary">
+  <div class="top"><span class="pill panel"><span class="dot"></span>Scan complete</span></div>
+  <div class="sheet panel busy" id="sumsheet">
+    <div class="proc"><div class="spin"></div><span id="proctxt">Reading frames…</span></div>
+    <div class="after" style="display:contents">
+    <h1 id="sumtext">I found 14 objects.</h1>
+    <canvas id="mapc"></canvas>
+    <div class="chips" id="chips"></div>
+    <div class="meta"><div><span class="label">Frames</span><b id="mf">–</b></div><div><span class="label">Seconds</span><b id="ms">–</b></div><div><span class="label">Cover</span><b id="mc">–</b></div><div><span class="label">Cost</span><b id="mu">–</b></div></div>
+    <div class="row"><button class="btn ghost" id="sumback" style="flex:0 0 96px;height:56px">Rescan</button><button class="btn" id="sumfind" style="flex:1;height:56px">Find an object</button></div></div>
+  </div>
+</section>
+
+<section class="scr" id="result">
+  <div class="top"><button id="resback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ BACK</button><span class="pill panel mono" id="resq" style="max-width:220px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis"></span></div>
+  <div class="ans" id="resulttext">The charger was last seen about 60 degrees to the left of where the scan started, below the laptop.</div>
+  <div class="photo"><canvas id="replay"></canvas><span class="tag panel mono" id="rtag">CHARGER · FRAME 14</span></div>
+  <div class="dir"><div class="panel"><span class="label">Yaw</span><b id="dyaw">60° L</b></div><div class="panel"><span class="label">Pitch</span><b id="dpit">10° ↓</b></div></div>
+  <div class="sp"></div>
+  <button class="btn" id="guidebtn" style="width:100%">Guide me</button>
+</section>
+
+<section class="scr" id="guide">
+  <div class="top"><button id="gback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ END</button><span class="pill panel" id="gobj">Charger</span></div>
+  <div class="foundbox"></div>
+  <div class="garrow"><svg viewBox="0 0 300 300"><circle cx="150" cy="150" r="140" fill="rgba(7,9,11,.45)" stroke="rgba(255,255,255,.2)"/><circle cx="150" cy="150" r="104" fill="none" stroke="rgba(255,255,255,.1)" stroke-dasharray="2 8"/><g id="arrow"><path d="M150 38 L204 148 L166 148 L166 232 L134 232 L134 148 L96 148 Z" fill="#FFD54F" stroke="#07090b" stroke-width="5" stroke-linejoin="round"/></g></svg></div>
+  <div class="sp" id="gsp"></div>
+  <div class="gdeg" id="gdeg"><span id="gnum">60</span><i>° to go</i></div>
+  <div id="ghint">Turn right</div>
+  <button class="btn ghost" id="gfound" style="width:100%;display:none;border-color:var(--green);color:var(--green)">Found it</button>
+</section>
+
+<section class="scr" id="changes">
+  <div class="top"><button id="cback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ BACK</button><span class="pill panel mono">SCAN A → B</span></div>
+  <div class="chg" id="chg"></div>
+</section>
+
+<div class="toast panel" id="toast"></div>
+<details id="dev"><summary>⋯</summary><div class="panel">
+  <button id="flipbtn">Flip cam</button><button id="streambtn">Stream</button><button id="savebtn">Save sample</button><button data-go="home">Home</button><button data-go="scan">Scan</button><button data-go="summary">Summary</button><button data-go="find">Find</button><button data-go="guide">Guide</button><button data-go="changes">Changes</button>
+</div></details>
 </div>
-<script type="module">
-import { startCamera, grabJpeg } from "/js/camera.js";
-import { FrameSocket } from "/js/ws.js";
-import { OrientationTracker } from "/js/orientation.js";
-import { ScanController } from "/js/scan.js";
-
-const orient = new OrientationTracker();
-const ensureOrientation = () => orient.start().catch(() => {});
-
-const $ = (id) => document.getElementById(id);
-const video = $("v");
-let facing = "environment", streaming = false, timer = null, info = "", state = "connecting";
-const rtts = [];
-const sentAt = new Map();
-let lastReply = null, framesSent = 0, framesDropped = 0, savedMsg = "";
-
-const pct = (a, p) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.floor((s.length - 1) * p)]; };
-const speak = (t) => { try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(t)); } catch { /* no TTS */ } };
-const camera = () => ({ facing, video_w: video.videoWidth, video_h: video.videoHeight, screen_angle: screen.orientation?.angle ?? null });
-
-// ---------------------------------------------------------------- scan UI
-const scan = new ScanController({ video, orient, sock: null, grabJpeg, camera, onChange: render });
-
-const sock = new FrameSocket((r, tNow) => {
-  if (r.type === "find_result") return showFind(r);
-  if (r.type) return scan.onEvent(r);
-  const t0 = sentAt.get(r.seq);
-  sentAt.delete(r.seq);
-  if (t0 !== undefined) { rtts.push(tNow - t0); if (rtts.length > 60) rtts.shift(); }
-  lastReply = r;
-  if (r.saved) savedMsg = `saved ${r.saved} (${r.saved_total} on server)`;
-}, (s) => {
-  state = s;
-  if (s !== "connected" && ["scanning", "starting", "finishing"].includes(scan.phase)) scan.abort("connection lost, the scan stopped; objects found so far are kept");
-});
-scan.sock = sock;
-
-const ring = $("ring"), rctx = ring.getContext("2d");
-function drawRing(cov, yaw) {
-  const c = 112, R = 92;
-  rctx.clearRect(0, 0, 224, 224);
-  rctx.lineWidth = 16;
-  for (let i = 0; i < cov.n; i++) {
-    const a0 = ((i * cov.binDeg - 90) * Math.PI) / 180, a1 = (((i + 1) * cov.binDeg - 90) * Math.PI) / 180;
-    rctx.strokeStyle = cov.bins[i] ? "#43a047" : "#444";
-    rctx.beginPath(); rctx.arc(c, c, R, a0 + 0.02, a1 - 0.02); rctx.stroke();
-  }
-  rctx.fillStyle = "#fff"; rctx.font = "bold 15px system-ui"; rctx.textAlign = "center"; rctx.fillText("N", c, 20);
-  rctx.font = "bold 34px system-ui"; rctx.fillText(`${Math.round(cov.fraction * 100)}%`, c, c + 12);
-  if (yaw != null) { // heading marker
-    const a = ((yaw - 90) * Math.PI) / 180;
-    rctx.fillStyle = "#ffd54f"; rctx.beginPath();
-    rctx.arc(c + (R - 26) * Math.cos(a), c + (R - 26) * Math.sin(a), 9, 0, 7); rctx.fill();
-  }
-}
-
-let lastPhase = "idle";
-function render(st, cov) {
-  drawRing(cov, st.yaw);
-  const active = ["starting", "scanning", "finishing"].includes(st.phase);
-  $("scan").style.display = st.phase === "idle" ? "none" : "block";
-  $("scanstatus").textContent = st.error ? `Error: ${st.error}` : st.status;
-  $("scanline").textContent = `sent ${st.sent}  processed ${st.done}/${st.sent - st.rejected}  objects ${st.objects}` + (st.names.length ? `  last: ${st.names.join(", ")}` : "");
-  $("hint").textContent = st.hint;
-  $("scanbtn").hidden = active;
-  $("donebtn").hidden = st.phase !== "scanning";
-  if (st.phase !== lastPhase) {
-    lastPhase = st.phase;
-    if (st.phase === "done" && st.summary) {
-      speak(st.summary.speech);
-      const s = st.summary;
-      showResult(`<b>${s.speech}</b><br>${s.frames.stored} frames, ${s.seconds}s, $${s.cost_usd}<br>` +
-        s.objects.map((o) => `${o.label} (${Math.round(o.yaw)}°, ${Math.round(o.pitch)}°)`).join("<br>"));
-    }
-  }
-}
-
-function showResult(html) { const r = $("result"); $("resulttext").innerHTML = html; r.style.display = html ? "block" : "none"; $("replay").hidden = true; }
-
-function showFind(r) {
-  showResult(`<b>${r.speech}</b>`);
-  speak(r.speech);
-  if (!r.replay) return;
-  const img = new Image();
-  img.onload = () => {
-    const cv = $("replay"), x = cv.getContext("2d");
-    cv.width = img.naturalWidth; cv.height = img.naturalHeight; cv.hidden = false;
-    x.drawImage(img, 0, 0);
-    const [x1, y1, x2, y2] = r.replay.box;
-    x.lineWidth = Math.max(4, img.naturalWidth / 120); x.strokeStyle = "#ffd54f";
-    x.strokeRect(x1, y1, x2 - x1, y2 - y1);
-  };
-  img.src = `/world/frame/${r.replay.frame_id}.jpg`;
-}
-
-$("scanbtn").onclick = async () => {
-  showResult("");
-  if (!video.srcObject) await boot();
-  ensureOrientation();
-  scan.start();
-};
-$("donebtn").onclick = () => scan.done();
-const find = () => { const q = $("q").value.trim(); if (q) { showResult("<i>looking…</i>"); sock.sendJson({ type: "find", query: q }); } };
-$("findbtn").onclick = find;
-$("q").onkeydown = (e) => { if (e.key === "Enter") find(); };
-
-// ---------------------------------------------------------------- HUD and dev tools
-function hud() {
-  const l = [
-    `secure=${window.isSecureContext} ws=${state}`,
-    info || "camera off",
-    `heading ${scan.st.yaw == null ? "n/a" : scan.st.yaw.toFixed(0) + "°"}  ${orient.status.absolute}`,
-    `sent=${framesSent} dropped=${framesDropped} backlog=${sock.backlog}B`,
-    rtts.length ? `RTT ms p50=${pct(rtts, .5).toFixed(0)} p95=${pct(rtts, .95).toFixed(0)} n=${rtts.length}` : "",
-    lastReply ? `server saw ${lastReply.w}x${lastReply.h} ${(lastReply.bytes / 1024).toFixed(0)}KB ${lastReply.server_ms}ms` : "",
-    savedMsg,
-  ];
-  $("hud").textContent = l.filter(Boolean).join("\n");
-  if (scan.phase === "idle") { scan.st.yaw = (orient.latest.absolute || orient.latest.relative)?.yaw ?? null; drawRing(scan.coverage, scan.st.yaw); }
-}
-setInterval(hud, 250);
-
-function showMsg(t) { const m = $("msg"); m.textContent = t; m.style.display = t ? "flex" : "none"; }
-
-async function boot() {
-  ensureOrientation();
-  try {
-    const { settings } = await startCamera(video, facing);
-    info = `camera ${settings.width}x${settings.height} ${settings.facingMode || facing} @${Math.round(settings.frameRate || 0)}fps`;
-    showMsg("");
-  } catch (e) {
-    showMsg(`${e.name || "Error"}: ${e.message}`);
-  }
-}
-
-async function tick() {
-  if (!streaming || !sock.ready) return;
-  if (sock.backlog > 512 * 1024) { framesDropped++; return; } // don't queue behind a slow link
-  const blob = await grabJpeg(video, +$("side").value, 0.8);
-  if (!blob) return;
-  const t0 = performance.timeOrigin + performance.now();
-  const seq = await sock.send(blob);
-  sentAt.set(seq, t0);
-  framesSent++;
-}
-
-function setStreaming(on) {
-  streaming = on;
-  $("stream").textContent = on ? "Stop" : "Stream";
-  clearInterval(timer);
-  if (on) timer = setInterval(tick, 1000 / +$("fps").value);
-}
-
-$("start").onclick = boot;
-$("flip").onclick = () => { facing = facing === "environment" ? "user" : "environment"; boot(); };
-$("stream").onclick = () => setStreaming(!streaming);
-$("fps").onchange = () => streaming && setStreaming(true);
-$("save").onclick = async () => {
-  ensureOrientation();
-  const blob = await grabJpeg(video, 1920, 0.9);
-  const meta = { orientation: orient.snapshot(), camera: camera() };
-  if (blob && sock.ready) { const t0 = performance.timeOrigin + performance.now(); sentAt.set(await sock.send(blob, { save: true, meta }), t0); }
-};
-window.__scan = scan; // for DevTools reads
-boot();
-</script>
-</body>
-</html>
+<script type="module" src="js/app.js"></script>
+</body></html>
