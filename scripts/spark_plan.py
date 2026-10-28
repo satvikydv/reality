@@ -1,4 +1,4 @@
-"""M0: can Muse Spark emit a valid perception-program plan (PRD section 8) via structured output?
+"""M0: can Muse Spark emit a valid perception-program plan via structured output?
 
 Tries strict json_schema first; if the endpoint rejects the schema (recursive oneOf/anyOf is
 the likely culprit [VERIFY]) falls back to plain JSON mode with the schema in the prompt.

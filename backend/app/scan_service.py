@@ -1,4 +1,4 @@
-"""Live scan sessions over the WebSocket (PRD F10): queue keyframes, run the scan pipeline, report progress.
+"""Live scan sessions over the WebSocket (F10): queue keyframes, run the scan pipeline, report progress.
 
 One `ScanSession` per socket. The phone sends keyframes (JPEG + orientation) as it pans; they wait in a
 bounded queue and a few workers run `ScanPipeline.process` concurrently (each frame is ~7 s of mostly
@@ -54,12 +54,21 @@ def yaw_coverage(frames: list[dict], reach: float = 0.4) -> dict:
     return {"covered_deg": sum(cov), "gaps": gaps}
 
 
+_IRREGULAR = {"mouse": "mice", "knife": "knives", "shelf": "shelves", "box": "boxes", "glass": "glasses", "bag": "bags"}
+
+
+def _plural(label: str) -> str:
+    """Pluralise the last word: "water bottle" -> "water bottles", "computer mouse" -> "computer mice"."""
+    head, _, last = label.rpartition(" ")
+    return (head + " " if head else "") + _IRREGULAR.get(last, last if last.endswith("s") and not last.endswith("ss") else last + "s")
+
+
 def count_phrase(labels: list[str]) -> str:
     """["mug", "mug", "laptop"] -> "2 mugs and a laptop"."""
     parts = []
     for label, n in Counter(labels).most_common():
         plural = label.endswith("s") and not label.endswith("ss")
-        parts.append(f"{n} {label}" + ("" if plural else "s") if n > 1 else label if plural else f"a {label}")
+        parts.append(f"{n} {_plural(label)}" if n > 1 else label if plural else f"a {label}")
     if len(parts) > 1:
         return ", ".join(parts[:-1]) + " and " + parts[-1]
     return parts[0] if parts else ""

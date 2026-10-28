@@ -1,4 +1,4 @@
-"""What-changed between two scans (PRD F13): added, removed and moved objects.
+"""What-changed between two scans (F13): added, removed and moved objects.
 
 Objects are matched across scans by label (app.world_model.label_match_score) and angular position.
 Three things keep this honest:

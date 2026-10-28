@@ -4,7 +4,7 @@ An agent that watches the physical world through a phone camera, remembers it, g
 
 Entry for the Meta Global AI Developer Hackathon (Indie track, solo). Experimental prototype; no medical or safety-critical claims.
 
-> Status: **M0 (de-risk)**. See `PRD.md` for scope and `docs/measurements.md` for measured results.
+> Status: **M0 (de-risk)**. See `docs/decisions.md` for scope decisions and `docs/measurements.md` for measured results.
 
 ## What was built when
 

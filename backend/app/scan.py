@@ -1,4 +1,4 @@
-"""Scan pipeline (PRD F10): keyframe + camera pose -> Spark names the objects -> SAM boxes them -> World Model.
+"""Scan pipeline (F10): keyframe + camera pose -> Spark names the objects -> SAM boxes them -> World Model.
 
 Per keyframe:
   1. resize the JPEG (SAM cost and latency grow with size; boxes are anchored with the resized dims);

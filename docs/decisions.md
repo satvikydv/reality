@@ -2,10 +2,10 @@
 
 ## 2026-10-28: pivot to memory-first (spatial memory as the headline)
 
-**Decision.** The product headline changes from "guide and verify a physical task" to **spatial memory**: scan a room by panning the phone, find objects by what they do, get guided to them, and see what changed between two scans. Plan-and-verify (F3) stays as a secondary feature for the Best Agentic bonus. The brick-kit hero scenario is dropped. PRD sections 2, 3, 4, 5, 12 and 15 are updated; new requirements are F10 (room scan with orientation anchors), F11 (semantic find), F12 (guided retrieval) and F13 (what-changed).
+**Decision.** The product headline changes from "guide and verify a physical task" to **spatial memory**: scan a room by panning the phone, find objects by what they do, get guided to them, and see what changed between two scans. Plan-and-verify (F3) stays as a secondary feature for the Best Agentic bonus. The brick-kit hero scenario is dropped. The scope, user stories, demo storyboard, requirements and risk list were updated; new requirements are F10 (room scan with orientation anchors), F11 (semantic find), F12 (guided retrieval) and F13 (what-changed).
 
 **Why.**
-- **Fits the rubric and the anti-project warning.** The PRD already says the value is memory, verification and the agent API, and that the product must never read as "a camera that labels things and chats". Memory, retrieval by function and change over time are the parts a plain image analyzer cannot do, and they give the Reality API a stronger story (an agent asking where something is or what moved).
+- **Fits the rubric and the anti-project warning.** The original scope already says the value is memory, verification and the agent API, and that the product must never read as "a camera that labels things and chats". Memory, retrieval by function and change over time are the parts a plain image analyzer cannot do, and they give the Reality API a stronger story (an agent asking where something is or what moved).
 - **Lower technical risk than the old hero.** The riskiest claim in the old plan was fine-grained step verification of brick placement (listed as a risk with a fallback hero task). Memory features rest on coarse, robust signals: object presence, rough direction and mask geometry.
 - **The phone supplies the missing signal.** Orientation sensors give yaw/pitch/roll for every frame, so objects can be anchored to a direction in the room without SLAM, and guidance has a "target minus current heading" to point at.
 - **Better demo.** A spoken functional query followed by an arrow that steers you to the object is understandable in seconds and works as the 30-second X clip. What-changed gives a second, different beat.
@@ -24,7 +24,7 @@
 - New shared module `web/js/orientation.js` (yaw/pitch/roll of the rear camera from either source) and the `/orientation` drift test page.
 - `scripts/sam_latency.py` defaults to desk-object concepts: keys, headphones, mug, notebook, remote control, water bottle, charger, scissors, laptop.
 
-**Not updated (still describe the old hero).** PRD sections 14 and 16, the README M0 commands, and the default task list in `scripts/spark_plan.py`. `scripts/sam_latency.py` has no labels file, so counting accuracy against a true count per frame is not implemented yet.
+**Not updated (still describe the old hero).** The README M0 commands and the default task list in `scripts/spark_plan.py`. `scripts/sam_latency.py` has no labels file, so counting accuracy against a true count per frame is not implemented yet.
 
 ## 2026-10-28: auto capture and the live scan queue
 
@@ -40,7 +40,7 @@
 ## 2026-10-28: Scan pipeline (F10)
 
 - **Spark names, SAM boxes, World Model anchors.** `app/scan.py:ScanPipeline.process` resizes the keyframe (max side 960), asks Spark for the object types in view, runs one SAM concept prompt per name concurrently, drops boxes under `min_conf` 0.5, collapses overlapping boxes (`suppress_overlaps`: IoU over 0.6, highest confidence wins, the more specific label wins a near tie) and observes the rest. Boxes are anchored with the resized dimensions because SAM returns pixels of the image it was sent.
-- **Concept prompts per name, not box batches (for now).** The PRD's "Spark lists, then box-prompt batches of 16" needs boxes from Spark, and Spark's box convention is unmeasured (`spark_grounding.py` has not run). One concept prompt per name costs one SAM request each ($0.0025) but needs no boxes. Switch when Spark grounding is verified.
+- **Concept prompts per name, not box batches (for now).** The original plan ("Spark lists, then box-prompt batches of 16") needs boxes from Spark, and Spark's box convention is unmeasured (`spark_grounding.py` has not run). One concept prompt per name costs one SAM request each ($0.0025) but needs no boxes. Switch when Spark grounding is verified.
 - **A frame is stored only if every SAM call succeeded** (one retry each). A stored frame says "this direction was looked at", which what-changed uses to call an object gone; a half-failed look would fake that. The caller gets `FrameReport(stored=False, errors=[...])` and can retry.
 - **Known names are fed back.** Names already in the scan are passed to Spark as "reuse a name from this list" to keep labels stable across frames (what merging depends on).
 - **What it cannot do yet.** Spark forgetting to list an object means that object is not looked for in that frame, and coverage still counts the direction as scanned. Cable-like objects fragment into several boxes. Frames are processed in the order given and not deduplicated by pose. Not wired into `main.py`.
@@ -77,7 +77,7 @@ On the Realme RMX2001 the "relative" sensor is not gyro-only: both sources gave 
 
 ## 2026-10-27
 
-- **Predicate encoding.** PRD section 8's example uses key-per-op objects (`{"all":[{"exists":...}]}`). The code uses an `op`-tagged tree (`{"op":"all","items":[...]}`) in `backend/app/programs/schema.py`. A discriminator is easier to validate with pydantic and to express in a strict JSON schema. Revisit if `spark_plan.py` shows the endpoint rejecting it.
+- **Predicate encoding.** The original spec's example uses key-per-op objects (`{"all":[{"exists":...}]}`). The code uses an `op`-tagged tree (`{"op":"all","items":[...]}`) in `backend/app/programs/schema.py`. A discriminator is easier to validate with pydantic and to express in a strict JSON schema. Revisit if `spark_plan.py` shows the endpoint rejecting it.
 - **HTTPS for the phone.** Self-signed cert covering localhost and the laptop's LAN IPs (`scripts/make_cert.py`), accepted once on the phone. mkcert and ngrok are not installed/enabled; ngrok would expose the backend publicly, so it is opt-in only.
 - **Frame protocol.** Binary WS frame: `flags u8 | seq u32 | client_ts f64 | JPEG`. Flag bit 0 saves the frame to `data/frames/` so the M0 scripts run on real phone captures.
 - **SAM box-prompt test source.** `sam_latency.py` seeds box prompts from the concept pass's own boxes, so it measures box-prompt latency without depending on Spark grounding.

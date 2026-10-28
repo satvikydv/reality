@@ -1,4 +1,4 @@
-"""sam-3.1 client: concept prompts and box prompts over the Responses stream (PRD section 9).
+"""sam-3.1 client: concept prompts and box prompts over the Responses stream.
 
 Boxes come back in pixel coordinates of the image that was sent (x1, y1, x2, y2, right and bottom
 half-open). Callers that resize frames must anchor with the resized width and height.

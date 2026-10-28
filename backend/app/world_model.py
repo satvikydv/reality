@@ -1,4 +1,4 @@
-﻿"""World Model: scans, frames with orientation, objects anchored to (yaw, pitch), replay (PRD F2, F10, F11).
+﻿"""World Model: scans, frames with orientation, objects anchored to (yaw, pitch), replay (F2, F10, F11).
 
 Storage is SQLite (in memory by default). Frames are optional JPEG files under `frames_dir` so a
 find query can return a replay frame. Anchors are angular only: translation is unknown, so every

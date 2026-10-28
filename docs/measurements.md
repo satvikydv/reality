@@ -22,7 +22,7 @@ Status legend: **TODO** not run yet · **DONE** measured.
 - [x] `metadata` (`mask_encoding`, `include_confidence`) accepted on `/v1/responses` for `sam-3.1` (no errors; confidences returned)
 - [ ] Spark native box coordinate convention (script scores pixels / 0-1000 / 0-1)
 - [ ] Spark strict `json_schema` accepts the recursive tagged-union plan schema (else fall back to JSON mode)
-- [ ] Voice handshake JSON shape (flat as in PRD 7.3) and event field names (`text` vs `transcript`)
+- [ ] Voice handshake JSON shape (flat, as assumed by `scripts/voice_ws.py`) and event field names (`text` vs `transcript`)
 - [x] `reasoning.effort: "low"` accepted on `muse-spark-1.3` (2026-10-28, `resolve_queries.py`); other values untested
 - [x] Spark strict `json_schema` via the Responses API works for a flat schema (concept/alternates/confidence); the recursive plan schema is still untested
 

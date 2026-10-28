@@ -1,4 +1,4 @@
-// Keyframe selection and coverage tracking for the room scan (PRD F10). Pure logic: no DOM, no sensors.
+// Keyframe selection and coverage tracking for the room scan (F10). Pure logic: no DOM, no sensors.
 //
 // The user pans the phone; we send a frame when the camera has turned far enough from the last sent
 // frame and is steady enough not to blur. Coverage is a ring of 10-degree compass bins filled around

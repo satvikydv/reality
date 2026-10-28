@@ -1,4 +1,4 @@
-"""Perception-program schema (PRD section 8).
+"""Perception-program schema.
 
 Predicates are a tagged tree (`op` discriminator) so the model's output validates against a
 strict JSON schema and the interpreter can dispatch without `eval`.

@@ -1,4 +1,4 @@
-// Room scan controller (PRD F10): watches the camera heading, sends a keyframe whenever the phone has turned
+// Room scan controller (F10): watches the camera heading, sends a keyframe whenever the phone has turned
 // far enough and is steady, tracks coverage, and folds the server's progress events into one state object.
 import { Coverage, KeyframePolicy } from "/js/keyframe.js";
 

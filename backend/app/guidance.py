@@ -1,4 +1,4 @@
-"""Guided retrieval math (PRD F12): from the current camera pose to a stored (yaw, pitch) anchor.
+"""Guided retrieval math (F12): from the current camera pose to a stored (yaw, pitch) anchor.
 
 The overlay arrow and the spoken hint come from the target direction expressed in the image's own
 axes (right, up, forward), not from raw yaw and pitch differences, so they stay correct when the

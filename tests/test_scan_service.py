@@ -66,6 +66,7 @@ def test_yaw_coverage_and_gaps():
 def test_count_phrase():
     assert count_phrase(["mug", "laptop", "mug"]) == "2 mugs and a laptop"
     assert count_phrase(["keys"]) == "keys" and count_phrase(["keys", "keys"]) == "2 keys"
+    assert count_phrase(["mouse"] * 3 + ["water bottle"] * 2) == "3 mice and 2 water bottles"
     assert count_phrase([]) == ""
     assert count_phrase(["mug", "laptop", "keys"]) == "a mug, a laptop and keys"
 

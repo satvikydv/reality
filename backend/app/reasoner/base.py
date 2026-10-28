@@ -1,4 +1,4 @@
-﻿"""Provider-agnostic reasoning client (PRD section 9).
+﻿"""Provider-agnostic reasoning client.
 
 Messages are plain dicts: {"role": "system"|"user"|"assistant", "content": str | [part, ...]} where a
 part is {"type": "text", "text": ...} or {"type": "image", "data_url": "data:image/jpeg;base64,..."}.
@@ -63,7 +63,7 @@ def _retry_after(exc: BaseException) -> float | None:
 async def with_retries(call: Callable[[], Awaitable[Any]], *, attempts: int = 4, base_delay: float = 0.5, max_delay: float = 8.0,
                        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep, rand: Callable[[], float] = random.random):
     """Run `call`, retrying 429, 5xx and connection errors with exponential backoff and jitter,
-    honouring Retry-After (PRD section 11). Other errors propagate immediately."""
+    honouring Retry-After. Other errors propagate immediately."""
     for attempt in range(attempts):
         try:
             return await call()

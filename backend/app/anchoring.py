@@ -1,4 +1,4 @@
-"""Pixel <-> world direction math for the room scan (PRD F10, F12).
+"""Pixel <-> world direction math for the room scan (F10, F12).
 
 Frame of reference: earth east-north-up. A direction is (yaw, pitch) in degrees: yaw is the compass
 azimuth clockwise from north in [0, 360), pitch is elevation with +90 straight up. The camera pose is

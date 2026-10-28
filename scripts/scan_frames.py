@@ -1,4 +1,4 @@
-"""Run the scan pipeline (PRD F10) on saved phone frames and print what the World Model learned.
+"""Run the scan pipeline (F10) on saved phone frames and print what the World Model learned.
 
 Each JPEG needs its Save-sample sidecar (same stem, .json) for the camera orientation. Frames are
 processed in the order they were saved. Spark names the objects, SAM boxes them, the World Model

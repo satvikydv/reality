@@ -1,4 +1,4 @@
-"""M0: does Muse Spark resolve functional-language queries to a short noun concept? (PRD F11)
+"""M0: does Muse Spark resolve functional-language queries to a short noun concept? (F11)
 
 Runs a fixed set of queries (English and Hindi/English mixed) through app.resolver, with and without
 a list of known room labels, and scores whether the concept or an alternate is an acceptable answer.

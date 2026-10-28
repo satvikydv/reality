@@ -7,3 +7,6 @@ data/
 *.log
 .DS_Store
 node_modules/
+
+# local-only notes, not part of the submission
+docs/demo-script.md

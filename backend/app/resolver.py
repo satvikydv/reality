@@ -1,4 +1,4 @@
-"""Semantic find (PRD F11): a functional-language query -> short noun concept -> World Model lookup.
+"""Semantic find (F11): a functional-language query -> short noun concept -> World Model lookup.
 
     "the thing I charge my laptop with"  ->  concept "charger", alternates ["charging cable", "power adapter"]
 
