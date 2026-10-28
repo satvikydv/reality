@@ -20,7 +20,10 @@ from mcp.server.mcpserver import Image, MCPServer
 from app import reality_api as api
 from app.scan_service import ScanService
 
-INSTRUCTIONS = """Reality OS remembers the objects in a room that a person scanned with their phone. Positions are directions
+INSTRUCTIONS = """Reality OS remembers the objects in the rooms ("spaces": Living Room, Desk, Wardrobe...) that a person scanned with their phone.
+A room's memory is its latest saved scan. Rooms never share objects, directions or comparisons. Every tool takes a `room`
+(an id or a name); leave it out to use the room the user chose as active. If no room is active and none is named, the answer is
+status "no_active_room" with the list of rooms: ask the user which one, or pass `room`. Call list_rooms to see them. Positions are directions
 (compass yaw and pitch) from where the phone stood, not coordinates: there is no distance, and nothing is known about
 places the scan did not point at.
 Answers say how far to trust them. status "found" gives the object, when it was last seen, how many frames saw it
@@ -55,38 +58,53 @@ def build_server(get_service: Callable[[], ScanService], allow_frames: bool | No
         return result
 
     @server.tool()
-    async def where_is(query: str) -> dict[str, Any]:
+    async def list_rooms() -> dict[str, Any]:
+        """The rooms Reality OS knows: id, name, which is active (the default for the other tools), how many objects each
+        remembers, when it was last scanned and how much of it the scan covered."""
+        return await traced("list_rooms", {}, lambda svc: api.room_list(svc))
+
+    @server.tool()
+    async def where_is(query: str, room: str | None = None) -> dict[str, Any]:
         """Where an object is in the scanned room. `query` can be a name ("keys") or a description of what it does
         ("the thing I charge my laptop with"); English or a Hindi/English mix. Returns the compass direction,
         the direction relative to where the scan started, the neighbouring objects, a photo reference, and how
         much to trust the position. status is found, not_seen or unresolved."""
-        return await traced("where_is", {"query": query}, lambda svc: api.where_is(svc, query))
+        return await traced("where_is", {"query": query, "room": room}, lambda svc: api.where_is(svc, query, room))
 
     @server.tool()
-    async def list_objects(label: str | None = None, scan_id: int | None = None) -> dict[str, Any]:
-        """All remembered objects of a scan (default: the latest), each with its direction, confidence and how long
-        ago it was seen. Pass `label` to keep only objects of that kind."""
-        return await traced("list_objects", {"label": label, "scan_id": scan_id}, lambda svc: api.list_objects(svc, label, scan_id))
+    async def list_objects(label: str | None = None, scan_id: int | None = None, room: str | None = None) -> dict[str, Any]:
+        """All remembered objects of a room's scan (default: its memory, the latest saved scan), each with its direction,
+        confidence and how long ago it was seen. Pass `label` to keep only objects of that kind."""
+        return await traced("list_objects", {"label": label, "scan_id": scan_id, "room": room}, lambda svc: api.list_objects(svc, label, scan_id, room))
 
     @server.tool()
-    async def scan_summary(scan_id: int | None = None) -> dict[str, Any]:
-        """What a scan found (default: the latest): counts per kind of object, how many degrees of the room it
-        covered and where the gaps are."""
-        return await traced("scan_summary", {"scan_id": scan_id}, lambda svc: api.scan_summary(svc, scan_id))
+    async def scan_summary(scan_id: int | None = None, room: str | None = None) -> dict[str, Any]:
+        """What a room's scan found (default: its latest saved scan): counts per kind of object, how many degrees of the
+        room it covered and where the gaps are."""
+        return await traced("scan_summary", {"scan_id": scan_id, "room": room}, lambda svc: api.scan_summary(svc, scan_id, room))
 
     @server.tool()
-    async def what_changed(scan_before: int | None = None, scan_after: int | None = None) -> dict[str, Any]:
-        """Compare two scans (default: the latest against the one before). Returns objects added, removed and moved
-        with their locations, plus `unverified` objects in directions that only one scan looked at."""
-        return await traced("what_changed", {"scan_before": scan_before, "scan_after": scan_after},
-                            lambda svc: api.what_changed(svc, scan_before, scan_after))
+    async def what_changed(scan_before: int | None = None, scan_after: int | None = None, room: str | None = None) -> dict[str, Any]:
+        """Compare two saved scans of ONE room (default: its latest against its baseline, else the one before). Returns objects
+        added, removed and moved (with the angular shift), plus `unverified` objects in directions that only one scan looked at.
+        Scans of different rooms are refused (status wrong_room)."""
+        return await traced("what_changed", {"scan_before": scan_before, "scan_after": scan_after, "room": room},
+                            lambda svc: api.what_changed(svc, scan_before, scan_after, room))
 
     @server.tool()
-    async def guide_user_to(query: str) -> dict[str, Any]:
-        """Ask the connected phone to guide its user to an object: the phone shows the answer and starts the
-        direction arrow. Returns status sent, not_found or no_phone_connected. The only tool with a side effect."""
+    async def guide_user_to(query: str, room: str | None = None) -> dict[str, Any]:
+        """Ask the connected phone to guide its user to an object in the ACTIVE room: the phone shows the answer and offers the
+        direction arrow. Returns status sent, not_found, no_phone_connected or wrong_room (the named room is not the active
+        one: guidance never crosses rooms). The only tool with a side effect."""
         async def run(svc: ScanService) -> dict:
-            result = await svc.find(query, source="agent")
+            rm, err = api.resolve_room(svc, room)
+            if err:
+                return err
+            active = svc.wm.active_room()
+            if active is None or active["id"] != rm["id"]:
+                return {"status": "wrong_room", "room": {"id": rm["id"], "name": rm["name"]},
+                        "message": f"{rm['name']} is not the room the user is in (active: {active['name'] if active else 'none'}). Ask them to switch first."}
+            result = await svc.find(query, source="agent", room_id=rm["id"])
             if not result["found"]:
                 return {"status": "not_found", "answer": result["speech"]}
             phones = svc.bus.count("phone")
@@ -94,7 +112,7 @@ def build_server(get_service: Callable[[], ScanService], allow_frames: bool | No
                 return {"status": "no_phone_connected", "answer": result["speech"]}
             svc.bus.publish({"type": "guide_request", "result": result, "source": "agent"})
             return {"status": "sent", "phones": phones, "answer": result["speech"]}
-        return await traced("guide_user_to", {"query": query}, run)
+        return await traced("guide_user_to", {"query": query, "room": room}, run)
 
     if allow_frames:
         @server.tool()

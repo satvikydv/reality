@@ -23,10 +23,18 @@ from collections import deque
 
 from app import anchoring as A
 from app import memory
+from app.coverage import coverage
 
 log = logging.getLogger("memory")
 
 SCHEMA = """
+-- A room ("space"): a user-named place. Its memory is its latest saved scan; older saved scans are kept for what-changed.
+CREATE TABLE IF NOT EXISTS rooms (
+  id INTEGER PRIMARY KEY, name TEXT NOT NULL, created_at REAL NOT NULL, active INTEGER NOT NULL DEFAULT 0);
+-- confirm / dismiss marks on the changes between two scans of one room
+CREATE TABLE IF NOT EXISTS change_reviews (
+  room_id INTEGER NOT NULL, scan_before INTEGER NOT NULL, scan_after INTEGER NOT NULL, change_key TEXT NOT NULL, state TEXT NOT NULL,
+  PRIMARY KEY (room_id, scan_before, scan_after, change_key));
 CREATE TABLE IF NOT EXISTS scans (
   id INTEGER PRIMARY KEY, name TEXT, source TEXT, started_at REAL NOT NULL, ended_at REAL);
 CREATE TABLE IF NOT EXISTS frames (
@@ -109,6 +117,14 @@ def describe_offset(dyaw: float, dpitch: float) -> str:
     return f"{horiz}, {vert}"
 
 
+class RoomNameError(ValueError):
+    """A room name that is empty, too long or already used (`duplicate`)."""
+
+    def __init__(self, msg: str, duplicate: bool = False):
+        super().__init__(msg)
+        self.duplicate = duplicate
+
+
 class WorldModel:
     def __init__(self, db_path: str | Path = ":memory:", frames_dir: str | Path | None = None,
                  merge_deg: float = 8.0, default_hfov_deg: float = A.DEFAULT_HFOV_DEG, fov_rel_error: float = A.FOV_REL_ERROR,
@@ -130,6 +146,12 @@ class WorldModel:
         """Bring a database written by an older version up to the current schema."""
         def cols(t):
             return {r["name"] for r in self.db.execute(f"PRAGMA table_info({t})")}
+        for c, decl in (("room_id", "INTEGER"), ("status", "TEXT NOT NULL DEFAULT 'saved'"), ("baseline", "INTEGER NOT NULL DEFAULT 0")):
+            if c not in cols("scans"):
+                self.db.execute(f"ALTER TABLE scans ADD COLUMN {c} {decl}")
+        self.db.execute("CREATE INDEX IF NOT EXISTS scans_room ON scans(room_id)")
+        if self.db.execute("SELECT 1 FROM scans WHERE room_id IS NULL LIMIT 1").fetchone():  # scans from before rooms existed
+            self.db.execute("UPDATE scans SET room_id=? WHERE room_id IS NULL", (self._unassigned_id(),))
         if "poly" not in cols("observations"):
             self.db.execute("ALTER TABLE observations ADD COLUMN poly TEXT")
         for c in ("fov_err_deg", "uncertainty_deg"):
@@ -142,10 +164,18 @@ class WorldModel:
 
     # ------------------------------------------------------------------ scans and frames
 
-    def start_scan(self, name: str | None = None, source: str | None = None, ts: float | None = None) -> int:
+    def start_scan(self, name: str | None = None, source: str | None = None, ts: float | None = None,
+                   room_id: int | None = None, status: str = "saved") -> int:
+        """A new scan in `room_id` (default: the active room, else the "Unassigned" room). The phone's live scans start as
+        "draft" and only become the room's memory when the user saves them."""
         with self.lock:
-            cur = self.db.execute("INSERT INTO scans (name, source, started_at) VALUES (?,?,?)",
-                                  (name, source, time.time() if ts is None else ts))
+            if room_id is None:
+                active = self.active_room()
+                room_id = active["id"] if active else self._unassigned_id()
+            elif self.get_room(room_id) is None:
+                raise KeyError(f"no room {room_id}")
+            cur = self.db.execute("INSERT INTO scans (name, source, started_at, room_id, status) VALUES (?,?,?,?,?)",
+                                  (name, source, time.time() if ts is None else ts, room_id, status))
             self.db.commit()
             return cur.lastrowid
 
@@ -154,9 +184,16 @@ class WorldModel:
             self.db.execute("UPDATE scans SET ended_at=? WHERE id=?", (time.time() if ts is None else ts, scan_id))
             self.db.commit()
 
-    def latest_scan_id(self) -> int | None:
+    def latest_scan_id(self, room_id: int | None = None) -> int | None:
+        """The newest saved scan that stored frames: a room's memory. `room_id` None looks across rooms (only for code that
+        has no room, such as old scripts); everything the phone and the API do passes a room."""
         with self.lock:
-            r = self.db.execute("SELECT id FROM scans ORDER BY started_at DESC, id DESC LIMIT 1").fetchone()
+            q = "SELECT id FROM scans WHERE status='saved' AND EXISTS (SELECT 1 FROM frames f WHERE f.scan_id=scans.id)"
+            args: list = []
+            if room_id is not None:
+                q += " AND room_id=?"
+                args.append(room_id)
+            r = self.db.execute(q + " ORDER BY started_at DESC, id DESC LIMIT 1", args).fetchone()
             return r["id"] if r else None
 
     def add_frame(self, scan_id: int, ts: float, yaw: float, pitch: float, width: int, height: int,
@@ -192,10 +229,10 @@ class WorldModel:
         """Every scan, newest first, with how many frames and objects it holds."""
         with self.lock:
             return [dict(r) for r in self.db.execute(
-                "SELECT s.id, s.name, s.source, s.started_at, s.ended_at,"
+                "SELECT s.id, s.name, s.source, s.started_at, s.ended_at, s.room_id, s.status, s.baseline, r.name AS room_name,"
                 " (SELECT COUNT(*) FROM frames f WHERE f.scan_id=s.id) AS n_frames,"
                 " (SELECT COUNT(*) FROM objects o WHERE o.scan_id=s.id) AS n_objects"
-                " FROM scans s ORDER BY s.started_at DESC, s.id DESC")]
+                " FROM scans s LEFT JOIN rooms r ON r.id=s.room_id ORDER BY s.started_at DESC, s.id DESC")]
 
     def get_scan(self, scan_id: int) -> dict | None:
         return next((s for s in self.list_scans() if s["id"] == scan_id), None)
@@ -212,6 +249,7 @@ class WorldModel:
             for table in ("detections", "objects", "frames"):
                 self.db.execute(f"DELETE FROM {table} WHERE scan_id=?", (scan_id,))
             self.db.execute("DELETE FROM scans WHERE id=?", (scan_id,))
+            self.db.execute("DELETE FROM change_reviews WHERE scan_before=? OR scan_after=?", (scan_id, scan_id))
             self.db.commit()
             self._logged.pop(scan_id, None)
         root = self.frames_dir.resolve() if self.frames_dir else None
@@ -227,6 +265,181 @@ class WorldModel:
             except OSError:
                 pass
         return True
+
+    # ------------------------------------------------------------------ rooms
+
+    UNASSIGNED = "Unassigned"
+
+    @staticmethod
+    def _room(r: sqlite3.Row | None) -> dict | None:
+        return None if r is None else {"id": r["id"], "name": r["name"], "created_at": r["created_at"], "active": bool(r["active"])}
+
+    def _unassigned_id(self) -> int:
+        r = self.db.execute("SELECT id FROM rooms WHERE name=?", (self.UNASSIGNED,)).fetchone()
+        if r:
+            return r["id"]
+        cur = self.db.execute("INSERT INTO rooms (name, created_at, active) VALUES (?,?,0)", (self.UNASSIGNED, time.time()))
+        self.db.commit()
+        return cur.lastrowid
+
+    @staticmethod
+    def _clean_name(name: str | None) -> str:
+        name = " ".join((name or "").split())
+        if not name:
+            raise RoomNameError("a room needs a name")
+        if len(name) > 60:
+            raise RoomNameError("a room name can have at most 60 characters")
+        return name
+
+    def _name_taken(self, name: str, except_id: int | None = None) -> bool:
+        return any(r["name"].casefold() == name.casefold() and r["id"] != except_id for r in self.db.execute("SELECT id, name FROM rooms"))
+
+    def create_room(self, name: str, active: bool = False) -> dict:
+        with self.lock:
+            name = self._clean_name(name)
+            if self._name_taken(name):
+                raise RoomNameError(f"there is already a room called {name}", duplicate=True)
+            cur = self.db.execute("INSERT INTO rooms (name, created_at, active) VALUES (?,?,0)", (name, time.time()))
+            self.db.commit()
+            if active:
+                self.set_active(cur.lastrowid)
+            return self.get_room(cur.lastrowid)
+
+    def get_room(self, room_id: int) -> dict | None:
+        with self.lock:
+            return self._room(self.db.execute("SELECT * FROM rooms WHERE id=?", (room_id,)).fetchone())
+
+    def resolve_room(self, ref) -> dict | None:
+        """A room from an id, a numeric string or a name (case does not matter); None when there is no such room."""
+        with self.lock:
+            if isinstance(ref, str) and ref.strip().isdigit():
+                ref = int(ref)
+            if isinstance(ref, int):
+                return self.get_room(ref)
+            if isinstance(ref, str):
+                return next((self._room(r) for r in self.db.execute("SELECT * FROM rooms") if r["name"].casefold() == ref.strip().casefold()), None)
+            return None
+
+    def active_room(self) -> dict | None:
+        with self.lock:
+            return self._room(self.db.execute("SELECT * FROM rooms WHERE active=1 LIMIT 1").fetchone())
+
+    def set_active(self, room_id: int | None) -> dict | None:
+        """The user's choice of room: the default for Find, Explore and the Reality API. None clears it."""
+        with self.lock:
+            if room_id is not None and self.get_room(room_id) is None:
+                raise KeyError(f"no room {room_id}")
+            self.db.execute("UPDATE rooms SET active=0")
+            if room_id is not None:
+                self.db.execute("UPDATE rooms SET active=1 WHERE id=?", (room_id,))
+            self.db.commit()
+            return self.active_room()
+
+    def rename_room(self, room_id: int, name: str) -> dict:
+        with self.lock:
+            if self.get_room(room_id) is None:
+                raise KeyError(f"no room {room_id}")
+            name = self._clean_name(name)
+            if self._name_taken(name, room_id):
+                raise RoomNameError(f"there is already a room called {name}", duplicate=True)
+            self.db.execute("UPDATE rooms SET name=? WHERE id=?", (name, room_id))
+            self.db.commit()
+            return self.get_room(room_id)
+
+    def delete_room(self, room_id: int) -> bool:
+        """Erase a room with every scan, frame, photo, detection and object in it."""
+        with self.lock:
+            if self.get_room(room_id) is None:
+                return False
+            for s in self.db.execute("SELECT id FROM scans WHERE room_id=?", (room_id,)).fetchall():
+                self.delete_scan(s["id"])
+            self.db.execute("DELETE FROM change_reviews WHERE room_id=?", (room_id,))
+            self.db.execute("DELETE FROM rooms WHERE id=?", (room_id,))
+            self.db.commit()
+            return True
+
+    def delete_all(self) -> dict:
+        """Every room and scan, with their files."""
+        with self.lock:
+            rooms = [r["id"] for r in self.db.execute("SELECT id FROM rooms")]
+            n_scans = sum(1 for r in rooms for _ in self.db.execute("SELECT id FROM scans WHERE room_id=?", (r,)).fetchall())
+            for r in rooms:
+                self.delete_room(r)
+            for s in self.db.execute("SELECT id FROM scans").fetchall():  # a scan with a room that no longer exists
+                self.delete_scan(s["id"])
+            return {"rooms": len(rooms), "scans": n_scans}
+
+    def scan_room_id(self, scan_id: int) -> int | None:
+        with self.lock:
+            r = self.db.execute("SELECT room_id FROM scans WHERE id=?", (scan_id,)).fetchone()
+            return r["room_id"] if r else None
+
+    def room_stats(self, room: dict) -> dict:
+        """What a room card shows: the memory's object count and coverage, and when it was last scanned."""
+        with self.lock:
+            sid = self.latest_scan_id(room["id"])
+            n = self.db.execute("SELECT COUNT(*) AS n FROM scans WHERE room_id=? AND status='saved'", (room["id"],)).fetchone()["n"]
+            drafts = self.db.execute("SELECT COUNT(*) AS n FROM scans WHERE room_id=? AND status='draft'", (room["id"],)).fetchone()["n"]
+            out = {**room, "n_scans": n, "n_drafts": drafts, "scan_id": sid, "n_objects": 0, "coverage_pct": 0, "last_scanned": None}
+            if sid is not None:
+                s = self.get_scan(sid)
+                out.update(n_objects=s["n_objects"], last_scanned=s["ended_at"] or s["started_at"],
+                           coverage_pct=round(coverage(self.list_frames(sid))["fraction"] * 100))
+            return out
+
+    def list_rooms(self) -> list[dict]:
+        """Every room with its stats; most recently scanned first, rooms never scanned last."""
+        with self.lock:
+            rooms = [self.room_stats(self._room(r)) for r in self.db.execute("SELECT * FROM rooms")]
+        return sorted(rooms, key=lambda r: (r["last_scanned"] is None, -(r["last_scanned"] or 0), r["name"].casefold()))
+
+    def room_scans(self, room_id: int) -> list[dict]:
+        """A room's scan history, newest first: saved scans, an unsaved draft, and which one is the comparison baseline."""
+        return [s for s in self.list_scans() if s["room_id"] == room_id and s["n_frames"] > 0]
+
+    def save_scan(self, scan_id: int) -> bool:
+        """Make a draft scan its room's memory. False if there is no such draft or it stored nothing."""
+        with self.lock:
+            s = self.get_scan(scan_id)
+            if not s or s["status"] != "draft" or s["n_frames"] == 0:
+                return False
+            self.db.execute("UPDATE scans SET status='saved' WHERE id=?", (scan_id,))
+            self.db.commit()
+            return True
+
+    def set_baseline(self, room_id: int, scan_id: int | None) -> None:
+        """Choose which saved scan What changed compares against (None: the one before the latest)."""
+        with self.lock:
+            if scan_id is not None:
+                s = self.get_scan(scan_id)
+                if not s or s["room_id"] != room_id or s["status"] != "saved":
+                    raise ValueError("the baseline must be a saved scan of this room")
+            self.db.execute("UPDATE scans SET baseline=0 WHERE room_id=?", (room_id,))
+            if scan_id is not None:
+                self.db.execute("UPDATE scans SET baseline=1 WHERE id=?", (scan_id,))
+            self.db.commit()
+
+    def default_compare(self, room_id: int) -> tuple[int, int] | None:
+        """(before, after) for What changed: the latest saved scan against the baseline, else against the one before it."""
+        saved = [s for s in self.room_scans(room_id) if s["status"] == "saved"]
+        if len(saved) < 2:
+            return None
+        after = saved[0]
+        base = next((s for s in saved[1:] if s["baseline"]), saved[1])
+        return base["id"], after["id"]
+
+    def set_review(self, room_id: int, before: int, after: int, key: str, state: str | None) -> None:
+        with self.lock:
+            if state is None:
+                self.db.execute("DELETE FROM change_reviews WHERE room_id=? AND scan_before=? AND scan_after=? AND change_key=?", (room_id, before, after, key))
+            else:
+                self.db.execute("INSERT OR REPLACE INTO change_reviews VALUES (?,?,?,?,?)", (room_id, before, after, key, state))
+            self.db.commit()
+
+    def reviews(self, room_id: int, before: int, after: int) -> dict[str, str]:
+        with self.lock:
+            return {r["change_key"]: r["state"] for r in self.db.execute(
+                "SELECT change_key, state FROM change_reviews WHERE room_id=? AND scan_before=? AND scan_after=?", (room_id, before, after))}
 
     def list_frames(self, scan_id: int) -> list[dict]:
         with self.lock:
@@ -476,20 +689,17 @@ class WorldModel:
             return d
 
     def where_is(self, label: str, alternates: tuple[str, ...] | list[str] = (), scan_id: int | None = None) -> dict | None:
-        """Where an object is, from the latest scan that contains it (or `scan_id`). None if never seen."""
+        """Where an object is, in one scan: `scan_id`, which callers take from a room's memory (its latest saved scan).
+        Older scans are not searched. None if it is not in that scan."""
         with self.lock:
-            latest = self.latest_scan_id()
-            if scan_id is not None:
-                scans = [scan_id]
-            else:
-                scans = [r["id"] for r in self.db.execute("SELECT id FROM scans ORDER BY started_at DESC, id DESC")]
-            for sid in scans:
-                hits = self.find(label, alternates, sid)
-                if hits:
-                    o = hits[0]
-                    break
-            else:
+            sid = scan_id if scan_id is not None else self.latest_scan_id()
+            if sid is None:
                 return None
+            hits = self.find(label, alternates, sid)
+            if not hits:
+                return None
+            o = hits[0]
+            latest = self.latest_scan_id(self.scan_room_id(sid))
             start = self.scan_start_pose(sid)
             offset = None
             if start:
@@ -502,6 +712,6 @@ class WorldModel:
                 speech += f", {other['relation']} the {other['label']}"
             elif nbrs:
                 speech += f", {nbrs[0]['relation']} another {nbrs[0]['label']}"
-            speech += "." if sid == latest else ", in an earlier scan; it was not in the latest scan."
+            speech += "."
             return {"object": o, "scan_id": sid, "is_latest_scan": sid == latest, "anchor": {"yaw": o["yaw"], "pitch": o["pitch"]},
                     "from_scan_start": offset, "neighbors": nbrs, "replay": self.replay(o["id"]), "speech": speech}

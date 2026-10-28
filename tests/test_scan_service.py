@@ -46,8 +46,15 @@ async def seg(data_url, concept):
     return SamCall([SamObject("1", (220.0, 300.0, 260.0, 340.0), 0.9, None)], 5.0, 2.0, "completed", 0)
 
 
+def save_drafts(svc):
+    """Live scans are drafts until the user saves them; most tests want them to be a room's memory."""
+    for s in svc.wm.list_scans():
+        svc.wm.save_scan(s["id"])
+
+
 def make_service(tmp_path, **kw):
     wm = WorldModel(frames_dir=tmp_path / "frames")
+    wm.create_room("Test", active=True)  # scans and questions go to the active room unless they name another
     reasoner = FakeReasoner()
     return ScanService(wm, ScanPipeline(wm, reasoner, seg), reasoner, **kw)
 
@@ -120,6 +127,7 @@ def test_queue_full_and_failed_frames(tmp_path):
             raise RuntimeError("boom")
 
     wm = WorldModel()
+    wm.create_room("Test", active=True)
     svc2 = ScanService(wm, ScanPipeline(wm, BoomReasoner(), seg), BoomReasoner())
     ev2 = []
 
@@ -194,7 +202,9 @@ def test_websocket_scan_find_and_frame_route(client):
         got = collect(ws, "scan_summary")
         summary = got[-1]
         assert summary["frames"]["stored"] == 3 and summary["objects"][0]["label"] == "mug"
+        assert summary["status"] == "draft" and summary["room_name"] == "Test" and summary["objects"][0]["replay"]["frame_id"]
         assert sum(m["type"] == "frame_done" for m in got) == 3
+        save_drafts(client.svc)
 
         ws.send_text(json.dumps({"type": "find", "query": "the thing I drink coffee from"}))
         r = ws.receive_json()
@@ -233,6 +243,7 @@ def test_bus_sees_scan_events_world_updates_and_find(tmp_path):
         await s.start()
         await s.submit(1, jpeg(), meta(0))
         await s.end()
+        save_drafts(svc)
         await svc.find("something to drink coffee from")
         types = []
         while not sub.queue.empty():

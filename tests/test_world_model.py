@@ -110,13 +110,15 @@ def test_where_is_speech_replay_and_scan_start(wm):
     assert wm.where_is("scissors") is None
 
 
-def test_where_is_falls_back_to_earlier_scan(wm):
+def test_where_is_only_looks_in_the_latest_saved_scan(wm):
+    """A room's memory is its latest saved scan: an older scan is kept for what-changed but never answers a question."""
     s1 = wm.start_scan(ts=1.0)
     wm.observe(frame(wm, s1, 1.0, 0.0), [{"label": "scissors", "box": centre_box()}])
     s2 = wm.start_scan(ts=2.0)
     wm.observe(frame(wm, s2, 2.0, 0.0), [{"label": "mug", "box": centre_box()}])
-    r = wm.where_is("scissors")
-    assert r["scan_id"] == s1 and not r["is_latest_scan"] and "earlier scan" in r["speech"]
+    assert wm.where_is("scissors") is None
+    assert wm.where_is("mug")["scan_id"] == s2 and wm.where_is("mug")["is_latest_scan"]
+    assert wm.where_is("scissors", scan_id=s1)["scan_id"] == s1  # still reachable when asked for by id
 
 
 def test_list_objects_since_and_latest_default(wm):

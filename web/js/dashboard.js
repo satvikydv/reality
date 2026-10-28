@@ -77,11 +77,11 @@ let scans = [];
 async function loadScans() {
   try {
     const r = await fetch('/api/scans'); if (!r.ok) return;
-    scans = (await r.json()).scans.filter(s => s.n_frames > 0);
+    scans = (await r.json()).scans.filter(s => s.n_frames > 0 && s.status !== 'draft');
   } catch { return; }
   for (const [id, pick] of [['sa', scans[1]], ['sb', scans[0]]]) {
     const sel = $(id), keep = sel.value;
-    sel.replaceChildren(...scans.map(s => new Option(`#${s.id} · ${new Date(s.started_at * 1000).toLocaleTimeString([], {hour12: false})} · ${s.n_objects} objects`, s.id)));
+    sel.replaceChildren(...scans.map(s => new Option(`${s.room_name ? s.room_name + ' · ' : ''}#${s.id} · ${new Date(s.started_at * 1000).toLocaleTimeString([], {hour12: false})} · ${s.n_objects} objects`, s.id)));
     sel.value = keep && scans.some(s => String(s.id) === keep) ? keep : (pick ? pick.id : '');
   }
 }

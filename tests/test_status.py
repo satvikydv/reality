@@ -23,6 +23,12 @@ def run_scan(ws, yaws=(0,)):
             return m
 
 
+def run_saved(client, ws, yaws=(0,)):
+    m = run_scan(ws, yaws)
+    client.svc.wm.save_scan(m["scan_id"])
+    return m
+
+
 class FakeModels:
     def __init__(self, outcome):
         self.outcome, self.calls = outcome, 0
@@ -95,7 +101,7 @@ def test_status_empty_then_after_a_scan(client, monkeypatch):
     assert r["server"] is True and r["api"]["state"] == "ok" and r["last_scan"] is None and r["scans"] == 0
 
     with client.websocket_connect("/ws") as ws:
-        run_scan(ws, yaws=(0, 90))
+        run_saved(client, ws, yaws=(0, 90))
     r = client.get("/api/status").json()
     last = r["last_scan"]
     assert r["scans"] == 1 and last["n_objects"] == 2 and last["n_frames"] == 2
@@ -177,7 +183,7 @@ def test_not_found_says_how_much_was_checked(client):
         ws.send_text(json.dumps({"type": "find", "query": "mug"}))
         r = ws.receive_json()
         assert r["found"] is False and r["checked"] == {"scans": 0, "covered_deg": 0, "scan_id": None}
-        run_scan(ws, yaws=(0, 60))
+        run_saved(client, ws, yaws=(0, 60))
         ws.send_text(json.dumps({"type": "find", "query": "mug"}))
         ok = ws.receive_json()
         assert ok["found"] is True and "checked" not in ok

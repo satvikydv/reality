@@ -22,7 +22,9 @@ async def scan(svc, yaws):
     await s.start()
     for i, y in enumerate(yaws):
         await s.submit(i + 1, jpeg(), meta(y))
-    return (await s.end())["scan_id"]
+    sid = (await s.end())["scan_id"]
+    svc.wm.save_scan(sid)  # a live scan is a draft until it is saved; the API reads saved scans
+    return sid
 
 
 def test_where_is_found_reports_trust_and_hides_paths(tmp_path):
@@ -44,7 +46,7 @@ def test_where_is_found_reports_trust_and_hides_paths(tmp_path):
 def test_where_is_not_seen_says_how_much_was_scanned(tmp_path):
     svc = make_service(tmp_path)
     r = run(api.where_is(svc, "my keys"))  # nothing scanned at all
-    assert r["status"] == "not_seen" and r["latest_scan_id"] is None and "covered 0 of 360" in r["message"]
+    assert r["status"] == "no_scans" and "has not been scanned yet" in r["message"]  # no memory in this room: nothing to search
 
     async def go():
         await scan(svc, [0])
@@ -69,6 +71,8 @@ def test_where_is_unresolved(tmp_path):
             return Result(text="", parsed={"concept": "", "alternates": [], "confidence": 0.0})
 
     wm = WorldModel(frames_dir=tmp_path / "f")
+    wm.create_room("Test", active=True)
+    wm.add_frame(wm.start_scan(), 1.0, 0.0, 0.0, 480, 640)  # a saved scan with a frame: the room has a memory to ask about
     reasoner = Nothing()
     svc = ScanService(wm, ScanPipeline(wm, reasoner, seg), reasoner)
     assert run(api.where_is(svc, "what is the meaning of life"))["status"] == "unresolved"
@@ -81,7 +85,7 @@ def test_list_objects_and_scan_summary(tmp_path):
     allo = api.list_objects(svc)
     assert allo["status"] == "ok" and allo["scan_id"] == sid and allo["count"] == 3 and {o["label"] for o in allo["objects"]} == {"mug"}
     assert api.list_objects(svc, label="laptop")["count"] == 0 and api.list_objects(svc, label="mugs")["count"] == 3
-    assert api.list_objects(svc, scan_id=99)["status"] == "no_scans"
+    assert api.list_objects(svc, scan_id=99)["status"] == "no_such_scan"
     s = api.scan_summary(svc)
     assert s["object_count"] == 3 and s["counts"] == {"mug": 3} and s["frames"] == 3 and s["summary"] == "3 mugs." and s["coverage"]["covered_deg"] > 100
 

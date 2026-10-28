@@ -26,7 +26,8 @@ def test_tools_are_listed_with_descriptions(tmp_path):
             return {t.name: t for t in (await c.list_tools()).tools}
 
     tools = run(go())
-    assert set(tools) == {"where_is", "list_objects", "scan_summary", "what_changed", "guide_user_to", "get_frame"}
+    assert set(tools) == {"list_rooms", "where_is", "list_objects", "scan_summary", "what_changed", "guide_user_to", "get_frame"}
+    assert all("room" in tools[t].input_schema["properties"] for t in tools if t not in ("list_rooms", "get_frame"))  # every tool can name a room
     assert "plain-language" not in tools["where_is"].description and "compass direction" in tools["where_is"].description
     assert tools["where_is"].input_schema["required"] == ["query"]
 
@@ -51,7 +52,7 @@ def test_agent_asks_and_dashboard_sees_the_calls(tmp_path):
     assert missing.is_error
     calls = [e for e in svc.bus.history() if e["type"] == "agent_call"]
     assert [e["tool"] for e in calls] == ["where_is", "scan_summary", "list_objects", "get_frame", "get_frame"]
-    assert calls[0]["args"] == {"query": "the thing I drink coffee from"} and calls[0]["status"] == "found" and calls[0]["answer"].startswith("The mug")
+    assert calls[0]["args"] == {"query": "the thing I drink coffee from", "room": None} and calls[0]["status"] == "found" and calls[0]["answer"].startswith("The mug")
     assert all(e["source"] == "agent" and "ms" in e for e in calls)
     assert calls[0]["sighting"]["frame_id"] == found["sighting"]["frame_id"] and calls[0]["object_id"] == found["object"]["id"]  # the dashboard shows what the agent was told
 

@@ -24,8 +24,11 @@ def test_scan_list_and_changes_endpoints(client):
             assert ws.receive_json()["type"] == "scan_started"
             ws.send_bytes(frame_msg(1, 2, meta(yaw), jpeg()))
             ws.send_text(json.dumps({"type": "scan_end"}))
-            while ws.receive_json()["type"] != "scan_summary":
-                pass
+            while True:
+                m = ws.receive_json()
+                if m["type"] == "scan_summary":
+                    break
+            client.svc.wm.save_scan(m["scan_id"])
 
     scans = client.get("/api/scans").json()["scans"]
     assert [s["n_frames"] for s in scans] == [1, 1] and scans[0]["id"] > scans[1]["id"]
@@ -56,8 +59,11 @@ def test_overlay_endpoint_serves_what_the_phone_draws(client):
         assert ws.receive_json()["type"] == "scan_started"
         ws.send_bytes(frame_msg(1, 2, meta(40), jpeg()))
         ws.send_text(json.dumps({"type": "scan_end"}))
-        while ws.receive_json()["type"] != "scan_summary":
-            pass
+        while True:
+            m = ws.receive_json()
+            if m["type"] == "scan_summary":
+                break
+        client.svc.wm.save_scan(m["scan_id"])
     r = client.get("/api/overlay").json()
     assert r["status"] == "ok" and r["fov_calibrated"] in (True, False)
     o = r["objects"][0]

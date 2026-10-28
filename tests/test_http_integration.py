@@ -52,6 +52,7 @@ def test_agent_dashboard_and_phone_share_one_memory(live):
                 await phone.send(frame_msg(i + 1, 2, meta(yaw), jpeg()))
             await phone.send(json.dumps({"type": "scan_end"}))
             summary = await until(phone, "scan_summary")
+            svc.wm.save_scan(summary["scan_id"])  # a live scan is a draft until saved
 
             async with websockets.connect(f"ws://127.0.0.1:{port}/ws/events") as dash:
                 replayed = await until(dash, "scan_summary")  # a dashboard opened later still sees the scan

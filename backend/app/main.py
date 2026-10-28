@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, HTTPException, Response, WebSocket
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 from starlette.routing import Route
 
@@ -21,6 +22,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from app.auth import AccessTokenMiddleware
 from app import mcp_server, reality_api, scan_service, status
+from app.world_model import RoomNameError
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "web"
@@ -145,15 +147,208 @@ async def api_delete_scans():
 
 
 @app.get("/api/changes")
-async def api_changes(before: int | None = None, after: int | None = None):
-    """What changed between two scans (default: the latest against the one before): same answer the Reality API gives."""
-    return reality_api.what_changed(_service_or_503(), before, after)
+async def api_changes(before: int | None = None, after: int | None = None, room_id: int | None = None):
+    """What changed between two scans of one room (default room: the active one): same answer the Reality API gives.
+    Two scans from different rooms are a 400."""
+    svc = _service_or_503()
+    if room_id is None and before is not None and after is not None:  # the room is the one both scans belong to
+        a, b = svc.wm.get_scan(before), svc.wm.get_scan(after)
+        if a and b and a["room_id"] != b["room_id"]:
+            raise HTTPException(400, "those scans are from different rooms; scans of different rooms cannot be compared")
+        room_id = a["room_id"] if a else None
+    return _changes_for(svc, before, after, room_id)
+
+
+def _changes_for(svc, before, after, room_id):
+    r = reality_api.what_changed(svc, before, after, room_id)
+    if r.get("status") in ("wrong_room", "not_saved"):
+        raise HTTPException(400, r["message"])
+    return r
 
 
 @app.get("/api/overlay")
-async def api_overlay(scan_id: int | None = None):
-    """Objects of a scan (default: the latest) with what the phone needs to draw them world-locked over the camera."""
-    return reality_api.overlay(_service_or_503(), scan_id)
+async def api_overlay(scan_id: int | None = None, room_id: int | None = None):
+    """Objects of one room's memory (default room: the active one) with what the phone needs to draw them over the camera."""
+    return reality_api.overlay(_service_or_503(), scan_id, room_id)
+
+
+class RoomIn(BaseModel):
+    name: str
+    active: bool = False
+
+
+class RoomPatch(BaseModel):
+    name: str | None = None
+    active: bool | None = None
+
+
+class BaselineIn(BaseModel):
+    scan_id: int | None = None
+
+
+class ReviewIn(BaseModel):
+    before: int
+    after: int
+    key: str
+    state: str | None = None
+
+
+class GuideIn(BaseModel):
+    object_id: int
+    room_id: int | None = None
+
+
+def _svc() -> scan_service.ScanService:
+    return _service_or_503()
+
+
+def _room_or_404(room_id: int) -> dict:
+    room = _svc().wm.get_room(room_id)
+    if room is None:
+        raise HTTPException(404, f"no room {room_id}")
+    return room
+
+
+def _http_for(result: dict) -> dict:
+    """Reality API answers carry a `status`; the ones that mean "that request mixes rooms" or names nothing are HTTP errors."""
+    st = result.get("status")
+    if st in ("wrong_room", "stale", "bad_request", "not_saved"):
+        raise HTTPException(400, result.get("message") or st)
+    if st in ("no_such_room", "no_such_scan", "no_such_object"):
+        raise HTTPException(404, result.get("message") or st)
+    return result
+
+
+@app.get("/api/rooms")
+async def api_rooms():
+    """Every room with its card data, the active room, and the most recently seen objects across all of them."""
+    svc = _svc()
+    rooms = svc.wm.list_rooms()
+    return {"rooms": rooms, "active_id": next((r["id"] for r in rooms if r["active"]), None), "recent": reality_api.recent_objects(svc)}
+
+
+@app.post("/api/rooms", status_code=201)
+async def api_create_room(body: RoomIn):
+    try:
+        return _svc().wm.create_room(body.name, active=body.active)
+    except RoomNameError as e:
+        raise HTTPException(409 if e.duplicate else 400, str(e))
+
+
+@app.get("/api/rooms/{room_id}")
+async def api_room(room_id: int):
+    return _http_for(reality_api.room_detail(_svc(), room_id))
+
+
+@app.patch("/api/rooms/{room_id}")
+async def api_patch_room(room_id: int, body: RoomPatch):
+    wm = _svc().wm
+    _room_or_404(room_id)
+    try:
+        if body.name is not None:
+            wm.rename_room(room_id, body.name)
+        if body.active is True:
+            wm.set_active(room_id)
+        elif body.active is False and (wm.active_room() or {}).get("id") == room_id:
+            wm.set_active(None)
+    except RoomNameError as e:
+        raise HTTPException(409 if e.duplicate else 400, str(e))
+    return wm.room_stats(wm.get_room(room_id))
+
+
+@app.delete("/api/rooms/{room_id}")
+async def api_delete_room(room_id: int):
+    """Erase a room with all its scans, frames and photos."""
+    _room_or_404(room_id)
+    _svc().wm.delete_room(room_id)
+    return {"deleted": room_id}
+
+
+@app.get("/api/rooms/{room_id}/scans")
+async def api_room_scans(room_id: int):
+    """A room's scan history, newest first, with which scan is the baseline and which is an unsaved draft."""
+    _room_or_404(room_id)
+    return {"room_id": room_id, "scans": _svc().wm.room_scans(room_id)}
+
+
+def _scan_of_room(room_id: int, scan_id: int) -> dict:
+    _room_or_404(room_id)
+    s = _svc().wm.get_scan(scan_id)
+    if s is None:
+        raise HTTPException(404, f"no scan {scan_id}")
+    if s["room_id"] != room_id:
+        raise HTTPException(400, f"scan {scan_id} is not a scan of room {room_id}")
+    return s
+
+
+@app.post("/api/rooms/{room_id}/baseline")
+async def api_set_baseline(room_id: int, body: BaselineIn):
+    """Choose the saved scan What changed compares against (null: the scan before the latest)."""
+    _room_or_404(room_id)
+    try:
+        _svc().wm.set_baseline(room_id, body.scan_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"room_id": room_id, "baseline": body.scan_id}
+
+
+@app.post("/api/rooms/{room_id}/scans/{scan_id}/save")
+async def api_save_scan(room_id: int, scan_id: int):
+    """Keep a reviewed scan: it becomes the room's memory (the older scans stay for What changed)."""
+    s = _scan_of_room(room_id, scan_id)
+    if s["status"] == "saved":
+        return {"saved": scan_id, "already": True}
+    if not _svc().wm.save_scan(scan_id):
+        raise HTTPException(400, "this scan stored no frames, so there is nothing to save")
+    return {"saved": scan_id}
+
+
+@app.post("/api/rooms/{room_id}/scans/{scan_id}/discard")
+async def api_discard_scan(room_id: int, scan_id: int):
+    """Throw away a scan that was not saved. A saved scan is deleted with DELETE instead."""
+    s = _scan_of_room(room_id, scan_id)
+    if s["status"] != "draft":
+        raise HTTPException(409, "this scan is already saved; delete it from the room's history instead")
+    _svc().wm.delete_scan(scan_id)
+    return {"discarded": scan_id}
+
+
+@app.delete("/api/rooms/{room_id}/scans/{scan_id}")
+async def api_delete_room_scan(room_id: int, scan_id: int):
+    _scan_of_room(room_id, scan_id)
+    _svc().wm.delete_scan(scan_id)
+    return {"deleted": [scan_id]}
+
+
+@app.get("/api/rooms/{room_id}/changes")
+async def api_room_changes(room_id: int, before: int | None = None, after: int | None = None):
+    """What changed between two saved scans of this room. Scans of another room are a 400."""
+    _room_or_404(room_id)
+    return _changes_for(_svc(), before, after, room_id)
+
+
+@app.post("/api/rooms/{room_id}/changes/review")
+async def api_review_change(room_id: int, body: ReviewIn):
+    _room_or_404(room_id)
+    return _http_for(reality_api.review_change(_svc(), room_id, body.before, body.after, body.key, body.state))
+
+
+@app.get("/api/search")
+async def api_search(q: str = "", room_id: int | None = None):
+    """Objects by name across rooms (or in one room), grouped per room. Read-only."""
+    return _http_for(reality_api.search(_svc(), q, room_id))
+
+
+@app.post("/api/guide")
+async def api_guide(body: GuideIn):
+    """Check that the phone may guide to this object: it must be in the active room. Another room is a 400."""
+    return _http_for(reality_api.guide_target(_svc(), body.object_id, body.room_id))
+
+
+@app.delete("/api/data")
+async def api_delete_all_data():
+    """Every room and scan, with their frames and photos."""
+    return _svc().wm.delete_all()
 
 
 @app.get("/world/frame/{frame_id}.jpg")
@@ -211,7 +406,7 @@ async def ws(sock: WebSocket):
                     if kind == "scan_start":
                         if session is None:
                             session = get_service().session(send)
-                        await session.start(ctl.get("name"))
+                        await session.start(ctl.get("name"), ctl.get("room_id"))
                     elif kind == "scan_end":
                         if session is None or not session.active:
                             await send({"type": "error", "where": "scan_end", "message": "no scan running"})
@@ -221,7 +416,7 @@ async def ws(sock: WebSocket):
                         if session is not None and session.active:
                             await session.cancel()
                     elif kind == "find":
-                        await send(await get_service().find(str(ctl.get("query", ""))))
+                        await send(await get_service().find(str(ctl.get("query", "")), room_id=ctl.get("room_id"), all_rooms=bool(ctl.get("all_rooms"))))
                 except Exception as e:  # noqa: BLE001 - report to the phone, keep the socket
                     await fail(kind or "control", e)
                 continue

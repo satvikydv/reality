@@ -80,19 +80,23 @@ class KeyCheck:
 
 def last_scan(svc) -> tuple[dict | None, int]:
     """(summary of the newest scan that stored any frames, how many such scans exist)."""
-    scans = [s for s in svc.wm.list_scans() if s["n_frames"] > 0]
+    scans = [s for s in svc.wm.list_scans() if s["n_frames"] > 0 and s["status"] == "saved"]
     if not scans:
         return None, 0
     s = scans[0]
     cov = coverage(svc.wm.list_frames(s["id"]))
-    return {"id": s["id"], "started_at": s["started_at"], "ended_at": s["ended_at"], "n_objects": s["n_objects"], "n_frames": s["n_frames"],
+    return {"id": s["id"], "room_id": s["room_id"], "room_name": s["room_name"], "started_at": s["started_at"], "ended_at": s["ended_at"],
+            "n_objects": s["n_objects"], "n_frames": s["n_frames"],
             "coverage_pct": round(cov["fraction"] * 100), "covered_deg": cov["covered_deg"]}, len(scans)
 
 
 async def build(get_service, key_check: KeyCheck, force: bool = False, wait: float | None = WAIT_S) -> dict:
     out = {"server": True, "ts": time.time(), "api": await key_check.state(force, wait), "last_scan": None, "scans": 0, "service_error": None}
     try:
-        out["last_scan"], out["scans"] = last_scan(get_service())
+        svc = get_service()
+        out["last_scan"], out["scans"] = last_scan(svc)
+        out["active_room"] = svc.wm.active_room()
+        out["rooms"] = len(svc.wm.list_rooms())
     except Exception as e:  # noqa: BLE001 - usually the missing key; the api field already says so
         out["service_error"] = f"{type(e).__name__}: {e}"[:200]
     return out
