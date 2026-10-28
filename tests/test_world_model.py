@@ -158,3 +158,14 @@ def test_where_is_speech_names_a_different_object_first(wm):
     wm2 = wm.start_scan()
     wm.observe(frame(wm, wm2, 5.0, 0.0), [{"label": "mug", "box": centre_box(240, 320)}, {"label": "mug", "box": centre_box(300, 320)}])
     assert "of another mug" in wm.where_is("mug", scan_id=wm2)["speech"]
+
+
+def test_list_scans_newest_first_with_counts(wm):
+    a = wm.start_scan(name="first", ts=1.0)
+    wm.observe(frame(wm, a, 1.0, 0.0), [{"label": "mug", "box": centre_box()}])
+    b = wm.start_scan(name="second", ts=2.0)
+    wm.end_scan(b, ts=3.0)
+    scans = wm.list_scans()
+    assert [s["id"] for s in scans] == [b, a]
+    assert scans[1]["n_frames"] == 1 and scans[1]["n_objects"] == 1 and scans[0]["n_frames"] == 0 and scans[0]["ended_at"] == 3.0
+    assert wm.get_scan(a)["name"] == "first" and wm.get_scan(999) is None

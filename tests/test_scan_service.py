@@ -220,3 +220,28 @@ def test_websocket_scan_start_without_api_key(monkeypatch):
         assert e["type"] == "error" and e["where"] == "scan_start" and "MODEL_API_KEY" in e["message"]
         ws.send_bytes(frame_msg(1, 0, {}, jpeg()))  # the socket is still usable
         assert ws.receive_json()["seq"] == 1
+
+
+def test_bus_sees_scan_events_world_updates_and_find(tmp_path):
+    svc = make_service(tmp_path)
+
+    async def go():
+        async def send(o):
+            pass
+        sub = svc.bus.subscribe()
+        s = svc.session(send)
+        await s.start()
+        await s.submit(1, jpeg(), meta(0))
+        await s.end()
+        await svc.find("something to drink coffee from")
+        types = []
+        while not sub.queue.empty():
+            types.append((await sub.get())["type"])
+        return types
+
+    types = asyncio.run(go())
+    assert types[0] == "scan_started" and "world_update" in types and "frame_done" in types
+    assert types.index("world_update") < types.index("frame_done")  # map updates before the frame is reported
+    assert types[-2:] == ["scan_summary", "find_result"]
+    ev = [e for e in svc.bus.history() if e["type"] == "world_update"][0]
+    assert ev["objects"][0]["label"] == "mug" and "source" not in ev

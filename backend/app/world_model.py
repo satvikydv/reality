@@ -148,6 +148,18 @@ class WorldModel:
         f = self.get_frame(frame_id)
         return Path(f["path"]).read_bytes() if f and f["path"] and Path(f["path"]).exists() else None
 
+    def list_scans(self) -> list[dict]:
+        """Every scan, newest first, with how many frames and objects it holds."""
+        with self.lock:
+            return [dict(r) for r in self.db.execute(
+                "SELECT s.id, s.name, s.source, s.started_at, s.ended_at,"
+                " (SELECT COUNT(*) FROM frames f WHERE f.scan_id=s.id) AS n_frames,"
+                " (SELECT COUNT(*) FROM objects o WHERE o.scan_id=s.id) AS n_objects"
+                " FROM scans s ORDER BY s.started_at DESC, s.id DESC")]
+
+    def get_scan(self, scan_id: int) -> dict | None:
+        return next((s for s in self.list_scans() if s["id"] == scan_id), None)
+
     def list_frames(self, scan_id: int) -> list[dict]:
         with self.lock:
             return [dict(r) for r in self.db.execute("SELECT * FROM frames WHERE scan_id=? ORDER BY ts, id", (scan_id,))]

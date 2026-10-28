@@ -18,10 +18,11 @@ import logging
 import os
 import time
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from app.events import EventBus
 from app.resolver import semantic_find
 from app.scan import ScanPipeline, pose_from_meta
 from app.world_model import WorldModel
@@ -82,8 +83,9 @@ class ScanService:
     workers: int = 3
     max_queue: int = 32
     drain_timeout_s: float = 120.0
+    bus: EventBus = field(default_factory=EventBus)
 
-    async def find(self, query: str) -> dict:
+    async def find(self, query: str, source: str = "phone") -> dict:
         r = await semantic_find(self.reasoner, self.wm, query)
         found = r["found"]
         replay = None
@@ -93,8 +95,11 @@ class ScanService:
         concept = r["resolution"]["concept"]
         speech = found["speech"] if found else ("I have not seen that yet." if concept else "I did not understand what to look for.")
         obj = {k: found["object"][k] for k in ("id", "label", "yaw", "pitch", "n_obs", "conf_best")} if found else None
-        return {"type": "find_result", "query": query, "concept": concept, "found": found is not None, "speech": speech,
-                "object": obj, "from_scan_start": found["from_scan_start"] if found else None, "replay": replay, "needs_live_look": r["needs_live_look"], "skipped_llm": r["skipped_llm"]}
+        result = {"type": "find_result", "query": query, "concept": concept, "found": found is not None, "speech": speech,
+                  "object": obj, "from_scan_start": found["from_scan_start"] if found else None, "replay": replay,
+                  "needs_live_look": r["needs_live_look"], "skipped_llm": r["skipped_llm"]}
+        self.bus.publish({**result, "source": source})
+        return result
 
     def session(self, send: Send) -> "ScanSession":
         return ScanSession(self, send)
@@ -111,6 +116,7 @@ class ScanSession:
         self.t0 = 0.0
 
     async def emit(self, obj: dict) -> None:
+        self.svc.bus.publish({**obj, "source": "phone"})  # the dashboard sees everything the phone sees
         async with self._lock:
             try:
                 await self._send(obj)
@@ -159,6 +165,9 @@ class ScanSession:
                 log.info("scan %s frame %s: %s names=%s kept=%d objects=%d wait=%.1fs work=%.1fs $%.4f%s", self.scan_id, seq,
                          "stored" if rep.stored else "NOT STORED", rep.names, len(rep.detections), n_obj, t - t_enq,
                          time.perf_counter() - t, rep.usd, f" errors={rep.errors}" if rep.errors else "")
+                self.svc.bus.publish({"type": "world_update", "scan_id": self.scan_id, "objects": [
+                    {"id": o["id"], "label": o["label"], "yaw": round(o["yaw"], 1), "pitch": round(o["pitch"], 1), "n_obs": o["n_obs"]}
+                    for o in self.svc.wm.list_objects(self.scan_id)]})
                 await self.emit({"type": "frame_done", "seq": seq, "stored": rep.stored, "names": rep.names, "kept": len(rep.detections),
                                  "objects": n_obj, "spark_ms": round(rep.spark_ms), "sam_ms": round(rep.sam_ms), "usd": round(rep.usd, 4),
                                  "errors": rep.errors})
