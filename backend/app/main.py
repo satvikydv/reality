@@ -20,7 +20,7 @@ from starlette.routing import Route
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.auth import AccessTokenMiddleware
-from app import mcp_server, reality_api, scan_service
+from app import mcp_server, reality_api, scan_service, status
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "web"
@@ -66,6 +66,7 @@ FLAG_SCAN = 2  # keyframe for the running scan
 
 _service: scan_service.ScanService | None = None
 service_factory = scan_service.build_default_service  # tests replace this
+key_check = status.KeyCheck()  # tests replace this
 
 
 def get_service() -> scan_service.ScanService:
@@ -119,6 +120,28 @@ def _service_or_503() -> scan_service.ScanService:
 async def api_scans():
     """Every scan, newest first (for the dashboard's history and compare pickers)."""
     return {"scans": _service_or_503().wm.list_scans()}
+
+
+@app.get("/api/status")
+async def api_status(refresh: bool = False):
+    """Home screen health: server up (this answer), model API key state, the newest scan. Cheap enough to poll."""
+    return await status.build(get_service, key_check, force=refresh)
+
+
+@app.delete("/api/scans/{scan_id}")
+async def api_delete_scan(scan_id: int):
+    """Delete one scan with its frames, detections and objects."""
+    if not _service_or_503().wm.delete_scan(scan_id):
+        raise HTTPException(404, f"no scan {scan_id}")
+    return {"deleted": [scan_id]}
+
+
+@app.delete("/api/scans")
+async def api_delete_scans():
+    """Delete every scan (the phone asks for a confirmation first)."""
+    wm = _service_or_503().wm
+    ids = [s["id"] for s in wm.list_scans()]
+    return {"deleted": [i for i in ids if wm.delete_scan(i)]}
 
 
 @app.get("/api/changes")
@@ -194,6 +217,9 @@ async def ws(sock: WebSocket):
                             await send({"type": "error", "where": "scan_end", "message": "no scan running"})
                         else:
                             await session.end()
+                    elif kind == "scan_cancel":
+                        if session is not None and session.active:
+                            await session.cancel()
                     elif kind == "find":
                         await send(await get_service().find(str(ctl.get("query", ""))))
                 except Exception as e:  # noqa: BLE001 - report to the phone, keep the socket

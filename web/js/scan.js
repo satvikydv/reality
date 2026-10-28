@@ -9,10 +9,11 @@ const AUTO_FINISH = 0.97; // coverage fraction that ends the scan by itself
 
 export class ScanController {
   // deps: video, orient (OrientationTracker), sock (FrameSocket), grabJpeg(video, side, quality), camera() -> object, onChange(state),
-  // fov() -> the horizontal field of view in degrees (the one the server uses), guard (CameraGuard, optional)
-  constructor({ video, orient, sock, grabJpeg, camera, onChange, fov = () => 60, guard = null }) {
+  // fov() -> the horizontal field of view in degrees (the one the server uses), guard (CameraGuard, optional),
+  // policy: options for the keyframe policy (e.g. minIntervalMs from the keyframe rate setting)
+  constructor({ video, orient, sock, grabJpeg, camera, onChange, fov = () => 60, guard = null, policy = {} }) {
     Object.assign(this, { video, orient, sock, grabJpeg, camera, onChange, fov, guard });
-    this.policy = new KeyframePolicy();
+    this.policy = new KeyframePolicy(policy);
     this.coverage = new Coverage();
     this.timer = null;
     this.busy = false;
@@ -22,7 +23,8 @@ export class ScanController {
   reset() {
     this.policy.reset();
     this.coverage.reset();
-    this.st = { phase: "idle", sent: 0, queued: 0, done: 0, stored: 0, rejected: 0, objects: 0, hint: "", status: "", yaw: null, summary: null, error: null, names: [] };
+    this.st = { phase: "idle", sent: 0, queued: 0, done: 0, stored: 0, rejected: 0, objects: 0, hint: "", status: "", yaw: null, summary: null, error: null, names: [],
+      scanId: null, doneAt: null, progressAt: null };
   }
 
   get phase() { return this.st.phase; }
@@ -47,13 +49,28 @@ export class ScanController {
   done() {
     if (this.st.phase !== "scanning") return;
     this.st.phase = "finishing";
+    this.st.doneAt = this.st.progressAt = performance.now();
     this.st.status = `processing ${this.st.sent - this.st.done - this.st.rejected} frame(s)…`;
     this.sock.sendJson({ type: "scan_end" });
     this._emit();
   }
 
+  // The user discarded the scan: the server stops and deletes it. Nothing comes back.
+  cancel() {
+    clearInterval(this.timer);
+    if (this.st.phase === "idle") return;
+    this.sock.sendJson({ type: "scan_cancel" });
+    this.reset();
+    this._emit();
+  }
+
+  // The scan cannot go on (camera changed, page hidden, link lost). What was sent is kept: the server finishes it, so the
+  // next scan can start. (If the link is gone, the server closes the scan itself.)
   abort(message) {
     clearInterval(this.timer);
+    if (this.st.phase === "scanning") this.sock.sendJson({ type: "scan_end" });
+    else if (this.st.phase === "starting") this.sock.sendJson({ type: "scan_cancel" });
+    this.st.aborted = true;
     this.st.phase = "error";
     this.st.error = message;
     this._emit();
@@ -62,20 +79,23 @@ export class ScanController {
   onEvent(ev) {
     const st = this.st;
     switch (ev.type) {
-      case "scan_started": st.phase = "scanning"; st.status = "scanning: pan slowly"; break;
+      case "scan_started": st.phase = "scanning"; st.scanId = ev.scan_id; st.status = "scanning: pan slowly"; break;
+      case "scan_cancelled": return;
       case "frame_queued": st.queued = ev.queued; break;
-      case "frame_rejected": st.rejected++; st.hint = ev.reason; break;
+      case "frame_rejected": st.rejected++; st.progressAt = performance.now(); st.hint = ev.reason; break;
       case "frame_done":
+        st.progressAt = performance.now();
         st.done++;
         if (ev.stored) st.stored++;
         st.objects = ev.objects;
         st.names = ev.names;
         if (ev.errors?.length) st.hint = `frame ${ev.seq}: ${ev.errors[0]}`;
         break;
-      case "frame_error": st.done++; st.hint = `frame ${ev.seq}: ${ev.error}`; break;
+      case "frame_error": st.done++; st.progressAt = performance.now(); st.hint = `frame ${ev.seq}: ${ev.error}`; break;
       case "scan_summary":
         clearInterval(this.timer);
         st.phase = "done";
+        st.scanId = ev.scan_id ?? st.scanId;
         st.summary = ev;
         st.status = ev.speech;
         break;

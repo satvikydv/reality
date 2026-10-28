@@ -26,6 +26,66 @@ Status legend: **TODO** not run yet · **DONE** measured.
 - [x] `reasoning.effort: "low"` accepted on `muse-spark-1.3` (2026-10-28, `resolve_queries.py`); other values untested
 - [x] Spark strict `json_schema` via the Responses API works for a flat schema (concept/alternates/confidence); the recursive plan schema is still untested
 
+## Phone first run and navigation: manual checklist
+
+Status: **not run on a phone yet.** The page logic is covered by `tests/test_entry_flow.py` (headless Chrome over the DevTools protocol with a canvas as the camera, 55 tests) and `tests/js/`, which cannot show how a real Android or iOS browser behaves. Work through this on the phone, tick what holds, and write what does not under the item. Setup: `PLAIN_HTTP=1`, `adb reverse tcp:8000 tcp:8000`, inspect the page from `chrome://inspect` to read `__ui.session().state` (the camera, wake lock and portrait lock as the page sees them). To repeat a first run: Chrome, site settings, clear data for localhost (or use a private tab).
+
+Record: device ______ · browser and version ______ · date ______
+
+**Nothing starts by itself**
+- [ ] First visit (cleared data): the intro card appears. No permission prompt, no camera indicator in the status bar, no camera picture behind it.
+- [ ] Returning visit: lands on Home on a plain dark background. No prompt, no camera indicator. In the inspector `__ui.session().state.camera` is `"off"`.
+- [ ] Wait 30 s on Home: still no camera indicator, no prompt, no battery drain from the camera.
+
+**Intro and permissions**
+- [ ] Three cards: what it does, how to scan, your data. Back, Next and Skip work. The last button says "Allow camera and motion".
+- [ ] Tapping it shows the primer. Still no browser prompt. Text names Camera and Motion sensors and says the microphone is only for the mic button.
+- [ ] Continue: the browser asks for the camera (and, on iPhone, motion first). Allow: lands on Home with "Allowed".
+- [ ] Reload: no intro, no primer. Settings, Replay intro: the cards show, finishing returns to Settings, a reload still shows no intro.
+- [ ] Block the camera (tap Block, or site settings), tap New scan: the primer shows "Camera access was blocked" with Try again. Unblock, Try again: the scan screen opens.
+- [ ] iPhone only: deny motion: "Motion access was blocked" with the steps; allow on retry.
+- [ ] Android: does motion need any prompt? Note what happened (`__ui.session()` and whether the compass tape moves).
+
+**Home**
+- [ ] The pill reads "Connected · API key valid". Record what it reads with the real Meta key (the key check lists models; if the API refuses that call the pill says "API key set" instead, which is expected).
+- [ ] Stop the server: within about 15 s the pill turns red "Server offline", New scan, Find something and What changed dim, Settings still opens. Start the server: it recovers within 10 s without a reload.
+- [ ] Remove `MODEL_API_KEY` and restart: "API key missing", New scan and Find dim, What changed still works.
+- [ ] Last scan card: after a scan it shows the same object count and coverage as the summary, and "just now" or minutes ago. With no scans: "No scan yet".
+
+**Camera lifecycle**
+- [ ] New scan: the camera opens, the red "Camera on · STOP" pill shows, the checklist shows. The light line reads fine in a lit room. Cover the lens: it reads dark within about a second.
+- [ ] STOP (or Cancel on the checklist): back on Home, the status-bar camera indicator is gone within a second.
+- [ ] Find something: camera on, Back turns it off. Ask for something: on the result screen the camera is off. Guide me: camera on again; END turns it off; Done turns it off.
+- [ ] Switch to another app, or to another tab, while on a camera screen: the indicator goes out at once. Coming back shows Home with "The camera was turned off because the page was hidden". The camera does not restart by itself.
+- [ ] During a scan, press the power button: the scan stops, "What it found so far is kept", and a new scan can be started afterwards.
+- [ ] Wake lock: set the phone's screen timeout to 15 s. On a camera screen the screen stays on past 15 s. After STOP it dims again. Record `state.wake`.
+- [ ] Portrait lock: record `state.portrait`. If it is `false` (expected on Chrome outside fullscreen), rotate to landscape during a scan and record what happens ("Hold the phone upright", or the camera guard stopping the scan).
+- [ ] Open the phone's own camera app during a scan: the scan stops with "The camera stopped".
+
+**Scan coaching**
+- [ ] Turn faster than a lap in 10 s: "Rotate slower". Point at the floor: "Tilt up a little". Point at the ceiling: "Tilt down a little".
+- [ ] Skip a part of the room: once the ring passes half, "Area not covered yet: N° to the left (right)".
+- [ ] The ring and percentage rise as frames are sent; the frame count matches the server log.
+- [ ] Cancel during a scan: "Discard this scan?" Keep scanning continues. Discard goes Home, and the scan is not in Settings, Your scans.
+- [ ] Done: the processing screen shows "Reading frames: n of m" and a bar that moves, then the summary.
+- [ ] Done, then break the link (stop `adb reverse` or the server): after about 30 s "No answer from the server for a while" with Check the server and Go home. Restore the link, Check the server: the summary appears from the stored scan.
+
+**Find, errors and captions**
+- [ ] Ask for an object that is in the scan: result with replay, Guide me works.
+- [ ] Ask for something that is not in the room: "Not found in your last scan", with the coverage percentage and the "not checked" explanation. With no scans stored: "Nothing has been scanned yet".
+- [ ] Slow answer (block the model API on the laptop): "Still looking" after 8 s, then "No answer from the server" with Try again after 30 s. Cancel in between works.
+- [ ] Every spoken reply is also on screen (result, summary, changes, guide hint, and the caption bar elsewhere). Mute the phone: everything still works by reading.
+- [ ] Typing instead of speaking works everywhere. Mic button: deny the microphone: "Microphone access is blocked. Type your question instead" and the text box is focused. Allow it: speak "where is my keys". Change the voice language in Settings and speak in it.
+- [ ] What changed with one scan only: "Nothing to compare yet" with a Scan the room button. With two scans: results as before.
+
+**Settings**
+- [ ] Keyframes per second 1 against 3: scan 30 s each and record the frame counts: 1/s ____ , 3/s ____ .
+- [ ] Voice language survives a reload. Delete one scan (confirm dialog, Keep it cancels), then Delete all scans.
+- [ ] No dots menu and no Debug HUD row on a normal URL. With `/?debug` both exist and the toggle works.
+
+**Demo**
+- [ ] `/?demo` and `/?demo&screen=welcome|primer|primer-denied|settings|ask|scan-ready|notfound|processing|changes-empty|home-offline|home-empty|home-nokey` open with no prompt of any kind.
+
 ## Results
 
 ### Phone camera / HTTPS

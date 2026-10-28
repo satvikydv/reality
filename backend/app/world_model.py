@@ -200,6 +200,34 @@ class WorldModel:
     def get_scan(self, scan_id: int) -> dict | None:
         return next((s for s in self.list_scans() if s["id"] == scan_id), None)
 
+    def delete_scan(self, scan_id: int) -> bool:
+        """Remove a scan with its frames, detections, objects and stored images. False when there is no such scan.
+        Only the image files this scan recorded, and only inside `frames_dir`, are deleted (plus the scan's own folder when
+        that is left empty); nothing is removed recursively."""
+        with self.lock:
+            if self.db.execute("SELECT 1 FROM scans WHERE id=?", (scan_id,)).fetchone() is None:
+                return False
+            paths = [r["path"] for r in self.db.execute("SELECT path FROM frames WHERE scan_id=? AND path IS NOT NULL", (scan_id,))]
+            self.db.execute("DELETE FROM observations WHERE object_id IN (SELECT id FROM objects WHERE scan_id=?)", (scan_id,))
+            for table in ("detections", "objects", "frames"):
+                self.db.execute(f"DELETE FROM {table} WHERE scan_id=?", (scan_id,))
+            self.db.execute("DELETE FROM scans WHERE id=?", (scan_id,))
+            self.db.commit()
+            self._logged.pop(scan_id, None)
+        root = self.frames_dir.resolve() if self.frames_dir else None
+        if root is not None:
+            for p in map(Path, paths):
+                try:
+                    if p.resolve().is_relative_to(root) and p.is_file():
+                        p.unlink()
+                except OSError:
+                    log.warning("could not remove stored frame %s", p)
+            try:
+                (root / str(scan_id)).rmdir()  # only succeeds when empty
+            except OSError:
+                pass
+        return True
+
     def list_frames(self, scan_id: int) -> list[dict]:
         with self.lock:
             return [dict(r) for r in self.db.execute("SELECT * FROM frames WHERE scan_id=? ORDER BY ts, id", (scan_id,))]

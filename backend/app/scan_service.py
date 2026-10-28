@@ -79,6 +79,10 @@ class ScanService:
         result = {"type": "find_result", "query": query, "concept": concept, "found": found is not None, "speech": speech,
                   "object": obj, "from_scan_start": found["from_scan_start"] if found else None, "replay": replay,
                   "needs_live_look": r["needs_live_look"], "skipped_llm": r["skipped_llm"]}
+        if not found:  # lets the phone say what "not found" means: nothing scanned yet, or how much of the room the scan covered
+            scans = [s for s in self.wm.list_scans() if s["n_frames"] > 0]
+            result["checked"] = {"scans": len(scans), "covered_deg": coverage(self.wm.list_frames(scans[0]["id"]))["covered_deg"] if scans else 0,
+                                 "scan_id": scans[0]["id"] if scans else None}
         self.bus.publish({**result, "source": source})
         return result
 
@@ -213,6 +217,17 @@ class ScanSession:
             t.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
         self.tasks = []
+
+    async def cancel(self) -> None:
+        """The user discarded the scan: stop the workers and delete everything it stored. No summary is sent."""
+        if not self.active:
+            return
+        sid = self.scan_id
+        await self._stop_workers()
+        self.scan_id = None
+        self.svc.wm.delete_scan(sid)
+        log.info("scan %s cancelled by the user and deleted", sid)
+        await self.emit({"type": "scan_cancelled", "scan_id": sid})
 
     async def close(self) -> None:
         """Socket gone: stop workers and close the scan with whatever was stored."""
