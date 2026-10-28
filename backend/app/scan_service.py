@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from app import anchoring as A
 from app.events import EventBus
 from app.resolver import semantic_find
 from app.scan import ScanPipeline, pose_from_meta
@@ -87,7 +88,10 @@ class ScanService:
         speech = found["speech"] if found else ("I have not seen that yet." if concept else "I did not understand what to look for.")
         obj = {k: found["object"][k] for k in ("id", "label", "yaw", "pitch", "n_obs", "conf_best")} if found else None
         if obj:
-            obj["age_s"] = round(max(0.0, time.time() - found["object"]["last_seen"]))
+            o = found["object"]
+            obj["age_s"] = round(max(0.0, time.time() - o["last_seen"]))
+            obj["uncertainty_deg"] = round(o.get("uncertainty_deg") or o["spread_deg"], 1)  # drawn as the cone around the arrow
+            obj["fov_error_deg"] = round(o.get("fov_err_deg") or 0.0, 1)
         result = {"type": "find_result", "query": query, "concept": concept, "found": found is not None, "speech": speech,
                   "object": obj, "from_scan_start": found["from_scan_start"] if found else None, "replay": replay,
                   "needs_live_look": r["needs_live_look"], "skipped_llm": r["skipped_llm"]}
@@ -107,6 +111,7 @@ class ScanSession:
         self.stats = Counter()
         self.usd = 0.0
         self.t0 = 0.0
+        self.clock_offset: float | None = None
 
     async def emit(self, obj: dict) -> None:
         self.svc.bus.publish({**obj, "source": "phone"})  # the dashboard sees everything the phone sees
@@ -126,9 +131,20 @@ class ScanSession:
             return
         self.scan_id = self.svc.wm.start_scan(name=name, source="live", ts=time.time())
         self.stats, self.usd, self.t0 = Counter(), 0.0, time.perf_counter()
+        self.clock_offset = None
         self.tasks = [asyncio.create_task(self._worker()) for _ in range(self.svc.workers)]
         log.info("scan %s started", self.scan_id)
         await self.emit({"type": "scan_started", "scan_id": self.scan_id})
+
+    def _capture_time(self, pose: dict) -> float:
+        """When the frame was taken, on the server's clock: the phone's capture time shifted by this scan's clock offset
+        (fixed by its first frame), so frames sort by when they were grabbed, not by when they finished uploading."""
+        cap = pose.get("captured_at")
+        if cap is None:
+            return time.time()
+        if self.clock_offset is None:
+            self.clock_offset = time.time() - cap
+        return cap + self.clock_offset
 
     async def submit(self, seq: int, jpeg: bytes, meta: dict) -> None:
         """Queue one keyframe. Always answers with frame_queued or frame_rejected."""
@@ -138,8 +154,14 @@ class ScanSession:
         if pose is None:
             self.stats["rejected"] += 1
             return await self.emit({"type": "frame_rejected", "seq": seq, "reason": "no orientation with the frame"})
+        problem = A.check_capture(meta.get("camera"))
+        if problem:  # the FOV only holds for the camera state it was calibrated in: refuse loudly, never anchor with a wrong angle
+            self.stats["rejected"] += 1
+            log.error("scan %s frame %s refused: %s", self.scan_id, seq, problem)
+            await self.emit({"type": "error", "where": "camera", "message": problem})
+            return await self.emit({"type": "frame_rejected", "seq": seq, "reason": problem})
         try:
-            self.queue.put_nowait((seq, jpeg, pose, time.time(), time.perf_counter()))
+            self.queue.put_nowait((seq, jpeg, pose, self._capture_time(pose), time.perf_counter()))
         except asyncio.QueueFull:
             self.stats["rejected"] += 1
             return await self.emit({"type": "frame_rejected", "seq": seq, "reason": "queue full, slow down"})
@@ -154,8 +176,6 @@ class ScanSession:
                 rep = await self.svc.pipeline.process(self.scan_id, jpeg, ts, pose)
                 self.usd += rep.usd
                 self.stats["stored" if rep.stored else "failed"] += 1
-                if rep.stored:
-                    self.svc.wm.consolidate(self.scan_id)
                 n_obj =len(self.svc.wm.list_objects(self.scan_id))
                 log.info("scan %s frame %s: %s names=%s kept=%d objects=%d wait=%.1fs work=%.1fs $%.4f%s", self.scan_id, seq,
                          "stored" if rep.stored else "NOT STORED", rep.names, len(rep.detections), n_obj, t - t_enq,
@@ -188,7 +208,7 @@ class ScanSession:
         await self._stop_workers()
         wm, sid = self.svc.wm, self.scan_id
         wm.end_scan(sid, ts=time.time())
-        wm.consolidate(sid)
+        wm.rebuild(sid)
         objs = wm.list_objects(sid)
         cov =yaw_coverage(wm.list_frames(sid))
         speech = f"I found {count_phrase([o['label'] for o in objs])}." if objs else "I did not find any objects."

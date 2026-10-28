@@ -13,14 +13,53 @@ direction is all we can anchor to. Assumptions to check on the phone [VERIFY]:
 """
 from __future__ import annotations
 
+import json
 import math
 import os
+from pathlib import Path
 
 # Horizontal field of view across the image width as sent. One value for the whole system: the server anchors
-# detections with it and the phone projects them back with it (served by /api/overlay). 60 is a placeholder
-# until the phone is calibrated (scripts/calibrate_fov.py prints the HFOV_DEG to set).
-DEFAULT_HFOV_DEG = float(os.environ.get("HFOV_DEG", "60"))
-FOV_CALIBRATED = "HFOV_DEG" in os.environ
+# detections with it and the phone projects them back with it (served by /api/overlay). It is only valid for the
+# camera settings it was measured at (resolution, zoom), so a calibration records them and frames from a camera in
+# another state are refused (see check_capture). Without a calibration the value is the 60 degree placeholder.
+CALIBRATION_FILE = Path(os.environ.get("FOV_CALIBRATION") or Path(__file__).resolve().parents[2] / "data" / "fov_calibration.json")
+
+
+def load_calibration() -> dict | None:
+    """{hfov_deg, width, height, zoom, ...} from HFOV_DEG (no capture settings known) or data/fov_calibration.json."""
+    env = os.environ.get("HFOV_DEG")
+    if env:
+        return {"hfov_deg": float(env), "width": None, "height": None, "zoom": None, "source": "HFOV_DEG"}
+    try:
+        d = json.loads(CALIBRATION_FILE.read_text(encoding="utf-8"))
+        return {**d, "hfov_deg": float(d["hfov_deg"]), "source": str(CALIBRATION_FILE)}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+CALIBRATION = load_calibration()
+DEFAULT_HFOV_DEG = CALIBRATION["hfov_deg"] if CALIBRATION else 60.0
+FOV_CALIBRATED = CALIBRATION is not None
+# How wrong the FOV may be, as a share of the angle from the optical axis: a calibrated value is trusted to ~2%,
+# the placeholder only to ~10%. Anchor error from this grows with the distance from the image centre.
+FOV_REL_ERROR = 0.02 if FOV_CALIBRATED else 0.10
+
+
+def check_capture(camera: dict | None, calibration: dict | None = None) -> str | None:
+    """None when the camera that took a frame matches the one the FOV was calibrated for, else a sentence saying
+    what differs. `camera` is the frame's camera meta ({video_w, video_h, settings: {width, height, zoom}})."""
+    cal = CALIBRATION if calibration is None else calibration
+    if not cal or not cal.get("width") or not cal.get("height") or not camera:
+        return None  # nothing recorded about the calibration camera (or the frame): cannot compare
+    s = camera.get("settings") or {}
+    w, h = s.get("width") or camera.get("video_w"), s.get("height") or camera.get("video_h")
+    diffs = []
+    if w and h and (w, h) != (cal["width"], cal["height"]):
+        diffs.append(f"resolution {w}x{h} (calibrated at {cal['width']}x{cal['height']})")
+    z, cz = s.get("zoom"), cal.get("zoom")
+    if z is not None and cz is not None and abs(z - cz) > 0.01:
+        diffs.append(f"zoom {z:g} (calibrated at {cz:g})")
+    return ("the camera is not in the state the FOV was calibrated for: " + ", ".join(diffs)) if diffs else None
 
 
 def wrap180(deg: float) -> float:

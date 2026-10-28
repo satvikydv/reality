@@ -12,13 +12,19 @@ not here yet (what-changed, F13).
 from __future__ import annotations
 
 import json
+import logging
 import re
 import sqlite3
 import threading
 import time
 from pathlib import Path
 
+from collections import deque
+
 from app import anchoring as A
+from app import memory
+
+log = logging.getLogger("memory")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS scans (
@@ -32,18 +38,22 @@ CREATE TABLE IF NOT EXISTS objects (
   first_seen REAL NOT NULL, last_seen REAL NOT NULL, yaw REAL NOT NULL, pitch REAL NOT NULL,
   weight REAL NOT NULL, n_obs INTEGER NOT NULL, spread_deg REAL NOT NULL, conf_best REAL NOT NULL,
   last_box TEXT, last_frame_id INTEGER, state TEXT NOT NULL DEFAULT '{}', attrs TEXT NOT NULL DEFAULT '{}',
-  track_ids TEXT NOT NULL DEFAULT '[]');
+  track_ids TEXT NOT NULL DEFAULT '[]', fov_err_deg REAL NOT NULL DEFAULT 0, uncertainty_deg REAL NOT NULL DEFAULT 0);
 CREATE INDEX IF NOT EXISTS objects_scan_label ON objects(scan_id, label);
 CREATE TABLE IF NOT EXISTS observations (
   id INTEGER PRIMARY KEY, object_id INTEGER NOT NULL REFERENCES objects(id), frame_id INTEGER NOT NULL REFERENCES frames(id),
   ts REAL NOT NULL, box TEXT NOT NULL, conf REAL NOT NULL, yaw REAL NOT NULL, pitch REAL NOT NULL, poly TEXT);
 CREATE INDEX IF NOT EXISTS obs_object ON observations(object_id);
+-- Every detection ever stored, with the object it currently belongs to. Objects and observations are derived from
+-- this table (see `rebuild`), so they do not depend on the order frames arrived in.
+CREATE TABLE IF NOT EXISTS detections (
+  id INTEGER PRIMARY KEY, scan_id INTEGER NOT NULL, frame_id INTEGER NOT NULL REFERENCES frames(id), idx INTEGER NOT NULL,
+  label TEXT NOT NULL, box TEXT NOT NULL, conf REAL NOT NULL, yaw REAL NOT NULL, pitch REAL NOT NULL, ext TEXT,
+  fov_err REAL NOT NULL DEFAULT 0, fragment INTEGER NOT NULL DEFAULT 0, poly TEXT, hist TEXT, track_id INTEGER, object_id INTEGER);
+CREATE INDEX IF NOT EXISTS det_scan ON detections(scan_id);
 """
 
 _ARTICLES = {"a", "an", "the", "my", "your"}
-# A detection is the same object as an earlier one when their angular footprints overlap this much: the share of
-# the smaller covered, and the share of the larger (so a tiny box inside a big one is not swallowed).
-OVERLAP_SMALL, OVERLAP_LARGE = 0.5, 0.1
 SLIVER_FRACTION = 0.03  # a border-touching box smaller than this share of the frame never starts an object
 
 
@@ -101,17 +111,31 @@ def describe_offset(dyaw: float, dpitch: float) -> str:
 
 class WorldModel:
     def __init__(self, db_path: str | Path = ":memory:", frames_dir: str | Path | None = None,
-                 merge_deg: float = 8.0, default_hfov_deg: float = A.DEFAULT_HFOV_DEG):
+                 merge_deg: float = 8.0, default_hfov_deg: float = A.DEFAULT_HFOV_DEG, fov_rel_error: float = A.FOV_REL_ERROR,
+                 memory_cfg: memory.Config | None = None):
         self.db = sqlite3.connect(str(db_path), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
-        if "poly" not in {r["name"] for r in self.db.execute("PRAGMA table_info(observations)")}:  # database from before outlines
-            self.db.execute("ALTER TABLE observations ADD COLUMN poly TEXT")
-            self.db.commit()
+        self._migrate()
         self.frames_dir = Path(frames_dir) if frames_dir else None
         self.merge_deg = merge_deg
         self.default_hfov_deg = default_hfov_deg
+        self.fov_rel_error = fov_rel_error
+        self.memory_cfg = memory_cfg or memory.Config(merge_deg=merge_deg)
+        self.decision_log: deque = deque(maxlen=5000)  # every merge / veto / promotion decision, newest last
+        self._logged: dict[int, set] = {}
         self.lock = threading.RLock()
+
+    def _migrate(self) -> None:
+        """Bring a database written by an older version up to the current schema."""
+        def cols(t):
+            return {r["name"] for r in self.db.execute(f"PRAGMA table_info({t})")}
+        if "poly" not in cols("observations"):
+            self.db.execute("ALTER TABLE observations ADD COLUMN poly TEXT")
+        for c in ("fov_err_deg", "uncertainty_deg"):
+            if c not in cols("objects"):
+                self.db.execute(f"ALTER TABLE objects ADD COLUMN {c} REAL NOT NULL DEFAULT 0")
+        self.db.commit()
 
     def close(self) -> None:
         self.db.close()
@@ -187,37 +211,6 @@ class WorldModel:
 
     # ------------------------------------------------------------------ observing
 
-    def observe(self, frame_id: int, detections: list[dict]) -> list[dict]:
-        """Add detections {label, box:[x1,y1,x2,y2], conf?, track_id?} seen in a stored frame.
-        Returns one dict per detection: object_id, new, yaw, pitch."""
-        with self.lock:
-            fr = self.get_frame(frame_id)
-            if fr is None:
-                raise KeyError(f"unknown frame {frame_id}")
-            roll = A.image_roll(fr["roll"], fr["screen_angle"])
-            claimed: set[int] = set()
-            out = []
-            for d in detections:
-                label = normalize_label(d["label"])
-                if not label:
-                    continue
-                box = [float(x) for x in d["box"]]
-                conf = float(d.get("conf", 1.0))
-                yaw, pitch = A.box_anchor(tuple(box), fr["width"], fr["height"], fr["yaw"], fr["pitch"], roll, fr["hfov_deg"])
-                ext = A.box_extent(tuple(box), fr["width"], fr["height"], fr["yaw"], fr["pitch"], roll, fr["hfov_deg"])
-                oid, new = self._match_or_create(fr, label, box, conf, yaw, pitch, d.get("track_id"), claimed, ext,
-                                                 create=not self._sliver(box, fr["width"], fr["height"]))
-                if oid is None:  # a cut-off fragment with nothing to join: the next frame sees the whole thing
-                    out.append({"object_id": None, "new": False, "yaw": yaw, "pitch": pitch, "skipped": "fragment"})
-                    continue
-                claimed.add(oid)
-                poly = d.get("polygon")
-                self.db.execute("INSERT INTO observations (object_id, frame_id, ts, box, conf, yaw, pitch, poly) VALUES (?,?,?,?,?,?,?,?)",
-                                (oid, frame_id, fr["ts"], json.dumps(box), conf, yaw, pitch, json.dumps(poly) if poly else None))
-                out.append({"object_id": oid, "new": new, "yaw": yaw, "pitch": pitch})
-            self.db.commit()
-            return out
-
     @staticmethod
     def _sliver(box, width: int, height: int) -> bool:
         """A small box touching the image border: part of something the neighbouring frame sees whole."""
@@ -225,103 +218,135 @@ class WorldModel:
         touches = box[0] <= m or box[1] <= m or box[2] >= width - m or box[3] >= height - m
         return touches and (box[2] - box[0]) * (box[3] - box[1]) < SLIVER_FRACTION * width * height
 
-    def _match_or_create(self, fr, label, box, conf, yaw, pitch, track_id, claimed, ext=None, create=True):
-        """Join the object this detection overlaps most (angular footprint, so a laptop cut off by the frame edge
-        still matches), else the nearest anchor within `merge_deg`, else start a new object."""
-        best, best_sep, best_cover = None, self.merge_deg, 0.0
-        for r in self.db.execute("SELECT * FROM objects WHERE scan_id=? AND label=?", (fr["scan_id"], label)):
-            if r["id"] in claimed:
-                continue
-            oext = json.loads(r["state"] or "{}").get("ext")
-            if ext and oext:
-                small, large = A.extent_overlap(ext, oext)
-                if small >= OVERLAP_SMALL and large >= OVERLAP_LARGE and small > best_cover:
-                    best, best_cover = r, small
+    def observe(self, frame_id: int, detections: list[dict]) -> list[dict]:
+        """Store the detections {label, box:[x1,y1,x2,y2], conf?, polygon?, hist?, track_id?} seen in a frame, then rebuild
+        the scan's objects from every detection stored so far. Returns one dict per detection: object_id (None while an
+        edge-clipped fragment waits for a second sighting), new, yaw, pitch."""
+        with self.lock:
+            fr = self.get_frame(frame_id)
+            if fr is None:
+                raise KeyError(f"unknown frame {frame_id}")
+            roll = A.image_roll(fr["roll"], fr["screen_angle"])
+            before = {r["id"] for r in self.db.execute("SELECT id FROM objects WHERE scan_id=?", (fr["scan_id"],))}
+            made = []
+            for idx, d in enumerate(detections):
+                label = normalize_label(d["label"])
+                if not label:
                     continue
-            sep = A.angular_distance(yaw, pitch, r["yaw"], r["pitch"])
-            if best_cover == 0.0 and sep < best_sep:
-                best, best_sep = r, sep
-        tracks = [track_id] if track_id is not None else []
-        if best is None and not create:
-            return None, False
-        if best is None:
-            cur =self.db.execute(
-                "INSERT INTO objects (scan_id, label, first_seen, last_seen, yaw, pitch, weight, n_obs, spread_deg, conf_best,"
-                " last_box, last_frame_id, track_ids, state) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (fr["scan_id"], label, fr["ts"], fr["ts"], yaw, pitch, conf, 1, 0.0, conf, json.dumps(box), fr["id"], json.dumps(tracks),
-                 json.dumps({"ext": ext})))
-            return cur.lastrowid, True
-        state = json.loads(best["state"] or "{}")
-        if ext and (not state.get("ext") or A.extent_area(ext) > A.extent_area(state["ext"])):
-            state["ext"] = ext  # keep the largest footprint seen: the whole object, not a cut-off view
-        best_sep = A.angular_distance(yaw, pitch, best["yaw"], best["pitch"])
-        new_yaw, new_pitch = A.mean_direction([(best["yaw"], best["pitch"], best["weight"]), (yaw, pitch, conf)])
-        known = json.loads(best["track_ids"])
-        if track_id is not None and track_id not in known:
-            known.append(track_id)
-        self.db.execute(
-            "UPDATE objects SET yaw=?, pitch=?, weight=weight+?, n_obs=n_obs+1, spread_deg=MAX(spread_deg, ?), conf_best=MAX(conf_best, ?),"
-            " last_seen=MAX(last_seen, ?), last_box=?, last_frame_id=?, track_ids=?, state=? WHERE id=?",
-            (new_yaw, new_pitch, conf, best_sep, conf, fr["ts"], json.dumps(box), fr["id"], json.dumps(known), json.dumps(state), best["id"]))
-        return best["id"], False
+                box = [float(x) for x in d["box"]]
+                yaw, pitch = A.box_anchor(tuple(box), fr["width"], fr["height"], fr["yaw"], fr["pitch"], roll, fr["hfov_deg"])
+                ext = A.box_extent(tuple(box), fr["width"], fr["height"], fr["yaw"], fr["pitch"], roll, fr["hfov_deg"])
+                off = A.angular_distance(yaw, pitch, fr["yaw"], fr["pitch"])
+                poly, hist = d.get("polygon"), d.get("hist")
+                cur = self.db.execute(
+                    "INSERT INTO detections (scan_id, frame_id, idx, label, box, conf, yaw, pitch, ext, fov_err, fragment, poly, hist, track_id)"
+                    " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (fr["scan_id"], frame_id, idx, label, json.dumps(box), float(d.get("conf", 1.0)), yaw, pitch, json.dumps(ext),
+                     memory.fov_error_deg(off, self.fov_rel_error), int(self._sliver(box, fr["width"], fr["height"])),
+                     json.dumps(poly) if poly else None, json.dumps(hist) if hist else None, d.get("track_id")))
+                made.append((cur.lastrowid, yaw, pitch))
+            self.rebuild(fr["scan_id"], newest_frame=frame_id)
+            out = []
+            for did, yaw, pitch in made:
+                oid = self.db.execute("SELECT object_id FROM detections WHERE id=?", (did,)).fetchone()["object_id"]
+                e = {"object_id": oid, "new": oid is not None and oid not in before, "yaw": yaw, "pitch": pitch}
+                if oid is None:
+                    e["skipped"] = "fragment"
+                out.append(e)
+            return out
+
+    def _ensure_detections(self, scan_id: int) -> None:
+        """A scan stored before detections were kept: recreate them from its observations so it can be rebuilt."""
+        if self.db.execute("SELECT 1 FROM detections WHERE scan_id=? LIMIT 1", (scan_id,)).fetchone():
+            return
+        rows = self.db.execute(
+            "SELECT ob.object_id, ob.frame_id, ob.box, ob.conf, ob.poly, o.label, f.yaw AS cy, f.pitch AS cp, f.roll, f.screen_angle, f.width, f.height, f.hfov_deg"
+            " FROM observations ob JOIN objects o ON o.id=ob.object_id JOIN frames f ON f.id=ob.frame_id WHERE o.scan_id=? ORDER BY ob.id", (scan_id,)).fetchall()
+        for idx, r in enumerate(rows):
+            box = json.loads(r["box"])
+            roll = A.image_roll(r["roll"], r["screen_angle"])
+            yaw, pitch = A.box_anchor(tuple(box), r["width"], r["height"], r["cy"], r["cp"], roll, r["hfov_deg"])
+            ext = A.box_extent(tuple(box), r["width"], r["height"], r["cy"], r["cp"], roll, r["hfov_deg"])
+            self.db.execute(
+                "INSERT INTO detections (scan_id, frame_id, idx, label, box, conf, yaw, pitch, ext, fov_err, fragment, poly, object_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (scan_id, r["frame_id"], idx, r["label"], r["box"], r["conf"], yaw, pitch, json.dumps(ext),
+                 memory.fov_error_deg(A.angular_distance(yaw, pitch, r["cy"], r["cp"]), self.fov_rel_error),
+                 int(self._sliver(box, r["width"], r["height"])), r["poly"], r["object_id"]))
+
+    def rebuild(self, scan_id: int, newest_frame: int | None = None) -> int:
+        """Recompute a scan's objects from all its detections (see app/memory.py). The result depends only on the
+        detections and their capture timestamps, not on the order they were stored in. Object ids are kept where an
+        object still contains the same detections. Returns how many objects the scan has."""
+        with self.lock:
+            self._ensure_detections(scan_id)
+            rows = self.db.execute(
+                "SELECT d.*, f.ts AS fts, f.yaw AS cam_yaw, f.pitch AS cam_pitch FROM detections d JOIN frames f ON f.id=d.frame_id"
+                " WHERE d.scan_id=? ORDER BY d.id", (scan_id,)).fetchall()
+            by_id = {r["id"]: r for r in rows}
+            dets = [memory.Det(id=r["id"], frame_id=r["frame_id"], ts=r["fts"], cam_yaw=r["cam_yaw"], cam_pitch=r["cam_pitch"], label=r["label"],
+                               box=tuple(json.loads(r["box"])), conf=r["conf"], yaw=r["yaw"], pitch=r["pitch"],
+                               ext=tuple(json.loads(r["ext"])) if r["ext"] else None, fragment=bool(r["fragment"]),
+                               hist=json.loads(r["hist"]) if r["hist"] else None, fov_err=r["fov_err"], track_id=r["track_id"],
+                               prev_object=r["object_id"], idx=r["idx"]) for r in rows]
+            res = memory.cluster(dets, self.memory_cfg)
+            self._record_decisions(scan_id, res.decisions, newest_frame)
+
+            # keep ids: an object continues the old object that shares the most detections with it
+            old_ids = [r["id"] for r in self.db.execute("SELECT id FROM objects WHERE scan_id=? ORDER BY id", (scan_id,))]
+            votes = sorted(((sum(1 for m in c.members if m.prev_object == oid), oid, i) for i, c in enumerate(res.clusters) for oid in old_ids
+                            if any(m.prev_object == oid for m in c.members)), key=lambda t: (-t[0], t[1], t[2]))
+            assigned: dict[int, int] = {}
+            used: set[int] = set()
+            for _, oid, i in votes:
+                if i not in assigned and oid not in used:
+                    assigned[i] = oid
+                    used.add(oid)
+
+            self.db.execute("DELETE FROM observations WHERE object_id IN (SELECT id FROM objects WHERE scan_id=?)", (scan_id,))
+            self.db.execute("UPDATE detections SET object_id=NULL WHERE scan_id=?", (scan_id,))
+            for oid in old_ids:
+                if oid not in used:
+                    self.db.execute("DELETE FROM objects WHERE id=?", (oid,))
+            for i, c in enumerate(res.clusters):
+                f = memory.summarize(c)
+                vals = (f["label"], f["first_seen"], f["last_seen"], f["yaw"], f["pitch"], f["weight"], f["n_obs"], f["spread_deg"], f["conf_best"],
+                        json.dumps(f["last_box"]), f["last_frame_id"], json.dumps({"ext": f["ext"]}), json.dumps(f["track_ids"]),
+                        f["fov_err_deg"], f["uncertainty_deg"])
+                if i in assigned:
+                    oid = assigned[i]
+                    self.db.execute("UPDATE objects SET label=?, first_seen=?, last_seen=?, yaw=?, pitch=?, weight=?, n_obs=?, spread_deg=?, conf_best=?,"
+                                    " last_box=?, last_frame_id=?, state=?, track_ids=?, fov_err_deg=?, uncertainty_deg=? WHERE id=?", vals + (oid,))
+                else:
+                    oid = self.db.execute("INSERT INTO objects (scan_id, label, first_seen, last_seen, yaw, pitch, weight, n_obs, spread_deg, conf_best,"
+                                          " last_box, last_frame_id, state, track_ids, fov_err_deg, uncertainty_deg) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                                          (scan_id,) + vals).lastrowid
+                for m in sorted(c.members, key=lambda m: m.sort_key("capture")):
+                    r = by_id[m.id]
+                    self.db.execute("UPDATE detections SET object_id=? WHERE id=?", (oid, m.id))
+                    self.db.execute("INSERT INTO observations (object_id, frame_id, ts, box, conf, yaw, pitch, poly) VALUES (?,?,?,?,?,?,?,?)",
+                                    (oid, m.frame_id, m.ts, r["box"], m.conf, m.yaw, m.pitch, r["poly"]))
+            self.db.commit()
+            return len(res.clusters)
 
     def consolidate(self, scan_id: int) -> int:
-        """Merge objects of a scan that are the same thing seen from different frames; returns how many were absorbed.
-
-        Frames finish out of order, so matching while observing can split one object in two. Here every pair of
-        same-label objects whose angular footprints overlap (strongest overlap first) is merged, except when the
-        two were detected in the same frame: two boxes in one view are two objects (two mugs stay two mugs)."""
+        """Re-derive a scan's objects; returns how many objects that removed (0 when nothing changed)."""
         with self.lock:
-            rows = {r["id"]: r for r in self.db.execute("SELECT * FROM objects WHERE scan_id=?", (scan_id,))}
-            frames_of: dict[int, set[int]] = {oid: set() for oid in rows}
-            for o in self.db.execute("SELECT object_id, frame_id FROM observations WHERE object_id IN (SELECT id FROM objects WHERE scan_id=?)", (scan_id,)):
-                frames_of[o["object_id"]].add(o["frame_id"])
-            ext = {oid: json.loads(r["state"] or "{}").get("ext") for oid, r in rows.items()}
-            pairs = []
-            ids = sorted(rows)
-            for i, a in enumerate(ids):
-                for b in ids[i + 1:]:
-                    if rows[a]["label"] != rows[b]["label"] or not ext[a] or not ext[b]:
-                        continue
-                    small, large = A.extent_overlap(ext[a], ext[b])
-                    if small >= OVERLAP_SMALL and large >= OVERLAP_LARGE:
-                        pairs.append((small, a, b))
-            group = {oid: oid for oid in rows}
-            members = {oid: {oid} for oid in rows}
-            seen = {oid: set(frames_of[oid]) for oid in rows}
+            before = self.db.execute("SELECT COUNT(*) AS n FROM objects WHERE scan_id=?", (scan_id,)).fetchone()["n"]
+            return max(0, before - self.rebuild(scan_id))
 
-            def root(x):
-                while group[x] != x:
-                    x = group[x]
-                return x
-            for _, a, b in sorted(pairs, reverse=True):
-                ra, rb = root(a), root(b)
-                if ra == rb or seen[ra] & seen[rb]:
-                    continue
-                keep, gone = min(ra, rb), max(ra, rb)
-                group[gone] = keep
-                members[keep] |= members.pop(gone)
-                seen[keep] |= seen.pop(gone)
-            merged = 0
-            for keep, ms in members.items():
-                if len(ms) == 1:
-                    continue
-                merged += len(ms) - 1
-                self.db.executemany("UPDATE observations SET object_id=? WHERE object_id=?", [(keep, m) for m in ms if m != keep])
-                self.db.executemany("DELETE FROM objects WHERE id=?", [(m,) for m in ms if m != keep])
-                obs = self.db.execute("SELECT * FROM observations WHERE object_id=? ORDER BY ts, id", (keep,)).fetchall()
-                yaw, pitch = A.mean_direction([(o["yaw"], o["pitch"], o["conf"]) for o in obs])
-                last = obs[-1]
-                tracks = sorted({t for m in ms for t in json.loads(rows[m]["track_ids"])})
-                best_ext = max((ext[m] for m in ms if ext[m]), key=A.extent_area, default=None)
-                self.db.execute(
-                    "UPDATE objects SET yaw=?, pitch=?, weight=?, n_obs=?, spread_deg=?, conf_best=?, first_seen=?, last_seen=?,"
-                    " last_box=?, last_frame_id=?, track_ids=?, state=? WHERE id=?",
-                    (yaw, pitch, sum(o["conf"] for o in obs), len(obs), max(A.angular_distance(yaw, pitch, o["yaw"], o["pitch"]) for o in obs),
-                     max(o["conf"] for o in obs), obs[0]["ts"], last["ts"], last["box"], last["frame_id"], json.dumps(tracks),
-                     json.dumps({"ext": best_ext}), keep))
-            self.db.commit()
-            return merged
+    def _record_decisions(self, scan_id: int, decisions: list[dict], newest_frame: int | None) -> None:
+        """Log each memory decision the first time it is made (a rebuild repeats most of them)."""
+        seen = self._logged.setdefault(scan_id, set())
+        for d in decisions:
+            sig = (d["action"], d.get("det"), d.get("label"), tuple(d.get("dets") or ()))
+            if sig in seen:
+                continue
+            seen.add(sig)
+            self.decision_log.append({"scan": scan_id, "frame": newest_frame, **d})
+            log.info("scan %s %s", scan_id, " ".join(f"{k}={v}" for k, v in d.items()))
+
+    def decisions(self, scan_id: int | None = None) -> list[dict]:
+        return [d for d in self.decision_log if scan_id is None or d["scan"] == scan_id]
 
     # ------------------------------------------------------------------ queries
 
@@ -339,8 +364,9 @@ class WorldModel:
                 if r:
                     sighting = {"poly": json.loads(r["poly"]), "yaw": r["yaw"], "pitch": r["pitch"], "roll": A.image_roll(r["roll"], r["screen_angle"]),
                                 "width": r["width"], "height": r["height"], "hfov": r["hfov_deg"]}
-                out.append({"id": o["id"], "label": o["label"], "yaw": o["yaw"], "pitch": o["pitch"], "uncertainty_deg": o["spread_deg"],
-                            "n_obs": o["n_obs"], "confidence": o["conf_best"], "last_seen": o["last_seen"],
+                out.append({"id": o["id"], "label": o["label"], "yaw": o["yaw"], "pitch": o["pitch"],
+                            "uncertainty_deg": o["uncertainty_deg"] or o["spread_deg"], "spread_deg": o["spread_deg"], "fov_error_deg": o["fov_err_deg"],
+                            "n_obs": o["n_obs"], "supporting_frames": o["n_obs"], "confidence": o["conf_best"], "last_seen": o["last_seen"],
                             "footprint": (o["state"] or {}).get("ext"), "mask": sighting})
             return out
 

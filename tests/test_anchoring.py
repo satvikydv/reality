@@ -118,3 +118,14 @@ def test_footprint_outline_goes_once_around_so_it_is_a_simple_polygon():
     side = max(max(p[0] for p in ring) - min(p[0] for p in ring), max(p[1] for p in ring) - min(p[1] for p in ring))
     steps = [math.dist(ring[i], ring[(i + 1) % len(ring)]) for i in range(len(ring))]
     assert max(steps) < side / 3  # a zig-zag between opposite edges would jump about a full side
+
+
+def test_check_capture_compares_the_camera_with_the_calibration():
+    cal = {"hfov_deg": 66.0, "width": 1080, "height": 1920, "zoom": 1.0}
+    ok = {"video_w": 1080, "video_h": 1920, "settings": {"width": 1080, "height": 1920, "zoom": 1.0}}
+    assert A.check_capture(ok, cal) is None
+    assert "resolution 720x1280" in A.check_capture({"video_w": 720, "video_h": 1280}, cal)
+    assert "zoom 1.5" in A.check_capture({"settings": {"width": 1080, "height": 1920, "zoom": 1.5}}, cal)
+    assert A.check_capture({"video_w": 1920, "video_h": 1080}, cal) is not None  # landscape is a different crop
+    assert A.check_capture(None, cal) is None and A.check_capture(ok, None) is None  # nothing to compare
+    assert A.check_capture(ok, {"hfov_deg": 66.0, "width": None, "height": None}) is None  # HFOV_DEG alone records no camera state

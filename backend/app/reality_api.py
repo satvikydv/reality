@@ -37,8 +37,10 @@ def _clean(v):
 
 
 def _object(o: dict, now: float) -> dict:
+    unc = o.get("uncertainty_deg") or o["spread_deg"]
     return {"id": o["id"], "label": o["label"], "yaw": round(o["yaw"], 1), "pitch": round(o["pitch"], 1), "frames_seen": o["n_obs"],
-            "confidence": round(o["conf_best"], 2), "anchor_spread_deg": round(o["spread_deg"], 1),
+            "supporting_frames": o["n_obs"], "confidence": round(o["conf_best"], 2), "anchor_spread_deg": round(o["spread_deg"], 1),
+            "fov_error_deg": round(o.get("fov_err_deg") or 0.0, 1), "uncertainty_deg": round(unc, 1),
             "last_seen": o["last_seen"], "age_seconds": round(max(0.0, now - o["last_seen"]))}
 
 

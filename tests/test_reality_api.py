@@ -138,3 +138,19 @@ def test_overlay_gives_the_phone_anchors_footprints_and_age(tmp_path):
     assert {"id", "label", "yaw", "pitch", "uncertainty_deg", "age_s", "n_obs", "footprint", "mask"} <= set(o) and "last_seen" not in o
     assert len(o["footprint"]) == 5 and o["age_s"] >= 0
     assert api.overlay(make_service(tmp_path / "empty"))["status"] == "no_scans"
+
+
+def test_objects_expose_support_confidence_last_seen_and_uncertainty(tmp_path):
+    svc = make_service(tmp_path)
+
+    async def go():
+        await scan(svc, [100, 104])
+        return await api.where_is(svc, "the thing I drink coffee from"), api.list_objects(svc), api.overlay(svc)
+
+    found, listed, ov = asyncio.run(go())
+    for o in (found["object"], listed["objects"][0]):
+        assert o["supporting_frames"] == o["frames_seen"] >= 1 and 0 < o["confidence"] <= 1 and o["last_seen"] > 0
+        assert o["uncertainty_deg"] >= o["anchor_spread_deg"] >= 0 and "fov_error_deg" in o
+    ov_o = ov["objects"][0]
+    assert ov_o["uncertainty_deg"] >= ov_o["spread_deg"] and "fov_error_deg" in ov_o and ov_o["supporting_frames"] >= 1
+    assert svc.wm.list_objects()[0]["uncertainty_deg"] > 0

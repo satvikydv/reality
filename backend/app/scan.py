@@ -29,6 +29,7 @@ from app.concepts import canonical_name, is_sam_friendly
 from app.pricing import SAM_USD_PER_IMAGE, spark_usd
 from app.reasoner.base import Reasoner
 from app.sam_client import SamCall
+from app.memory import mask_histogram
 from app.world_model import WorldModel, normalize_label
 
 Segmenter = Callable[[str, str], Awaitable[SamCall]]
@@ -114,8 +115,10 @@ def pose_from_meta(meta: dict, prefer: str = "absolute") -> dict | None:
     for src in (prefer, "relative" if prefer == "absolute" else "absolute"):
         s = o.get(src)
         if s and s.get("yaw") is not None and s.get("pitch") is not None:
+            cap = o.get("captured_at")  # phone clock, epoch milliseconds: when the frame was grabbed
             return {"yaw": s["yaw"], "pitch": s["pitch"], "roll": s.get("roll"), "source": src, "api": s.get("api"),
-                    "screen_angle": (meta.get("camera") or {}).get("screen_angle", 0)}
+                    "screen_angle": (meta.get("camera") or {}).get("screen_angle", 0),
+                    "captured_at": cap / 1000.0 if isinstance(cap, (int, float)) else None}
     return None
 
 
@@ -213,6 +216,9 @@ class ScanPipeline:
             return rep  # incomplete look: do not record this direction as scanned
 
         rep.detections = merge_parts(suppress_overlaps(dets))
+        img = cv2.imdecode(np.frombuffer(small, dtype=np.uint8), cv2.IMREAD_COLOR)
+        for d in rep.detections:  # colour signature of each object, used to refuse merging two different-looking things
+            d["hist"] = mask_histogram(img, d.get("polygon"), d["box"]) if img is not None else None
         rep.frame_id = self.wm.add_frame(scan_id, ts, pose["yaw"], pose["pitch"], w, h, roll=pose.get("roll"),
                                          screen_angle=pose.get("screen_angle", 0.0), source=pose.get("source"),
                                          api=pose.get("api"), hfov_deg=pose.get("hfov_deg"), jpeg=small)

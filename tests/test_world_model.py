@@ -190,20 +190,20 @@ def test_small_fragment_at_the_border_never_starts_an_object(wm):
     assert len(wm.list_objects(s)) == 1
 
 
-def test_consolidate_merges_the_same_object_but_not_two_seen_together(wm):
+def test_two_boxes_in_one_view_are_two_objects_however_much_they_overlap(wm):
+    s = wm.start_scan()
+    f = frame(wm, s, 3.0, 100.0)
+    wm.observe(f, [{"label": "mug", "box": [200, 300, 280, 380]}, {"label": "mug", "box": [220, 300, 300, 380]}])
+    assert wm.consolidate(s) == 0 and len(wm.list_objects(s)) == 2
+
+
+def test_the_same_object_seen_again_is_one_object_and_far_apart_ones_are_two(wm):
     s = wm.start_scan()
     a = wm.observe(frame(wm, s, 1.0, 100.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]["object_id"]
     b = wm.observe(frame(wm, s, 2.0, 160.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]["object_id"]
-    assert a != b and wm.consolidate(s) == 0  # far apart: two laptops
-    wm.db.execute("UPDATE objects SET state=(SELECT state FROM objects WHERE id=?) WHERE id=?", (a, b))  # now their footprints coincide
-    assert wm.consolidate(s) == 1
-    (o,) = wm.list_objects(s)
-    assert o["id"] == a and o["n_obs"] == 2
-
-    s2 = wm.start_scan()
-    f = frame(wm, s2, 3.0, 100.0)  # two boxes in one view are two objects, however much they overlap
-    wm.observe(f, [{"label": "mug", "box": [200, 300, 280, 380]}, {"label": "mug", "box": [220, 300, 300, 380]}])
-    assert wm.consolidate(s2) == 0 and len(wm.list_objects(s2)) == 2
+    assert a != b and len(wm.list_objects(s)) == 2
+    c = wm.observe(frame(wm, s, 3.0, 102.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]
+    assert c["object_id"] == a and not c["new"] and wm.get_object(a)["n_obs"] == 2
 
 
 def test_overlay_objects_carry_the_mask_and_the_pose_it_was_taken_at(wm):
@@ -215,7 +215,7 @@ def test_overlay_objects_carry_the_mask_and_the_pose_it_was_taken_at(wm):
     assert mug["mask"]["poly"] == poly and mug["mask"]["yaw"] == 100.0 and mug["mask"]["pitch"] == 5.0
     assert mug["mask"]["width"] == W and mug["mask"]["height"] == H and mug["mask"]["hfov"] == wm.default_hfov_deg
     assert cup["mask"] is None and len(cup["footprint"]) == 5  # no outline stored: the phone falls back to the footprint
-    assert mug["uncertainty_deg"] == 0.0 and mug["n_obs"] == 1
+    assert mug["uncertainty_deg"] == pytest.approx(0.0, abs=1e-3) and mug["n_obs"] == 1
 
 
 def test_database_from_before_outlines_is_upgraded(tmp_path):

@@ -23,7 +23,9 @@ from app.scan_service import ScanService
 INSTRUCTIONS = """Reality OS remembers the objects in a room that a person scanned with their phone. Positions are directions
 (compass yaw and pitch) from where the phone stood, not coordinates: there is no distance, and nothing is known about
 places the scan did not point at.
-Answers say how far to trust them. status "found" gives the object, when it was last seen and how consistent its position is.
+Answers say how far to trust them. status "found" gives the object, when it was last seen, how many frames saw it
+(supporting_frames), its confidence, and uncertainty_deg: how many degrees its stored direction may be off, from sightings
+that disagree plus the camera field-of-view error. Treat a direction as a cone of that half-angle, not a line.
 status "not_seen" means it is not in memory, NOT that it is absent from the room: check the coverage in the reply before
 telling anyone it is gone. Use what_changed to compare two scans; objects in directions only one scan covered come back
 as "unverified" instead of added or removed."""
