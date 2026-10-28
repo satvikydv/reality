@@ -94,7 +94,7 @@ class ScanService:
         speech = found["speech"] if found else ("I have not seen that yet." if concept else "I did not understand what to look for.")
         obj = {k: found["object"][k] for k in ("id", "label", "yaw", "pitch", "n_obs", "conf_best")} if found else None
         return {"type": "find_result", "query": query, "concept": concept, "found": found is not None, "speech": speech,
-                "object": obj, "replay": replay, "needs_live_look": r["needs_live_look"], "skipped_llm": r["skipped_llm"]}
+                "object": obj, "from_scan_start": found["from_scan_start"] if found else None, "replay": replay, "needs_live_look": r["needs_live_look"], "skipped_llm": r["skipped_llm"]}
 
     def session(self, send: Send) -> "ScanSession":
         return ScanSession(self, send)

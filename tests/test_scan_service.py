@@ -199,6 +199,7 @@ def test_websocket_scan_find_and_frame_route(client):
         ws.send_text(json.dumps({"type": "find", "query": "the thing I drink coffee from"}))
         r = ws.receive_json()
         assert r["type"] == "find_result" and r["found"] and r["concept"] == "mug" and r["replay"]["width"] == 480
+        assert set(r["from_scan_start"]) == {"dyaw", "dpitch"}
         fid = r["replay"]["frame_id"]
     img = client.get(f"/world/frame/{fid}.jpg")
     assert img.status_code == 200 and img.headers["content-type"] == "image/jpeg"
