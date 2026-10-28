@@ -25,7 +25,7 @@ import cv2
 import numpy as np
 from pydantic import BaseModel, ConfigDict
 
-from app.concepts import is_sam_friendly
+from app.concepts import canonical_name, is_sam_friendly
 from app.pricing import SAM_USD_PER_IMAGE, spark_usd
 from app.reasoner.base import Reasoner
 from app.sam_client import SamCall
@@ -57,7 +57,7 @@ def clean_names(raw: list[str], limit: int) -> list[str]:
     for r in raw:
         if not is_sam_friendly(r):
             continue
-        n = normalize_label(r)
+        n = canonical_name(normalize_label(r))
         if n and n not in _SKIP and n not in out:
             out.append(n)
     return out[:limit]

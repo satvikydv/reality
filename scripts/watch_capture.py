@@ -48,6 +48,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--frames", type=Path, default=ROOT / "data" / "frames")
     ap.add_argument("--step", type=float, default=15.0, help="intended yaw step between shots, degrees")
+    ap.add_argument("--health-only", action="store_true", help="only report USB / port forward / server changes (for the auto scan)")
     a = ap.parse_args()
     seen = {p.name for p in a.frames.glob("*.json")}
     prev = None  # (yaw, t)
@@ -68,7 +69,7 @@ def main():
                 msg.append("SERVER DOWN on 127.0.0.1:8000: start it with  $env:PLAIN_HTTP='1'; .\.venv\Scripts\python.exe backend\run.py")
             print("health: " + ("; ".join(msg) if msg else "phone connected, port forwarded, server up"), flush=True)
             last_health = h
-        for p in sorted(a.frames.glob("*.json"), key=lambda p: p.stat().st_mtime):
+        for p in ([] if a.health_only else sorted(a.frames.glob("*.json"), key=lambda p: p.stat().st_mtime)):
             if p.name in seen:
                 continue
             try:

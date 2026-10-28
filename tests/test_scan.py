@@ -56,6 +56,7 @@ POSE = {"yaw": 100.0, "pitch": 0.0, "roll": 0.0, "screen_angle": 0, "source": "a
 def test_clean_names():
     assert clean_names(["Water Bottle", "the person", "laptop", "keys, wallet", "laptop", "a very long object name here", "Desk", ""], 5) == ["water bottle", "laptop"]
     assert clean_names(["cup", "bag", "pen"], 2) == ["cup", "bag"]
+    assert clean_names(["Smartphone", "phone", "Computer Mouse", "mouse"], 5) == ["phone", "mouse"]  # synonyms collapse
 
 
 def test_suppress_overlaps():

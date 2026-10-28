@@ -52,6 +52,20 @@ Android only. No Wi-Fi, firewall rules, certificates or tunnels: `adb reverse` m
 
 If the port is already in use, set `PLAIN_HTTP_PORT` and change the port in `scripts/usb_connect.*` to match.
 
+## Scan a room
+
+Needs `MODEL_API_KEY` in `.env`. On the phone page tap **Scan room**, then pan slowly one way, about 20 to 30 s for a full circle, holding the phone upright and roughly level. The page sends a frame whenever you have turned about 18 degrees and the phone is steady; the ring shows coverage and the hint names the next gap. It finishes by itself at 97% coverage, or tap **Done**. The summary lists what was found, and **Find** answers things like "the thing I drink water from" with a replay frame.
+
+Server progress goes to the uvicorn log. To keep a log file while the server runs in the background:
+
+```powershell
+$env:PLAIN_HTTP = "1"; Start-Process .\.venv\Scripts\python.exe -ArgumentList "backend\run.py" -RedirectStandardError data\server.err.log -RedirectStandardOutput data\server.log -WindowStyle Hidden
+Get-Content data\server.err.log -Wait -Tail 20          # one line per scan frame: names, objects, wait, cost
+.\.venv\Scripts\python.exe scripts\replay_scan.py --only 1301   # replay saved frames through the same WebSocket (no phone)
+```
+
+Tests: `pytest tests` (server) and `node --test tests/js/keyframe.test.mjs` (auto-capture logic).
+
 ## M0 scripts
 
 ```powershell

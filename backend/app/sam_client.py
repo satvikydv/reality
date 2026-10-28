@@ -98,6 +98,16 @@ async def sam_call(client, data_url: str, prompt: str) -> SamCall:
     return SamCall(list(objs.values()), total, first, result.outcome.status, len(result.diagnostics))
 
 
+def make_client():
+    """AsyncOpenAI client for the Meta Model API (no SDK retries; callers handle failures)."""
+    from openai import AsyncOpenAI
+
+    key = os.getenv("MODEL_API_KEY", "").strip()
+    if not key:
+        raise RuntimeError("MODEL_API_KEY not set")
+    return AsyncOpenAI(api_key=key, base_url=os.getenv("META_API_BASE", "https://api.meta.ai/v1"), max_retries=0, timeout=30)
+
+
 def make_segmenter(client):
     """The async callable the scan pipeline uses: (data_url, concept) -> SamCall."""
     async def segment(data_url: str, concept: str) -> SamCall:

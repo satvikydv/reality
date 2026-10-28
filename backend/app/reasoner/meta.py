@@ -43,7 +43,7 @@ class MetaApiReasoner:
             key = api_key or os.getenv("MODEL_API_KEY", "").strip()
             if not key:
                 raise RuntimeError("MODEL_API_KEY not set")
-            client = AsyncOpenAI(api_key=key, base_url=base_url or os.getenv("META_API_BASE", DEFAULT_BASE_URL), max_retries=0, timeout=60)
+            client = AsyncOpenAI(api_key=key, base_url=base_url or os.getenv("META_API_BASE", DEFAULT_BASE_URL), max_retries=0, timeout=float(os.getenv("SPARK_TIMEOUT_S", "25")))
         self.client = client
         self.model = model or os.getenv("SPARK_MODEL", DEFAULT_MODEL)
 

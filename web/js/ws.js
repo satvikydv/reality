@@ -1,4 +1,5 @@
-// WebSocket client: sends binary frames (flags u8 | seq u32 | client_ts f64 | meta_len u16 | meta JSON | JPEG), receives JSON replies.
+// WebSocket client: sends binary frames (flags u8 | seq u32 | client_ts f64 | meta_len u16 | meta JSON | JPEG) and JSON control
+// messages, receives JSON replies. Flags: 1 = save as an M0 sample, 2 = keyframe of the running scan.
 export class FrameSocket {
   constructor(onReply, onState) {
     this.onReply = onReply;
@@ -29,12 +30,17 @@ export class FrameSocket {
   }
 
   // meta: optional JSON-serialisable object stored with the frame (e.g. orientation).
-  send(jpegBlob, { save = false, meta = null } = {}) {
+  sendJson(obj) {
+    if (this.ready) this.ws.send(JSON.stringify(obj));
+    return this.ready;
+  }
+
+  send(jpegBlob, { save = false, scan = false, meta = null } = {}) {
     return jpegBlob.arrayBuffer().then((buf) => {
       const m = meta ? new TextEncoder().encode(JSON.stringify(meta)) : new Uint8Array(0);
       const out = new ArrayBuffer(15 + m.length + buf.byteLength);
       const dv = new DataView(out);
-      dv.setUint8(0, save ? 1 : 0);
+      dv.setUint8(0, (save ? 1 : 0) | (scan ? 2 : 0));
       dv.setUint32(1, ++this.seq);
       dv.setFloat64(5, performance.timeOrigin + performance.now());
       dv.setUint16(13, m.length);

@@ -7,14 +7,26 @@
 <style>
   :root { color-scheme: dark; }
   body { margin: 0; background: #000; color: #e8e8e8; font: 14px/1.4 system-ui, sans-serif; }
-  #stage { position: relative; width: 100vw; height: 100vh; height: 100dvh; background: #000; }
+  #stage { position: relative; width: 100vw; height: 100vh; height: 100dvh; background: #000; overflow: hidden; }
   video { width: 100%; height: 100%; object-fit: cover; }
   #hud { position: absolute; left: 8px; top: 8px; padding: 6px 8px; background: #000a; border-radius: 6px;
-         font: 12px/1.35 ui-monospace, monospace; white-space: pre; max-width: 92vw; }
+         font: 12px/1.35 ui-monospace, monospace; white-space: pre; max-width: 60vw; }
+  #ring { position: absolute; right: 8px; top: 8px; width: 112px; height: 112px; background: #000a; border-radius: 56px; }
+  #scan { position: absolute; left: 8px; right: 8px; top: 132px; padding: 8px 10px; background: #000b; border-radius: 8px; display: none; }
+  #scan b { font-size: 15px; }
+  #hint { color: #ffd54f; min-height: 1.4em; }
+  #result { position: absolute; left: 8px; right: 8px; bottom: 120px; max-height: 52vh; overflow: auto; padding: 8px 10px;
+            background: #000d; border-radius: 8px; display: none; }
+  #result canvas { width: 100%; max-height: 34vh; object-fit: contain; border-radius: 6px; margin-top: 6px; }
   #bar { position: absolute; left: 0; right: 0; bottom: 0; padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
-         display: flex; gap: 8px; flex-wrap: wrap; background: #000a; }
-  button, select { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #555; background: #222; color: #fff; }
+         display: flex; gap: 8px; flex-wrap: wrap; background: #000a; align-items: center; }
+  #bar details { width: 100%; }
+  #bar summary { color: #aaa; }
+  #devtools { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+  button, select, input { font: inherit; padding: 10px 12px; border-radius: 8px; border: 1px solid #555; background: #222; color: #fff; }
+  input { flex: 1; min-width: 0; }
   button.primary { background: #1a73e8; border-color: #1a73e8; }
+  button.stop { background: #c62828; border-color: #c62828; }
   #msg { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px;
          text-align: center; background: #000d; }
 </style>
@@ -23,20 +35,33 @@
 <div id="stage">
   <video id="v" playsinline muted></video>
   <div id="hud">starting…</div>
+  <canvas id="ring" width="224" height="224"></canvas>
+  <div id="scan"><b id="scanstatus"></b><div id="scanline"></div><div id="hint"></div></div>
+  <div id="result"><div id="resulttext"></div><canvas id="replay" width="10" height="10" hidden></canvas></div>
   <div id="msg"></div>
   <div id="bar">
-    <button id="start" class="primary">Start camera</button>
-    <button id="flip">Flip</button>
-    <button id="stream">Stream</button>
-    <button id="save">Save sample</button>
-    <select id="fps"><option>1</option><option selected>2</option><option>4</option></select>
-    <select id="side"><option>640</option><option selected>960</option><option>1280</option></select>
+    <button id="scanbtn" class="primary">Scan room</button>
+    <button id="donebtn" class="stop" hidden>Done</button>
+    <input id="q" placeholder="find: the thing I drink water from" autocomplete="off">
+    <button id="findbtn">Find</button>
+    <details>
+      <summary>dev tools</summary>
+      <div id="devtools">
+        <button id="start">Restart camera</button>
+        <button id="flip">Flip</button>
+        <button id="stream">Stream</button>
+        <button id="save">Save sample</button>
+        <select id="fps"><option>1</option><option selected>2</option><option>4</option></select>
+        <select id="side"><option>640</option><option selected>960</option><option>1280</option></select>
+      </div>
+    </details>
   </div>
 </div>
 <script type="module">
 import { startCamera, grabJpeg } from "/js/camera.js";
 import { FrameSocket } from "/js/ws.js";
 import { OrientationTracker } from "/js/orientation.js";
+import { ScanController } from "/js/scan.js";
 
 const orient = new OrientationTracker();
 const ensureOrientation = () => orient.start().catch(() => {});
@@ -49,25 +74,108 @@ const sentAt = new Map();
 let lastReply = null, framesSent = 0, framesDropped = 0, savedMsg = "";
 
 const pct = (a, p) => { if (!a.length) return NaN; const s = [...a].sort((x, y) => x - y); return s[Math.floor((s.length - 1) * p)]; };
+const speak = (t) => { try { speechSynthesis.cancel(); speechSynthesis.speak(new SpeechSynthesisUtterance(t)); } catch { /* no TTS */ } };
+const camera = () => ({ facing, video_w: video.videoWidth, video_h: video.videoHeight, screen_angle: screen.orientation?.angle ?? null });
+
+// ---------------------------------------------------------------- scan UI
+const scan = new ScanController({ video, orient, sock: null, grabJpeg, camera, onChange: render });
 
 const sock = new FrameSocket((r, tNow) => {
+  if (r.type === "find_result") return showFind(r);
+  if (r.type) return scan.onEvent(r);
   const t0 = sentAt.get(r.seq);
   sentAt.delete(r.seq);
   if (t0 !== undefined) { rtts.push(tNow - t0); if (rtts.length > 60) rtts.shift(); }
   lastReply = r;
   if (r.saved) savedMsg = `saved ${r.saved} (${r.saved_total} on server)`;
-}, (s) => { state = s; });
+}, (s) => {
+  state = s;
+  if (s !== "connected" && ["scanning", "starting", "finishing"].includes(scan.phase)) scan.abort("connection lost, the scan stopped; objects found so far are kept");
+});
+scan.sock = sock;
 
+const ring = $("ring"), rctx = ring.getContext("2d");
+function drawRing(cov, yaw) {
+  const c = 112, R = 92;
+  rctx.clearRect(0, 0, 224, 224);
+  rctx.lineWidth = 16;
+  for (let i = 0; i < cov.n; i++) {
+    const a0 = ((i * cov.binDeg - 90) * Math.PI) / 180, a1 = (((i + 1) * cov.binDeg - 90) * Math.PI) / 180;
+    rctx.strokeStyle = cov.bins[i] ? "#43a047" : "#444";
+    rctx.beginPath(); rctx.arc(c, c, R, a0 + 0.02, a1 - 0.02); rctx.stroke();
+  }
+  rctx.fillStyle = "#fff"; rctx.font = "bold 15px system-ui"; rctx.textAlign = "center"; rctx.fillText("N", c, 20);
+  rctx.font = "bold 34px system-ui"; rctx.fillText(`${Math.round(cov.fraction * 100)}%`, c, c + 12);
+  if (yaw != null) { // heading marker
+    const a = ((yaw - 90) * Math.PI) / 180;
+    rctx.fillStyle = "#ffd54f"; rctx.beginPath();
+    rctx.arc(c + (R - 26) * Math.cos(a), c + (R - 26) * Math.sin(a), 9, 0, 7); rctx.fill();
+  }
+}
+
+let lastPhase = "idle";
+function render(st, cov) {
+  drawRing(cov, st.yaw);
+  const active = ["starting", "scanning", "finishing"].includes(st.phase);
+  $("scan").style.display = st.phase === "idle" ? "none" : "block";
+  $("scanstatus").textContent = st.error ? `Error: ${st.error}` : st.status;
+  $("scanline").textContent = `sent ${st.sent}  processed ${st.done}/${st.sent - st.rejected}  objects ${st.objects}` + (st.names.length ? `  last: ${st.names.join(", ")}` : "");
+  $("hint").textContent = st.hint;
+  $("scanbtn").hidden = active;
+  $("donebtn").hidden = st.phase !== "scanning";
+  if (st.phase !== lastPhase) {
+    lastPhase = st.phase;
+    if (st.phase === "done" && st.summary) {
+      speak(st.summary.speech);
+      const s = st.summary;
+      showResult(`<b>${s.speech}</b><br>${s.frames.stored} frames, ${s.seconds}s, $${s.cost_usd}<br>` +
+        s.objects.map((o) => `${o.label} (${Math.round(o.yaw)}°, ${Math.round(o.pitch)}°)`).join("<br>"));
+    }
+  }
+}
+
+function showResult(html) { const r = $("result"); $("resulttext").innerHTML = html; r.style.display = html ? "block" : "none"; $("replay").hidden = true; }
+
+function showFind(r) {
+  showResult(`<b>${r.speech}</b>`);
+  speak(r.speech);
+  if (!r.replay) return;
+  const img = new Image();
+  img.onload = () => {
+    const cv = $("replay"), x = cv.getContext("2d");
+    cv.width = img.naturalWidth; cv.height = img.naturalHeight; cv.hidden = false;
+    x.drawImage(img, 0, 0);
+    const [x1, y1, x2, y2] = r.replay.box;
+    x.lineWidth = Math.max(4, img.naturalWidth / 120); x.strokeStyle = "#ffd54f";
+    x.strokeRect(x1, y1, x2 - x1, y2 - y1);
+  };
+  img.src = `/world/frame/${r.replay.frame_id}.jpg`;
+}
+
+$("scanbtn").onclick = async () => {
+  showResult("");
+  if (!video.srcObject) await boot();
+  ensureOrientation();
+  scan.start();
+};
+$("donebtn").onclick = () => scan.done();
+const find = () => { const q = $("q").value.trim(); if (q) { showResult("<i>looking…</i>"); sock.sendJson({ type: "find", query: q }); } };
+$("findbtn").onclick = find;
+$("q").onkeydown = (e) => { if (e.key === "Enter") find(); };
+
+// ---------------------------------------------------------------- HUD and dev tools
 function hud() {
   const l = [
     `secure=${window.isSecureContext} ws=${state}`,
     info || "camera off",
+    `heading ${scan.st.yaw == null ? "n/a" : scan.st.yaw.toFixed(0) + "°"}  ${orient.status.absolute}`,
     `sent=${framesSent} dropped=${framesDropped} backlog=${sock.backlog}B`,
-    rtts.length ? `RTT ms p50=${pct(rtts, .5).toFixed(0)} p95=${pct(rtts, .95).toFixed(0)} n=${rtts.length}` : "RTT n/a",
-    lastReply ? `server saw ${lastReply.w}x${lastReply.h} ${(lastReply.bytes / 1024).toFixed(0)}KB decode+handle ${lastReply.server_ms}ms` : "",
+    rtts.length ? `RTT ms p50=${pct(rtts, .5).toFixed(0)} p95=${pct(rtts, .95).toFixed(0)} n=${rtts.length}` : "",
+    lastReply ? `server saw ${lastReply.w}x${lastReply.h} ${(lastReply.bytes / 1024).toFixed(0)}KB ${lastReply.server_ms}ms` : "",
     savedMsg,
   ];
   $("hud").textContent = l.filter(Boolean).join("\n");
+  if (scan.phase === "idle") { scan.st.yaw = (orient.latest.absolute || orient.latest.relative)?.yaw ?? null; drawRing(scan.coverage, scan.st.yaw); }
 }
 setInterval(hud, 250);
 
@@ -109,9 +217,10 @@ $("fps").onchange = () => streaming && setStreaming(true);
 $("save").onclick = async () => {
   ensureOrientation();
   const blob = await grabJpeg(video, 1920, 0.9);
-  const meta = { orientation: orient.snapshot(), camera: { facing, video_w: video.videoWidth, video_h: video.videoHeight, screen_angle: screen.orientation?.angle ?? null } };
+  const meta = { orientation: orient.snapshot(), camera: camera() };
   if (blob && sock.ready) { const t0 = performance.timeOrigin + performance.now(); sentAt.set(await sock.send(blob, { save: true, meta }), t0); }
 };
+window.__scan = scan; // for DevTools reads
 boot();
 </script>
 </body>
