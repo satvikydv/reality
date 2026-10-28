@@ -169,3 +169,38 @@ def test_list_scans_newest_first_with_counts(wm):
     assert [s["id"] for s in scans] == [b, a]
     assert scans[1]["n_frames"] == 1 and scans[1]["n_objects"] == 1 and scans[0]["n_frames"] == 0 and scans[0]["ended_at"] == 3.0
     assert wm.get_scan(a)["name"] == "first" and wm.get_scan(999) is None
+
+
+def test_cut_off_view_of_a_big_object_joins_it(wm):
+    s = wm.start_scan()
+    whole = wm.observe(frame(wm, s, 1.0, 100.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]
+    # camera now 40 deg to the left: the laptop is half out of view, so its box centre is ~15 deg from the first one
+    cut = wm.observe(frame(wm, s, 2.0, 60.0), [{"label": "laptop", "box": [388, 260, 480, 380]}])[0]
+    assert A.angular_distance(whole["yaw"], whole["pitch"], cut["yaw"], cut["pitch"]) > wm.merge_deg
+    assert cut["object_id"] == whole["object_id"] and not cut["new"]
+    assert len(wm.list_objects(s)) == 1
+
+
+def test_small_fragment_at_the_border_never_starts_an_object(wm):
+    s = wm.start_scan()
+    out = wm.observe(frame(wm, s, 1.0, 100.0), [{"label": "laptop", "box": [0, 300, 20, 340]}])[0]
+    assert out["object_id"] is None and out["skipped"] == "fragment"
+    assert wm.list_objects(s) == []
+    wm.observe(frame(wm, s, 2.0, 100.0), [{"label": "laptop", "box": [0, 260, 200, 380]}])  # big enough: a real, if cut-off, laptop
+    assert len(wm.list_objects(s)) == 1
+
+
+def test_consolidate_merges_the_same_object_but_not_two_seen_together(wm):
+    s = wm.start_scan()
+    a = wm.observe(frame(wm, s, 1.0, 100.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]["object_id"]
+    b = wm.observe(frame(wm, s, 2.0, 160.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]["object_id"]
+    assert a != b and wm.consolidate(s) == 0  # far apart: two laptops
+    wm.db.execute("UPDATE objects SET state=(SELECT state FROM objects WHERE id=?) WHERE id=?", (a, b))  # now their footprints coincide
+    assert wm.consolidate(s) == 1
+    (o,) = wm.list_objects(s)
+    assert o["id"] == a and o["n_obs"] == 2
+
+    s2 = wm.start_scan()
+    f = frame(wm, s2, 3.0, 100.0)  # two boxes in one view are two objects, however much they overlap
+    wm.observe(f, [{"label": "mug", "box": [200, 300, 280, 380]}, {"label": "mug", "box": [220, 300, 300, 380]}])
+    assert wm.consolidate(s2) == 0 and len(wm.list_objects(s2)) == 2

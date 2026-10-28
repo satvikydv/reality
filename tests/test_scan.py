@@ -135,3 +135,14 @@ def test_resized_frame_is_anchored_with_resized_dims(wm):
     assert (f["width"], f["height"]) == (540, 960)
     mug = wm.find("mug")[0]
     assert A.angular_distance(mug["yaw"], mug["pitch"], 100.0, 0.0) < 1.0  # centre of 540x960 is (270, 480)
+
+
+def test_merge_parts_joins_boxes_of_one_thing_only():
+    from app.scan import merge_parts
+    d = lambda label, box, conf=0.9: {"label": label, "box": box, "conf": conf}  # noqa: E731
+    out = merge_parts([d("laptop", [0, 0, 100, 100], 0.9), d("laptop", [20, 20, 60, 60], 0.7), d("laptop", [20, 20, 180, 100], 0.8)])
+    assert len(out) == 1 and out[0]["box"] == [0, 0, 180, 100] and out[0]["conf"] == 0.9  # nested box, then one that overlaps the union
+    apart = merge_parts([d("mug", [0, 0, 50, 50]), d("mug", [200, 0, 250, 50])])
+    assert len(apart) == 2  # two mugs side by side stay two
+    mixed = merge_parts([d("laptop", [0, 0, 300, 200]), d("cup", [100, 100, 150, 150])])
+    assert {x["label"] for x in mixed} == {"laptop", "cup"}  # a cup in front of a laptop is not part of it

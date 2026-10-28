@@ -152,7 +152,9 @@ class ScanSession:
                 rep = await self.svc.pipeline.process(self.scan_id, jpeg, ts, pose)
                 self.usd += rep.usd
                 self.stats["stored" if rep.stored else "failed"] += 1
-                n_obj = len(self.svc.wm.list_objects(self.scan_id))
+                if rep.stored:
+                    self.svc.wm.consolidate(self.scan_id)
+                n_obj =len(self.svc.wm.list_objects(self.scan_id))
                 log.info("scan %s frame %s: %s names=%s kept=%d objects=%d wait=%.1fs work=%.1fs $%.4f%s", self.scan_id, seq,
                          "stored" if rep.stored else "NOT STORED", rep.names, len(rep.detections), n_obj, t - t_enq,
                          time.perf_counter() - t, rep.usd, f" errors={rep.errors}" if rep.errors else "")
@@ -184,8 +186,9 @@ class ScanSession:
         await self._stop_workers()
         wm, sid = self.svc.wm, self.scan_id
         wm.end_scan(sid, ts=time.time())
+        wm.consolidate(sid)
         objs = wm.list_objects(sid)
-        cov = yaw_coverage(wm.list_frames(sid))
+        cov =yaw_coverage(wm.list_frames(sid))
         speech = f"I found {count_phrase([o['label'] for o in objs])}." if objs else "I did not find any objects."
         if cov["gaps"] and cov["covered_deg"] < 340:
             speech += f" About {360 - cov['covered_deg']} degrees of the room were not covered."

@@ -41,6 +41,10 @@ CREATE INDEX IF NOT EXISTS obs_object ON observations(object_id);
 """
 
 _ARTICLES = {"a", "an", "the", "my", "your"}
+# A detection is the same object as an earlier one when their angular footprints overlap this much: the share of
+# the smaller covered, and the share of the larger (so a tiny box inside a big one is not swallowed).
+OVERLAP_SMALL, OVERLAP_LARGE = 0.5, 0.1
+SLIVER_FRACTION = 0.03  # a border-touching box smaller than this share of the frame never starts an object
 
 
 def normalize_label(label: str) -> str:
@@ -197,7 +201,12 @@ class WorldModel:
                 box = [float(x) for x in d["box"]]
                 conf = float(d.get("conf", 1.0))
                 yaw, pitch = A.box_anchor(tuple(box), fr["width"], fr["height"], fr["yaw"], fr["pitch"], roll, fr["hfov_deg"])
-                oid, new = self._match_or_create(fr, label, box, conf, yaw, pitch, d.get("track_id"), claimed)
+                ext = A.box_extent(tuple(box), fr["width"], fr["height"], fr["yaw"], fr["pitch"], roll, fr["hfov_deg"])
+                oid, new = self._match_or_create(fr, label, box, conf, yaw, pitch, d.get("track_id"), claimed, ext,
+                                                 create=not self._sliver(box, fr["width"], fr["height"]))
+                if oid is None:  # a cut-off fragment with nothing to join: the next frame sees the whole thing
+                    out.append({"object_id": None, "new": False, "yaw": yaw, "pitch": pitch, "skipped": "fragment"})
+                    continue
                 claimed.add(oid)
                 self.db.execute("INSERT INTO observations (object_id, frame_id, ts, box, conf, yaw, pitch) VALUES (?,?,?,?,?,?,?)",
                                 (oid, frame_id, fr["ts"], json.dumps(box), conf, yaw, pitch))
@@ -205,30 +214,110 @@ class WorldModel:
             self.db.commit()
             return out
 
-    def _match_or_create(self, fr, label, box, conf, yaw, pitch, track_id, claimed):
-        best, best_sep = None, self.merge_deg
+    @staticmethod
+    def _sliver(box, width: int, height: int) -> bool:
+        """A small box touching the image border: part of something the neighbouring frame sees whole."""
+        m = 2.0
+        touches = box[0] <= m or box[1] <= m or box[2] >= width - m or box[3] >= height - m
+        return touches and (box[2] - box[0]) * (box[3] - box[1]) < SLIVER_FRACTION * width * height
+
+    def _match_or_create(self, fr, label, box, conf, yaw, pitch, track_id, claimed, ext=None, create=True):
+        """Join the object this detection overlaps most (angular footprint, so a laptop cut off by the frame edge
+        still matches), else the nearest anchor within `merge_deg`, else start a new object."""
+        best, best_sep, best_cover = None, self.merge_deg, 0.0
         for r in self.db.execute("SELECT * FROM objects WHERE scan_id=? AND label=?", (fr["scan_id"], label)):
             if r["id"] in claimed:
                 continue
+            oext = json.loads(r["state"] or "{}").get("ext")
+            if ext and oext:
+                small, large = A.extent_overlap(ext, oext)
+                if small >= OVERLAP_SMALL and large >= OVERLAP_LARGE and small > best_cover:
+                    best, best_cover = r, small
+                    continue
             sep = A.angular_distance(yaw, pitch, r["yaw"], r["pitch"])
-            if sep < best_sep:
+            if best_cover == 0.0 and sep < best_sep:
                 best, best_sep = r, sep
         tracks = [track_id] if track_id is not None else []
+        if best is None and not create:
+            return None, False
         if best is None:
-            cur = self.db.execute(
+            cur =self.db.execute(
                 "INSERT INTO objects (scan_id, label, first_seen, last_seen, yaw, pitch, weight, n_obs, spread_deg, conf_best,"
-                " last_box, last_frame_id, track_ids) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (fr["scan_id"], label, fr["ts"], fr["ts"], yaw, pitch, conf, 1, 0.0, conf, json.dumps(box), fr["id"], json.dumps(tracks)))
+                " last_box, last_frame_id, track_ids, state) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (fr["scan_id"], label, fr["ts"], fr["ts"], yaw, pitch, conf, 1, 0.0, conf, json.dumps(box), fr["id"], json.dumps(tracks),
+                 json.dumps({"ext": ext})))
             return cur.lastrowid, True
+        state = json.loads(best["state"] or "{}")
+        if ext and (not state.get("ext") or A.extent_area(ext) > A.extent_area(state["ext"])):
+            state["ext"] = ext  # keep the largest footprint seen: the whole object, not a cut-off view
+        best_sep = A.angular_distance(yaw, pitch, best["yaw"], best["pitch"])
         new_yaw, new_pitch = A.mean_direction([(best["yaw"], best["pitch"], best["weight"]), (yaw, pitch, conf)])
         known = json.loads(best["track_ids"])
         if track_id is not None and track_id not in known:
             known.append(track_id)
         self.db.execute(
             "UPDATE objects SET yaw=?, pitch=?, weight=weight+?, n_obs=n_obs+1, spread_deg=MAX(spread_deg, ?), conf_best=MAX(conf_best, ?),"
-            " last_seen=MAX(last_seen, ?), last_box=?, last_frame_id=?, track_ids=? WHERE id=?",
-            (new_yaw, new_pitch, conf, best_sep, conf, fr["ts"], json.dumps(box), fr["id"], json.dumps(known), best["id"]))
+            " last_seen=MAX(last_seen, ?), last_box=?, last_frame_id=?, track_ids=?, state=? WHERE id=?",
+            (new_yaw, new_pitch, conf, best_sep, conf, fr["ts"], json.dumps(box), fr["id"], json.dumps(known), json.dumps(state), best["id"]))
         return best["id"], False
+
+    def consolidate(self, scan_id: int) -> int:
+        """Merge objects of a scan that are the same thing seen from different frames; returns how many were absorbed.
+
+        Frames finish out of order, so matching while observing can split one object in two. Here every pair of
+        same-label objects whose angular footprints overlap (strongest overlap first) is merged, except when the
+        two were detected in the same frame: two boxes in one view are two objects (two mugs stay two mugs)."""
+        with self.lock:
+            rows = {r["id"]: r for r in self.db.execute("SELECT * FROM objects WHERE scan_id=?", (scan_id,))}
+            frames_of: dict[int, set[int]] = {oid: set() for oid in rows}
+            for o in self.db.execute("SELECT object_id, frame_id FROM observations WHERE object_id IN (SELECT id FROM objects WHERE scan_id=?)", (scan_id,)):
+                frames_of[o["object_id"]].add(o["frame_id"])
+            ext = {oid: json.loads(r["state"] or "{}").get("ext") for oid, r in rows.items()}
+            pairs = []
+            ids = sorted(rows)
+            for i, a in enumerate(ids):
+                for b in ids[i + 1:]:
+                    if rows[a]["label"] != rows[b]["label"] or not ext[a] or not ext[b]:
+                        continue
+                    small, large = A.extent_overlap(ext[a], ext[b])
+                    if small >= OVERLAP_SMALL and large >= OVERLAP_LARGE:
+                        pairs.append((small, a, b))
+            group = {oid: oid for oid in rows}
+            members = {oid: {oid} for oid in rows}
+            seen = {oid: set(frames_of[oid]) for oid in rows}
+
+            def root(x):
+                while group[x] != x:
+                    x = group[x]
+                return x
+            for _, a, b in sorted(pairs, reverse=True):
+                ra, rb = root(a), root(b)
+                if ra == rb or seen[ra] & seen[rb]:
+                    continue
+                keep, gone = min(ra, rb), max(ra, rb)
+                group[gone] = keep
+                members[keep] |= members.pop(gone)
+                seen[keep] |= seen.pop(gone)
+            merged = 0
+            for keep, ms in members.items():
+                if len(ms) == 1:
+                    continue
+                merged += len(ms) - 1
+                self.db.executemany("UPDATE observations SET object_id=? WHERE object_id=?", [(keep, m) for m in ms if m != keep])
+                self.db.executemany("DELETE FROM objects WHERE id=?", [(m,) for m in ms if m != keep])
+                obs = self.db.execute("SELECT * FROM observations WHERE object_id=? ORDER BY ts, id", (keep,)).fetchall()
+                yaw, pitch = A.mean_direction([(o["yaw"], o["pitch"], o["conf"]) for o in obs])
+                last = obs[-1]
+                tracks = sorted({t for m in ms for t in json.loads(rows[m]["track_ids"])})
+                best_ext = max((ext[m] for m in ms if ext[m]), key=A.extent_area, default=None)
+                self.db.execute(
+                    "UPDATE objects SET yaw=?, pitch=?, weight=?, n_obs=?, spread_deg=?, conf_best=?, first_seen=?, last_seen=?,"
+                    " last_box=?, last_frame_id=?, track_ids=?, state=? WHERE id=?",
+                    (yaw, pitch, sum(o["conf"] for o in obs), len(obs), max(A.angular_distance(yaw, pitch, o["yaw"], o["pitch"]) for o in obs),
+                     max(o["conf"] for o in obs), obs[0]["ts"], last["ts"], last["box"], last["frame_id"], json.dumps(tracks),
+                     json.dumps({"ext": best_ext}), keep))
+            self.db.commit()
+            return merged
 
     # ------------------------------------------------------------------ queries
 

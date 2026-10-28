@@ -113,3 +113,31 @@ def box_anchor(box: tuple[float, float, float, float], width: int, height: int, 
     """(yaw, pitch) anchor of a detection box (x1, y1, x2, y2 in pixels), using the box centre."""
     return pixel_to_direction((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0, width, height,
                               yaw_deg, pitch_deg, roll_deg, hfov_deg)
+
+
+def box_extent(box: tuple[float, float, float, float], width: int, height: int, yaw_deg: float, pitch_deg: float,
+               roll_deg: float = 0.0, hfov_deg: float = DEFAULT_HFOV_DEG) -> tuple[float, float, float, float, float]:
+    """Angular footprint of a box: (yaw0, dyaw_lo, dyaw_hi, pitch_lo, pitch_hi), yaw offsets measured from yaw0
+    (the box centre's yaw) so the 0/360 wrap never splits it."""
+    c, _ = box_anchor(box, width, height, yaw_deg, pitch_deg, roll_deg, hfov_deg)
+    ys, ps = [], []
+    for u, v in ((box[0], box[1]), (box[2], box[1]), (box[0], box[3]), (box[2], box[3])):
+        y, p = pixel_to_direction(u, v, width, height, yaw_deg, pitch_deg, roll_deg, hfov_deg)
+        ys.append(wrap180(y - c))
+        ps.append(p)
+    return c, min(ys), max(ys), min(ps), max(ps)
+
+
+def extent_area(e) -> float:
+    return max(0.0, e[2] - e[1]) * max(0.0, e[4] - e[3])
+
+
+def extent_overlap(a, b) -> tuple[float, float]:
+    """How much two angular footprints overlap: (share of the smaller one covered, share of the larger one covered)."""
+    s = wrap180(a[0] - b[0])
+    iy = min(s + a[2], b[2]) - max(s + a[1], b[1])
+    ip = min(a[4], b[4]) - max(a[3], b[3])
+    if iy <= 0 or ip <= 0:
+        return 0.0, 0.0
+    inter, aa, ab = iy * ip, extent_area(a), extent_area(b)
+    return (inter / min(aa, ab) if min(aa, ab) > 0 else 0.0), (inter / max(aa, ab) if max(aa, ab) > 0 else 0.0)

@@ -103,3 +103,11 @@ On the Realme RMX2001 the "relative" sensor is not gyro-only: both sources gave 
 - **Frame protocol.** Binary WS frame: `flags u8 | seq u32 | client_ts f64 | JPEG`. Flag bit 0 saves the frame to `data/frames/` so the M0 scripts run on real phone captures.
 - **SAM box-prompt test source.** `sam_latency.py` seeds box prompts from the concept pass's own boxes, so it measures box-prompt latency without depending on Spark grounding.
 - **No commits yet.** The folder was not a git repo; nothing has been initialised or committed.
+
+## 2026-10-28
+
+- **Identity by footprint, not by centre.** Matching a detection to an object by the distance between box centres split big or cut-off objects: a laptop half out of frame has a centre many degrees from its whole-view centre, so one real scan gave 64 objects (14 laptops). Detections now carry an angular footprint (`anchoring.box_extent`); an object keeps the largest footprint seen and a detection joins it when it covers at least half of the smaller of the two (and a tenth of the larger, so a small box inside a big one is not swallowed). The centre rule within `merge_deg` stays as the fallback.
+- **Parts of one thing.** SAM boxes the screen and the base of a laptop separately. `scan.merge_parts` unions same-label boxes in one frame that overlap by a third of the smaller box. Different labels are never merged (a cup in front of a laptop).
+- **Fragments do not start objects.** A small box touching the image border can join an existing object but never creates one; the neighbouring frame sees the whole thing.
+- **Consolidation.** Frames finish out of order, so `WorldModel.consolidate` re-merges same-label objects with overlapping footprints after every stored frame and at scan end. Two objects detected in the same frame are never merged: one view cannot see an object twice.
+- Result on the stored scan 4 (79 detections, 16 frames): 64 objects, 14 laptops became 44 objects, 4 laptops. Comparing a scan with a reversed-order replay of itself now reports 0 moved (it reported many before). Not solved: results still depend a little on arrival order, and the FOV is still the 60 degree placeholder (at 45 degrees the same data gives fewer objects).

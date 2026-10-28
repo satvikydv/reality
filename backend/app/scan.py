@@ -84,6 +84,28 @@ def suppress_overlaps(dets: list[dict], iou_thresh: float = 0.6, tie: float = 0.
     return kept
 
 
+def merge_parts(dets: list[dict], overlap: float = 0.35) -> list[dict]:
+    """One detection per object when SAM boxes parts of the same thing (a laptop's screen and its base, a box
+    nested inside a bigger one): same-label boxes whose overlap covers `overlap` of the smaller box become
+    their union, keeping the best confidence. Different labels are left alone (a cup in front of a laptop)."""
+    groups: list[dict] = []
+    for d in sorted(dets, key=lambda d: -d["conf"]):
+        box = list(d["box"])
+        hits = [g for g in groups if g["label"] == d["label"] and _covered(g["box"], box) >= overlap]
+        for g in hits:  # a new box can bridge two groups
+            box = [min(box[0], g["box"][0]), min(box[1], g["box"][1]), max(box[2], g["box"][2]), max(box[3], g["box"][3])]
+            groups.remove(g)
+        groups.append({**(hits[0] if hits else d), "box": box, "conf": max([d["conf"]] + [g["conf"] for g in hits])})
+    return groups
+
+
+def _covered(a, b) -> float:
+    """Overlap area as a share of the smaller box."""
+    ix, iy = max(0.0, min(a[2], b[2]) - max(a[0], b[0])), max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return ix * iy / small if small > 0 else 0.0
+
+
 def pose_from_meta(meta: dict, prefer: str = "absolute") -> dict | None:
     """Camera pose from a Save-sample sidecar / frame meta: {yaw, pitch, roll, screen_angle, source, api}.
     Falls back to the other source when the preferred one is missing. None if there is no orientation."""
@@ -189,7 +211,7 @@ class ScanPipeline:
         if rep.errors:
             return rep  # incomplete look: do not record this direction as scanned
 
-        rep.detections = suppress_overlaps(dets)
+        rep.detections = merge_parts(suppress_overlaps(dets))
         rep.frame_id = self.wm.add_frame(scan_id, ts, pose["yaw"], pose["pitch"], w, h, roll=pose.get("roll"),
                                          screen_angle=pose.get("screen_angle", 0.0), source=pose.get("source"),
                                          api=pose.get("api"), hfov_deg=pose.get("hfov_deg"), jpeg=small)
