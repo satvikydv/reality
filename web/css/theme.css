@@ -1,8 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Sora:wght@300;400;600;700&display=swap');
-:root{--bg:#07090b;--ink:#f2f4f3;--dim:rgba(242,244,243,.62);--line:rgba(255,255,255,.16);--panel:rgba(10,12,14,.58);--amber:#FFD54F;--green:#5EE6A0;--red:#FF5A52;--sans:'Sora',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace}
+:root{--bg:#07090b;--ink:#f2f4f3;--dim:rgba(242,244,243,.62);--line:rgba(255,255,255,.16);--panel:rgba(10,12,14,.58);--accent:#8AA4FF;--amber:#FFD54F;--green:#5EE6A0;--red:#FF5A52;--sans:'Sora',system-ui,sans-serif;--mono:'JetBrains Mono',ui-monospace,monospace}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans);overflow:hidden}
-a{color:var(--amber);text-decoration:none}a:hover{color:#fff}
+a{color:var(--accent);text-decoration:none}a:hover{color:#fff}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .panel{background:var(--panel);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border:1px solid var(--line);border-radius:18px}
 .label{font:500 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
