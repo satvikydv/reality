@@ -16,7 +16,7 @@ identical objects is invisible; appearance is not compared.
 from __future__ import annotations
 
 from app import anchoring as A
-from app.world_model import WorldModel, describe_offset, label_match_score
+from app.world_model import WorldModel, describe_offset, label_match_score, plural
 
 MOVE_DEG = 15.0
 ALIGN_TOL_DEG = 10.0
@@ -44,6 +44,14 @@ def estimate_yaw_offset(a_objs: list[dict], b_objs: list[dict], tol_deg: float =
     return {"offset_deg": A.wrap180(mean_yaw) if best else 0.0, "inliers": inliers, "candidates": len(cands), "confident": inliers >= min_inliers}
 
 
+def _grouped(entries: list[dict], many: str) -> list[str]:
+    """One sentence per label: the entry's own sentence for a single object, a count for several."""
+    by_label: dict[str, list[dict]] = {}
+    for e in entries:
+        by_label.setdefault(e["label"], []).append(e)
+    return [g[0]["speech"] if len(g) == 1 else many.format(n=len(g), things=plural(label)) for label, g in by_label.items()]
+
+
 def _covered(frames: list[dict], yaw: float, pitch: float, shift: float, margin: float = 0.05) -> bool:
     """Does any frame (its yaw shifted by `shift`) see the direction inside the image?"""
     for f in frames:
@@ -54,7 +62,8 @@ def _covered(frames: list[dict], yaw: float, pitch: float, shift: float, margin:
     return False
 
 
-def diff_scans(wm: WorldModel, scan_a: int, scan_b: int, yaw_offset: float | None = None, move_deg: float = MOVE_DEG) -> dict:
+def diff_scans(wm: WorldModel, scan_a: int, scan_b: int, yaw_offset: float | None = None, move_deg: float = MOVE_DEG,
+               max_spoken: int = 6) -> dict:
     """Compare scan `scan_b` (now) against `scan_a` (before). `yaw_offset` = b's yaw frame minus a's;
     None estimates it from shared objects (falls back to 0 when not confident)."""
     objs_a, objs_b = wm.list_objects(scan_a), wm.list_objects(scan_b)
@@ -113,7 +122,9 @@ def diff_scans(wm: WorldModel, scan_a: int, scan_b: int, yaw_offset: float | Non
         else:
             unverified.append({**e, "was": "added?", "reason": "that direction was not in the earlier scan"})
 
-    parts = [x["speech"] for x in [*moved, *removed, *added]]
+    parts = [x["speech"] for x in moved] + _grouped(removed, "{n} {things} are gone.") + _grouped(added, "{n} {things} are new.")
+    if len(parts) > max_spoken:
+        parts = parts[:max_spoken] + [f"And {len(parts) - max_spoken} more change{'s' if len(parts) - max_spoken != 1 else ''}."]
     if not parts:
         parts = ["Nothing changed."]
     if unverified:

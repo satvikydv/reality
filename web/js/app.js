@@ -35,6 +35,7 @@ export function handleEvent(m){
   const t=m.type||m.event;
   if(t==='scan_summary'){summary=m;renderSummary(m)}
   if(t==='find_result')renderFind(m);
+  if(t==='guide_request'){renderFind(m.result);go('guide');startGuide()} // another agent sent this phone to an object
   if(t==='error')toast(m.message||'Server error');
 }
 function renderSummary(m){
@@ -118,7 +119,7 @@ async function boot(){
   try{
     const [c,w,o,k,s]=await Promise.all(['camera','ws','orientation','keyframe','scan'].map(n=>import('/js/'+n+'.js')));
     cam=c;orient=new o.OrientationTracker();
-    sock=new w.FrameSocket(r=>{if(r.type==='find_result')return handleEvent(r);if(r.type)return ctl.onEvent(r)},onSockState);
+    sock=new w.FrameSocket(r=>{if(r.type==='find_result'||r.type==='guide_request')return handleEvent(r);if(r.type)return ctl.onEvent(r)},onSockState);
     ctl=new s.ScanController({video:el('v'),orient,sock,grabJpeg:c.grabJpeg,camera:camMeta,onChange});
     orient.start().catch(()=>{});
     await startCam();

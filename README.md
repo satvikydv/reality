@@ -68,6 +68,26 @@ Tests: `pytest tests` (server), `node --test tests/js/keyframe.test.mjs tests/js
 
 The phone UI (`web/index.html`, `web/css/theme.css`, `web/js/app.js`) also runs without the backend: open `/?demo` for mock data, or `/?demo&screen=summary|find|guide|changes|scan` to jump to a screen. It falls back to demo mode by itself when the server is not reachable.
 
+## Reality API (for other agents)
+
+The scanned room is also an MCP server, so another agent can ask about it. It is mounted on the same server at `http://127.0.0.1:8000/mcp` (Streamable HTTP; needs `MODEL_API_KEY` in `.env`, like scanning).
+
+| tool | what it answers |
+|---|---|
+| `where_is(query)` | where something is, from a name or a description ("the thing I charge my laptop with"): compass direction, direction from the scan start, neighbours, a photo reference, last seen, confidence. `status` is `found`, `not_seen` (with how much of the room the latest scan covered) or `unresolved` |
+| `list_objects(label?, scan_id?)`, `scan_summary(scan_id?)` | what a scan found, counts per kind, coverage and gaps |
+| `what_changed(scan_before?, scan_after?)` | added, removed and moved objects between two scans, plus `unverified` objects in directions only one scan looked at |
+| `guide_user_to(query)` | the one action: the connected phone shows the answer and starts the direction arrow |
+| `get_frame(frame_id)` | the stored photo (may show people: turn it off with `REALITY_API_FRAMES=0`) |
+
+```powershell
+claude mcp add --transport http reality-os http://127.0.0.1:8000/mcp     # Claude Code as the second agent
+.\.venv\Scripts\python.exe scriptseality_client.py where_is "the thing I drink water from"   # or ask from the command line
+.\.venv\Scripts\python.exe scriptseality_client.py tools
+```
+
+It listens on loopback only, and the host header is checked (DNS-rebinding guard); on a LAN bind add your host with `MCP_ALLOWED_HOSTS="192.168.1.5:8443"` and use `ACCESS_TOKEN`. `cd backend; python -m app.mcp_server` runs the same tools over stdio for clients that start their own subprocess (read-only; no live phone or dashboard in that mode). Every agent call is also published on the event feed (`/ws/events`) for the laptop dashboard.
+
 ## M0 scripts
 
 ```powershell

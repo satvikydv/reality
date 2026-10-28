@@ -1,9 +1,13 @@
 """Reality OS backend: serves the phone page and the WebSocket (frame echo for M0 checks, live room scan)."""
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
+import os
 import struct
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import cv2
@@ -11,15 +15,46 @@ import numpy as np
 from fastapi import FastAPI, HTTPException, Response, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Route
+
+from mcp.server.transport_security import TransportSecuritySettings
 
 from app.auth import AccessTokenMiddleware
-from app import scan_service
+from app import mcp_server, scan_service
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "web"
 SAMPLES = ROOT / "data" / "frames"
 
-app = FastAPI(title="Reality OS")
+_mcp_hosts = ["127.0.0.1:*", "localhost:*", "[::1]:*"] + [h for h in os.getenv("MCP_ALLOWED_HOSTS", "").split(",") if h.strip()]
+_mcp_current: dict = {"app": None}
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Reality API for other agents: an MCP server over Streamable HTTP at /mcp, sharing this process's memory and
+    event bus. A session manager can only run once, so each startup builds its own server."""
+    server = mcp_server.build_server(lambda: get_service())
+    _mcp_current["app"] = server.streamable_http_app(
+        streamable_http_path="/mcp",
+        # DNS-rebinding protection stays on; add LAN hosts with MCP_ALLOWED_HOSTS="192.168.1.5:8443,laptop.local:8443"
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=True, allowed_hosts=_mcp_hosts, allowed_origins=["*"]))
+    try:
+        async with server.session_manager.run():
+            yield
+    finally:
+        _mcp_current["app"] = None
+
+
+class McpEndpoint:
+    async def __call__(self, scope, receive, send):
+        inner = _mcp_current["app"]
+        if inner is None:
+            return await Response("MCP server not running", status_code=503)(scope, receive, send)
+        await inner(scope, receive, send)
+
+
+app = FastAPI(title="Reality OS", lifespan=lifespan)
 app.add_middleware(AccessTokenMiddleware)
 
 # Binary frame layout from the client (big endian):
@@ -38,6 +73,9 @@ def get_service() -> scan_service.ScanService:
     if _service is None:
         _service = service_factory()
     return _service
+
+
+app.router.routes.append(Route("/mcp", McpEndpoint()))
 
 
 @app.get("/")
@@ -100,6 +138,16 @@ async def ws(sock: WebSocket):
     async def fail(where: str, e: Exception) -> None:
         await send({"type": "error", "where": where, "message": f"{type(e).__name__}: {e}"[:300]})
 
+    async def forward_guide_requests(sub) -> None:
+        while True:
+            await send(await sub.get())
+
+    guide_sub = forwarder = None
+    try:
+        guide_sub = get_service().bus.subscribe("phone", types={"guide_request"})  # lets an agent send this phone somewhere
+        forwarder = asyncio.create_task(forward_guide_requests(guide_sub))
+    except Exception:  # noqa: BLE001 - no model key yet: scanning is unavailable anyway, the echo tools still work
+        pass
     try:
         while True:
             msg = await sock.receive()
@@ -159,8 +207,39 @@ async def ws(sock: WebSocket):
             reply["server_ms"] = round((time.perf_counter() - t_in) * 1000, 2)
             await send(reply)
     finally:
+        if forwarder is not None:
+            forwarder.cancel()
+            guide_sub.close()
         if session is not None:
             await session.close()
+
+
+@app.websocket("/ws/events")
+async def ws_events(sock: WebSocket):
+    """Live feed for the laptop dashboard: everything the phone and the Reality API do, newest 200 events first."""
+    await sock.accept()
+    try:
+        bus = get_service().bus
+    except Exception as e:  # noqa: BLE001
+        await sock.send_text(json.dumps({"type": "error", "message": f"{type(e).__name__}: {e}"[:300]}))
+        await sock.close()
+        return
+    async with bus.subscribe("dashboard", replay=200) as sub:
+        reader = asyncio.create_task(sock.receive())  # only here to notice the dashboard closing
+        try:
+            while True:
+                getter = asyncio.create_task(sub.get())
+                done, _ = await asyncio.wait({getter, reader}, return_when=asyncio.FIRST_COMPLETED)
+                if reader in done:
+                    getter.cancel()
+                    return
+                await sock.send_text(json.dumps(getter.result()))
+        except Exception:  # noqa: BLE001 - socket closed mid-send
+            return
+        finally:
+            reader.cancel()
+            with contextlib.suppress(Exception):
+                await sock.close()
 
 
 app.mount("/js", StaticFiles(directory=WEB / "js"), name="js")

@@ -70,6 +70,15 @@ def label_match_score(query: str, label: str) -> float:
     return 0.0
 
 
+_IRREGULAR = {"mouse": "mice", "knife": "knives", "shelf": "shelves", "box": "boxes", "glass": "glasses", "bag": "bags"}
+
+
+def plural(label: str) -> str:
+    """Pluralise the last word: "water bottle" -> "water bottles", "computer mouse" -> "computer mice"."""
+    head, _, last = label.rpartition(" ")
+    return (head + " " if head else "") + _IRREGULAR.get(last, last if last.endswith("s") and not last.endswith("ss") else last + "s")
+
+
 def describe_offset(dyaw: float, dpitch: float) -> str:
     """Words for a direction relative to where the scan started."""
     a = abs(dyaw)

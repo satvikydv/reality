@@ -47,3 +47,15 @@ def test_slow_subscriber_loses_oldest_events_without_blocking_publisher():
         assert sub.dropped == 7 and [(await sub.get())["i"] for _ in range(3)] == [7, 8, 9]
 
     run(go())
+
+
+def test_type_filter_keeps_only_wanted_events():
+    async def go():
+        bus = EventBus()
+        bus.publish({"type": "a"})
+        sub = bus.subscribe("phone", replay=5, types={"b"})
+        bus.publish({"type": "a"})
+        bus.publish({"type": "b", "n": 1})
+        assert (await sub.get())["n"] == 1 and sub.queue.empty()
+
+    run(go())

@@ -70,7 +70,7 @@ async def where_is(svc: ScanService, query: str) -> dict:
     return {**base, "status": "found", "object": _object(o, now), "scan_id": found["scan_id"], "seen_in_latest_scan": found["is_latest_scan"],
             "compass": {"yaw": round(o["yaw"], 1), "pitch": round(o["pitch"], 1)},
             "from_scan_start": {"yaw_deg": round(off.get("dyaw", 0.0), 1), "pitch_deg": round(off.get("dpitch", 0.0), 1)} if off else None,
-            "neighbors": [{"label": n["label"], "relation": n["relation"], "separation_deg": round(n["sep_deg"], 1)} for n in found["neighbors"]],
+            "neighbors": [{"label": n["label"], "relation": n["relation"], "separation_deg": round(n["sep_deg"], 1)} for n in found["neighbors"][:5]],
             "sighting": public_replay(found["replay"]), "answer": found["speech"]}
 
 

@@ -13,12 +13,14 @@ from collections import deque
 
 
 class Subscription:
-    def __init__(self, bus: "EventBus", role: str, maxsize: int):
-        self.bus, self.role = bus, role
+    def __init__(self, bus: "EventBus", role: str, maxsize: int, types: frozenset[str] | None = None):
+        self.bus, self.role, self.types = bus, role, types
         self.queue: asyncio.Queue = asyncio.Queue(maxsize)
         self.dropped = 0
 
     def _put(self, event: dict) -> None:
+        if self.types is not None and event.get("type") not in self.types:
+            return
         if self.queue.full():
             self.queue.get_nowait()  # drop the oldest
             self.dropped += 1
@@ -51,9 +53,9 @@ class EventBus:
             s._put(stamped)
         return stamped
 
-    def subscribe(self, role: str = "dashboard", replay: int = 0, maxsize: int = 500) -> Subscription:
-        """`replay` = how many of the most recent events to deliver first."""
-        sub = Subscription(self, role, maxsize)
+    def subscribe(self, role: str = "dashboard", replay: int = 0, maxsize: int = 500, types: set[str] | None = None) -> Subscription:
+        """`replay` = how many of the most recent events to deliver first; `types` keeps only those event types."""
+        sub = Subscription(self, role, maxsize, frozenset(types) if types else None)
         if replay:
             for e in list(self._history)[-replay:]:
                 sub._put(e)
