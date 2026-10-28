@@ -48,6 +48,7 @@ def build_server(get_service: Callable[[], ScanService], allow_frames: bool | No
             raise
         svc.bus.publish({"type": "agent_call", "source": "agent", "tool": tool, "args": args, "status": result.get("status"),
                          "answer": result.get("answer") or result.get("message") or result.get("summary") or "",
+                         "object_id": (result.get("object") or {}).get("id"), "sighting": result.get("sighting"),  # lets the dashboard show what the agent was told
                          "ms": round((time.perf_counter() - t0) * 1000)})
         return result
 

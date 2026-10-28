@@ -26,6 +26,16 @@
 
 **Not updated (still describe the old hero).** The README M0 commands and the default task list in `scripts/spark_plan.py`. `scripts/sam_latency.py` has no labels file, so counting accuracy against a true count per frame is not implemented yet.
 
+## 2026-10-28: laptop dashboard (replaces the TV view)
+
+- **Laptop browser, not a 1920x1080 TV stage.** The Claude Design `tv.html` scaled a fixed stage; this is a fluid grid for a laptop window (min 1100x640), reusing the design's theme and `drawMap`. `/tv` and `web/tv.html` are removed.
+- **One feed for everything**: the page opens `/ws/events` and renders the server's event stream (scan progress, `world_update` with live objects and coverage, find results, agent calls, guide requests). It keeps no state of its own, so replaying the last 200 events rebuilds the screen when it is opened late or reloaded.
+- **Compare panel on REST**: `/api/scans` lists scans, `/api/changes?before=&after=` returns the same answer as the `what_changed` agent tool. Cards show before and after photos with the object boxed, grouped Moved, Removed, Added; `unverified` is only counted in the summary line.
+- **Agent panel shows what the agent was told**: `agent_call` events now carry the sighting and object id, so the photo and the map highlight match the agent's answer.
+- **Model text goes in with `textContent` only** (object names and answers come from a model). Replay photos can show people; the compare cards and the agent panel show them at thumbnail size, so shoot the demo scene without bystanders.
+- **Bug found while screenshotting**: `ui.js` `fit()` resized a canvas only when its width changed, so a height-only layout change left a stretched drawing (duplicated compass labels). It now compares both.
+- Checked in headless Chrome at 1440x900 with scripted data and with real events (a replayed scan, an MCP `where_is`, a compare of two stored scans). The compare on real data shows many moves because the two scans are unrelated (different frame sets); a controlled before/after scan is still to do.
+
 ## 2026-10-28: Reality API (MCP), event feed, agent guide requests
 
 - **MCP over Streamable HTTP, mounted on the main app at /mcp**, not a separate process. A second process could not share the live event feed or reach the connected phone. Each startup builds its own MCP server because a session manager can only run once (this also lets tests start the app repeatedly). `python -m app.mcp_server` stays as a read-only stdio fallback.

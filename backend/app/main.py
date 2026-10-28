@@ -20,7 +20,7 @@ from starlette.routing import Route
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.auth import AccessTokenMiddleware
-from app import mcp_server, scan_service
+from app import mcp_server, reality_api, scan_service
 
 ROOT = Path(__file__).resolve().parents[2]
 WEB = ROOT / "web"
@@ -83,9 +83,9 @@ async def index():
     return FileResponse(WEB / "index.html")
 
 
-@app.get("/tv")
-async def tv():
-    return FileResponse(WEB / "tv.html")
+@app.get("/dashboard")
+async def dashboard():
+    return FileResponse(WEB / "dashboard.html")
 
 
 @app.get("/debug")
@@ -106,6 +106,25 @@ async def orientation():
 @app.get("/healthz")
 async def healthz():
     return {"ok": True, "ts": time.time()}
+
+
+def _service_or_503() -> scan_service.ScanService:
+    try:
+        return get_service()
+    except Exception as e:  # noqa: BLE001 - usually MODEL_API_KEY missing
+        raise HTTPException(503, f"{type(e).__name__}: {e}"[:300])
+
+
+@app.get("/api/scans")
+async def api_scans():
+    """Every scan, newest first (for the dashboard's history and compare pickers)."""
+    return {"scans": _service_or_503().wm.list_scans()}
+
+
+@app.get("/api/changes")
+async def api_changes(before: int | None = None, after: int | None = None):
+    """What changed between two scans (default: the latest against the one before): same answer the Reality API gives."""
+    return reality_api.what_changed(_service_or_503(), before, after)
 
 
 @app.get("/world/frame/{frame_id}.jpg")

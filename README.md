@@ -68,6 +68,10 @@ Tests: `pytest tests` (server), `node --test tests/js/keyframe.test.mjs tests/js
 
 The phone UI (`web/index.html`, `web/css/theme.css`, `web/js/app.js`) also runs without the backend: open `/?demo` for mock data, or `/?demo&screen=summary|find|guide|changes|scan` to jump to a screen. It falls back to demo mode by itself when the server is not reachable.
 
+## Laptop dashboard
+
+Open `http://127.0.0.1:8000/dashboard` on the laptop while the phone scans. It shows the room map filling in (compass, north up), counters (frames, objects, seconds, cost), a log of everything the phone and any agent does, the last Reality API call with the photo it was shown, and a compare panel (pick two scans, "What changed?") with before and after photos. A dashboard opened mid-scan catches up from the last 200 events. `/dashboard?demo` plays scripted data without the backend. The page needs the same `MODEL_API_KEY` setup as scanning, because it reads the same server state.
+
 ## Reality API (for other agents)
 
 The scanned room is also an MCP server, so another agent can ask about it. It is mounted on the same server at `http://127.0.0.1:8000/mcp` (Streamable HTTP; needs `MODEL_API_KEY` in `.env`, like scanning).
@@ -82,8 +86,10 @@ The scanned room is also an MCP server, so another agent can ask about it. It is
 
 ```powershell
 claude mcp add --transport http reality-os http://127.0.0.1:8000/mcp     # Claude Code as the second agent
-.\.venv\Scripts\python.exe scriptseality_client.py where_is "the thing I drink water from"   # or ask from the command line
-.\.venv\Scripts\python.exe scriptseality_client.py tools
+.\.venv\Scripts\python.exe scripts
+eality_client.py where_is "the thing I drink water from"   # or ask from the command line
+.\.venv\Scripts\python.exe scripts
+eality_client.py tools
 ```
 
 It listens on loopback only, and the host header is checked (DNS-rebinding guard); on a LAN bind add your host with `MCP_ALLOWED_HOSTS="192.168.1.5:8443"` and use `ACCESS_TOKEN`. `cd backend; python -m app.mcp_server` runs the same tools over stdio for clients that start their own subprocess (read-only; no live phone or dashboard in that mode). Every agent call is also published on the event feed (`/ws/events`) for the laptop dashboard.

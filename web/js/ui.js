@@ -1,5 +1,5 @@
 const A='#FFD54F',G='#5EE6A0',TAU=Math.PI*2,rad=d=>(d-90)*Math.PI/180;
-export function fit(c){const d=Math.min(devicePixelRatio||1,2),r=c.getBoundingClientRect();if(c.width!==Math.round(r.width*d)){c.width=Math.round(r.width*d);c.height=Math.round(r.height*d)}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,r.width,r.height);return{x,w:r.width,h:r.height}}
+export function fit(c){const d=Math.min(devicePixelRatio||1,2),r=c.getBoundingClientRect();if(c.width!==Math.round(r.width*d)||c.height!==Math.round(r.height*d)){c.width=Math.round(r.width*d);c.height=Math.round(r.height*d)}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,r.width,r.height);return{x,w:r.width,h:r.height}}
 
 // Coverage compass ring: 36 segments, N marker, heading dot + view cone.
 export function drawRing(c,bins,yaw,pulse=0){

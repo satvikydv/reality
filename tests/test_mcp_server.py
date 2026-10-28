@@ -53,6 +53,7 @@ def test_agent_asks_and_dashboard_sees_the_calls(tmp_path):
     assert [e["tool"] for e in calls] == ["where_is", "scan_summary", "list_objects", "get_frame", "get_frame"]
     assert calls[0]["args"] == {"query": "the thing I drink coffee from"} and calls[0]["status"] == "found" and calls[0]["answer"].startswith("The mug")
     assert all(e["source"] == "agent" and "ms" in e for e in calls)
+    assert calls[0]["sighting"]["frame_id"] == found["sighting"]["frame_id"] and calls[0]["object_id"] == found["object"]["id"]  # the dashboard shows what the agent was told
 
 
 def test_what_changed_through_mcp(tmp_path):

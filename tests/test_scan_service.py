@@ -244,4 +244,4 @@ def test_bus_sees_scan_events_world_updates_and_find(tmp_path):
     assert types.index("world_update") < types.index("frame_done")  # map updates before the frame is reported
     assert types[-2:] == ["scan_summary", "find_result"]
     ev = [e for e in svc.bus.history() if e["type"] == "world_update"][0]
-    assert ev["objects"][0]["label"] == "mug" and "source" not in ev
+    assert ev["objects"][0]["label"] == "mug" and "source" not in ev and ev["coverage_deg"] > 0

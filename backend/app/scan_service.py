@@ -156,7 +156,8 @@ class ScanSession:
                 log.info("scan %s frame %s: %s names=%s kept=%d objects=%d wait=%.1fs work=%.1fs $%.4f%s", self.scan_id, seq,
                          "stored" if rep.stored else "NOT STORED", rep.names, len(rep.detections), n_obj, t - t_enq,
                          time.perf_counter() - t, rep.usd, f" errors={rep.errors}" if rep.errors else "")
-                self.svc.bus.publish({"type": "world_update", "scan_id": self.scan_id, "objects": [
+                self.svc.bus.publish({"type": "world_update", "scan_id": self.scan_id,
+                                      "coverage_deg": yaw_coverage(self.svc.wm.list_frames(self.scan_id))["covered_deg"], "objects": [
                     {"id": o["id"], "label": o["label"], "yaw": round(o["yaw"], 1), "pitch": round(o["pitch"], 1), "n_obs": o["n_obs"]}
                     for o in self.svc.wm.list_objects(self.scan_id)]})
                 await self.emit({"type": "frame_done", "seq": seq, "stored": rep.stored, "names": rep.names, "kept": len(rep.detections),
