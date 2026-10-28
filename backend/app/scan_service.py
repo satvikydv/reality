@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from app import anchoring as A
+from app.coverage import coverage
 from app.events import EventBus
 from app.resolver import semantic_find
 from app.scan import ScanPipeline, pose_from_meta
@@ -33,27 +34,10 @@ Send = Callable[[dict], Awaitable[None]]
 
 
 def yaw_coverage(frames: list[dict], reach: float = 0.4) -> dict:
-    """Which compass directions the stored frames looked at. Each frame covers yaw +- reach * its horizontal
-    FOV (a conservative 80% of the image). Returns covered_deg and gaps [[start, end], ...] in degrees."""
-    cov = [False] * 360
-    for f in frames:
-        half = reach * f["hfov_deg"]
-        for d in range(int(-half), int(half) + 1):
-            cov[int(round(f["yaw"] + d)) % 360] = True
-    gaps, i = [], 0
-    while i < 360:
-        if cov[i]:
-            i += 1
-            continue
-        j = i
-        while j < 360 and not cov[j]:
-            j += 1
-        gaps.append([i, j - 1])
-        i = j
-    if len(gaps) > 1 and gaps[0][0] == 0 and gaps[-1][1] == 359:  # one gap across north
-        gaps[0] = [gaps[-1][0], gaps[0][1]]
-        gaps.pop()
-    return {"covered_deg": sum(cov), "gaps": gaps}
+    """Which compass directions the stored frames looked at: covered_deg and gaps [[start, end], ...] in degrees.
+    The definition lives in app/coverage.py, shared with the phone."""
+    c = coverage(frames, reach)
+    return {"covered_deg": c["covered_deg"], "gaps": c["gaps"]}
 
 
 def count_phrase(labels: list[str]) -> str:

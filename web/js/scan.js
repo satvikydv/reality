@@ -7,9 +7,10 @@ const MAX_BACKLOG = 1024 * 1024; // bytes still in the socket buffer
 const AUTO_FINISH = 0.97; // coverage fraction that ends the scan by itself
 
 export class ScanController {
-  // deps: video, orient (OrientationTracker), sock (FrameSocket), grabJpeg(video, side, quality), camera() -> object, onChange(state)
-  constructor({ video, orient, sock, grabJpeg, camera, onChange }) {
-    Object.assign(this, { video, orient, sock, grabJpeg, camera, onChange });
+  // deps: video, orient (OrientationTracker), sock (FrameSocket), grabJpeg(video, side, quality), camera() -> object, onChange(state),
+  // fov() -> the horizontal field of view in degrees (the one the server uses), guard (CameraGuard, optional)
+  constructor({ video, orient, sock, grabJpeg, camera, onChange, fov = () => 60, guard = null }) {
+    Object.assign(this, { video, orient, sock, grabJpeg, camera, onChange, fov, guard });
     this.policy = new KeyframePolicy();
     this.coverage = new Coverage();
     this.timer = null;
@@ -118,7 +119,7 @@ export class ScanController {
             const meta = { orientation: this.orient.snapshot(), camera: this.camera() };
             await this.sock.send(blob, { scan: true, meta });
             st.sent++;
-            this.coverage.mark(pose.yaw);
+            this.coverage.mark(pose.yaw, pose.pitch, { hfov: this.fov(), width: this.video.videoWidth || 540, height: this.video.videoHeight || 960 });
           } else this.policy.undo();
         } catch (e) {
           this.policy.undo();

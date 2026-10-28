@@ -154,3 +154,22 @@ def test_objects_expose_support_confidence_last_seen_and_uncertainty(tmp_path):
     ov_o = ov["objects"][0]
     assert ov_o["uncertainty_deg"] >= ov_o["spread_deg"] and "fov_error_deg" in ov_o and ov_o["supporting_frames"] >= 1
     assert svc.wm.list_objects()[0]["uncertainty_deg"] > 0
+
+
+def test_not_seen_says_when_the_scan_never_looked_up_or_down(tmp_path):
+    svc = make_service(tmp_path)
+
+    class Scissors(FakeReasoner):
+        async def respond(self, messages, *, schema=None, **kw):
+            if "objects" in schema["properties"]:
+                return await super().respond(messages, schema=schema, **kw)
+            return Result(text="", parsed={"concept": "scissors", "alternates": [], "confidence": 0.9})
+
+    async def go():
+        await scan(svc, [100])  # frames at pitch -10: eye level only
+        svc.reasoner = svc.pipeline.reasoner = Scissors()
+        return await api.where_is(svc, "something to cut paper")
+
+    r = run(go())
+    assert r["status"] == "not_seen" and "The scan also never looked down toward the floor or up toward the ceiling." in r["message"]
+    assert r["latest_scan_coverage"]["bands"]["mid"]["covered_deg"] > 0 and r["latest_scan_coverage"]["bands"]["high"]["covered_deg"] == 0

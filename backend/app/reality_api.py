@@ -14,7 +14,8 @@ from collections import Counter
 from app import anchoring as A
 from app.changes import diff_scans
 from app.resolver import semantic_find
-from app.scan_service import ScanService, count_phrase, yaw_coverage
+from app.coverage import coverage
+from app.scan_service import ScanService, count_phrase
 from app.world_model import label_match_score
 
 FRAME_URL = "/world/frame/{}.jpg"
@@ -52,7 +53,15 @@ def _latest_scan(svc: ScanService, scan_id: int | None) -> dict | None:
 
 
 def _coverage(svc: ScanService, scan_id: int) -> dict:
-    return yaw_coverage(svc.wm.list_frames(scan_id))
+    return coverage(svc.wm.list_frames(scan_id))
+
+
+def _pitch_note(cov: dict | None) -> str:
+    """Say so when the scan never looked down or up: the object may be on the floor or a high shelf."""
+    if not cov:
+        return ""
+    unseen = [w for name, w in (("low", "down toward the floor"), ("high", "up toward the ceiling")) if cov["bands"][name]["covered_deg"] == 0]
+    return f" The scan also never looked {' or '.join(unseen)}." if unseen else ""
 
 
 async def where_is(svc: ScanService, query: str) -> dict:
@@ -67,7 +76,8 @@ async def where_is(svc: ScanService, query: str) -> dict:
         cov = _coverage(svc, latest["id"]) if latest else None
         covered = cov["covered_deg"] if cov else 0
         return {**base, "status": "not_seen", "latest_scan_id": latest["id"] if latest else None, "latest_scan_coverage": cov,
-                "message": f"No {res['concept']} in memory. The latest scan covered {covered} of 360 degrees, so it may be in an area not scanned."}
+                "message": f"No {res['concept']} in memory. The latest scan covered {covered} of 360 degrees, so it may be in an area not scanned."
+                           + _pitch_note(cov)}
     o = found["object"]
     off = found["from_scan_start"] or {}
     return {**base, "status": "found", "object": _object(o, now), "scan_id": found["scan_id"], "seen_in_latest_scan": found["is_latest_scan"],
