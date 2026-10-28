@@ -68,9 +68,27 @@ Tests: `pytest tests` (server), `node --test tests/js/keyframe.test.mjs tests/js
 
 The phone UI (`web/index.html`, `web/css/theme.css`, `web/js/app.js`) also runs without the backend: open `/?demo` for mock data, or `/?demo&screen=summary|find|guide|changes|scan` to jump to a screen. It falls back to demo mode by itself when the server is not reachable.
 
-**World-locked overlay.** On the home, scan and guide screens the camera view shows the remembered objects where they are: each one's stored direction is projected through the live phone pose and the server's field of view, with its label and an outline. The outline is the stored SAM mask carried into the current view by the rotation-only homography `H = K R K^-1`; objects stored without a mask (or from before masks were kept) get their angular footprint instead, drawn dashed. Objects whose sightings disagree by more than 12 degrees are not drawn, and opacity fades with the time since the object was last seen. Nothing is shown as a distance, because only directions are known. The AR toggle on the home and guide screens turns the objects off; the compass tape, horizon and guide arrow stay. The server serves the data at `/api/overlay` (the field of view comes from `HFOV_DEG`, default 60, which is a placeholder until calibrated: photograph a ruler or A4 sheet at two distances and run `python scripts/calibrate_fov.py`). The projection math has a Python reference in `backend/app/anchoring.py` and `tests/js/project.test.mjs` checks the phone's JavaScript against it. The dev menu (the dots) shows the live frame rate and draw time.
+**World-locked overlay.** On the home, scan and guide screens the camera view shows the remembered objects where they are: each one's stored direction is projected through the live phone pose and the server's field of view, with its label and an outline. The outline is the stored SAM mask carried into the current view by the rotation-only homography `H = K R K^-1`; objects stored without a mask (or from before masks were kept) get their angular footprint instead, drawn dashed. Objects whose sightings disagree by more than 12 degrees are not drawn, and opacity fades with the time since the object was last seen. Nothing is shown as a distance, because only directions are known. The AR toggle on the home and guide screens turns the objects off; the compass tape, horizon and guide arrow stay. The server serves the data at `/api/overlay` (the field of view is the calibrated one, or 60 degrees as a placeholder: see "Calibrate the camera"). The projection math has a Python reference in `backend/app/anchoring.py` and `tests/js/project.test.mjs` checks the phone's JavaScript against it. The dev menu (the dots) shows the live frame rate and draw time.
 
 After two scans of the same room, "What changed?" on the home screen compares the latest scan with the one before and shows what moved, disappeared or appeared, with before and after photos. Directions that were not scanned both times are listed as not checked rather than reported as changes.
+
+### Calibrate the camera
+
+The field of view depends on the camera mode (resolution, lens, zoom), so it is measured in the exact state the app scans in, and any later change is refused.
+
+1. Open the app on the phone and, in the dots menu, press **Save sample** while holding a ruler or A4 sheet flat and square to the camera. Do it at two distances (say 40 and 70 cm). Do not touch zoom or switch lenses. The photos and a `.json` sidecar that records the camera state land in `data/frames/`.
+2. Measure the sheet's width in pixels in each photo, then run `python scripts/calibrate_fov.py --object-cm 29.7 --shot 40 612 data/frames/<first>.json --shot 70 352 data/frames/<second>.json`. It refuses shots taken in different camera states and writes `data/fov_calibration.json` with the angle and the resolution and zoom it holds for.
+3. Restart the server. From then on the server refuses any frame from a camera in another state, and the phone stops the scan with a message naming what changed (zoom, resolution, lens, rotation). `HFOV_DEG=66` sets an angle without recording a camera state, so nothing can be checked.
+
+The app locks zoom at 1x where the camera allows it and checks the camera settings before and after every frame.
+
+### How the memory decides what is one object
+
+Objects are recomputed from every stored detection after each frame, in capture-time order, so the result does not depend on the order frames finished processing (`backend/app/memory.py`). A detection joins the object whose angular footprint it overlaps most, unless two detections of one frame would share it or the colours of the two masks differ too much; edge-clipped fragments join an object when one matches and become objects of their own when seen in two frames. Every decision is logged (`memory` logger, `WorldModel.decisions()`). Each object keeps its confidence, last-seen time, the number of frames that saw it and an anchor uncertainty (disagreement between sightings combined with the field-of-view error), which the API returns and the guide arrow shows as a cone.
+
+Coverage (the ring on the phone, the scan summary, the "not seen" answer) is one definition in `backend/app/coverage.py` and `web/js/coverage.js`, checked against each other by a golden test, and includes three pitch bands (floor, eye level, ceiling).
+
+`python scripts/eval_memory.py` scores the memory on synthetic rooms with known contents (duplicate rate, wrong merges, id switches, find success, order independence) and writes the table to `docs/measurements.md`.
 
 ## Laptop dashboard
 

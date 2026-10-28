@@ -150,3 +150,59 @@ _TODO_
 
 | Date | Script | Est. USD | Notes |
 |---|---|---|---|
+
+<!-- eval_memory:start -->
+## Spatial memory evaluation
+
+Run 2026-10-28 with `python scripts/eval_memory.py --real`: 5 synthetic rooms of 16 known objects per condition, each swept in 15 degree steps; the memory assumes a 60 degree FOV; frames reach the memory in a random order (the scored run) and in 6 further random orders (order stable). Match tolerance 12 degrees. Detections are simulated (jitter, misses, clipping, colour noise), so this measures the memory, not SAM.
+
+| Condition | System | Objects (seen) | Duplicates | Wrong merges | Missed | ID switches | Find success | Recall | Anchor error (median) | Order stable |
+|---|---|---|---|---|---|---|---|---|---|---|
+| clean (FOV as assumed) | full | 16.0 (16.0) | 0% | 0% | 0% | 0.0 | 100% | 100% | 0.6° | 100% |
+|  | no appearance check | 16.0 (16.0) | 0% | 0% | 0% | 0.0 | 100% | 100% | 0.6° | 100% |
+|  | no fragment promotion | 16.0 (16.0) | 0% | 0% | 0% | 0.0 | 100% | 100% | 0.6° | 100% |
+|  | arrival order, no appearance, no promotion (old behaviour) | 16.0 (16.0) | 0% | 0% | 0% | 0.0 | 100% | 100% | 0.6° | 100% |
+| FOV 10% wider than assumed | full | 16.6 (16.0) | 4% | 0% | 0% | 1.2 | 100% | 100% | 1.2° | 100% |
+|  | no appearance check | 16.6 (16.0) | 4% | 0% | 0% | 1.2 | 100% | 100% | 1.2° | 100% |
+|  | no fragment promotion | 16.6 (16.0) | 4% | 0% | 0% | 1.2 | 100% | 100% | 1.2° | 100% |
+|  | arrival order, no appearance, no promotion (old behaviour) | 16.6 (16.0) | 4% | 0% | 0% | 1.2 | 100% | 100% | 1.2° | 50% |
+| hard (FOV +10%, 15% misses, more clipped views, noisier boxes) | full | 17.4 (16.0) | 9% | 0% | 0% | 3.2 | 100% | 100% | 1.5° | 100% |
+|  | no appearance check | 17.4 (16.0) | 9% | 0% | 0% | 3.2 | 100% | 100% | 1.5° | 100% |
+|  | no fragment promotion | 17.4 (16.0) | 9% | 0% | 0% | 3.2 | 100% | 100% | 1.5° | 100% |
+|  | arrival order, no appearance, no promotion (old behaviour) | 17.6 (16.0) | 10% | 0% | 0% | 3.2 | 100% | 100% | 1.6° | 63% |
+| twins (4 pairs of same-label objects 3 degrees apart, different colours) | full | 20.0 (20.0) | 0% | 2% | 0% | 0.4 | 100% | 100% | 0.8° | 100% |
+|  | no appearance check | 20.0 (20.0) | 0% | 17% | 0% | 6.4 | 100% | 100% | 0.8° | 100% |
+|  | no fragment promotion | 20.0 (20.0) | 0% | 2% | 0% | 0.4 | 100% | 100% | 0.8° | 100% |
+|  | arrival order, no appearance, no promotion (old behaviour) | 20.0 (20.0) | 2% | 20% | 2% | 5.0 | 100% | 100% | 0.8° | 13% |
+| sparse sweep (30 degree steps: each object seen once or twice, often clipped) | full | 16.2 (16.0) | 1% | 0% | 0% | 0.4 | 100% | 100% | 1.1° | 100% |
+|  | no appearance check | 16.2 (16.0) | 1% | 0% | 0% | 0.4 | 100% | 100% | 1.1° | 100% |
+|  | no fragment promotion | 16.2 (16.0) | 1% | 0% | 0% | 0.4 | 100% | 100% | 1.1° | 100% |
+|  | arrival order, no appearance, no promotion (old behaviour) | 16.2 (16.0) | 1% | 0% | 0% | 0.4 | 100% | 100% | 1.1° | 100% |
+| very sparse sweep (60 degree steps: most objects seen once) | full | 16.0 (15.8) | 3% | 0% | 1% | 0.4 | 98% | 99% | 1.4° | 100% |
+|  | no appearance check | 16.0 (15.8) | 3% | 0% | 1% | 0.4 | 98% | 99% | 1.4° | 100% |
+|  | no fragment promotion | 15.6 (15.8) | 3% | 0% | 4% | 0.4 | 98% | 96% | 1.4° | 100% |
+|  | arrival order, no appearance, no promotion (old behaviour) | 15.6 (15.8) | 3% | 0% | 4% | 0.4 | 98% | 96% | 1.4° | 100% |
+
+### Real scans replayed on a copy of the database
+
+No ground truth exists for these, so only counts and decisions are reported. Appearance histograms were recomputed from the stored frames. Stored detections are replayed as they were saved: the scan pipeline's same-frame box merge (`scan.merge_parts`) happened before they were stored, or, for scans made before it existed, did not happen, and is not repeated here.
+
+| Scan | Frames | Objects stored | Objects now | Appearance vetoes | Fragments promoted | Fragments held | Largest labels (stored→now) |
+|---|---|---|---|---|---|---|---|
+| 5 | 8 | 36 | 36 | 0 | 0 | 1 | cable 15→15, laptop 5→5, backpack 4→4, power adapter 4→4 |
+| 4 | 16 | 64 | 52 | 2 | 1 | 9 | laptop 14→8, cable 11→9, paper 10→11, bag 7→4 |
+| 3 | 3 | 8 | 5 | 0 | 0 | 2 | water bottle 4→2, mouse 1→1, phone 1→0, cable 1→1 |
+| 2 | 18 | 37 | 29 | 1 | 0 | 5 | laptop 7→5, cable 6→4, water bottle 5→4, power adapter 3→3 |
+| 1 | 11 | 13 | 10 | 0 | 0 | 2 | water bottle 4→2, flag 3→3, computer mouse 1→1, smartphone 1→0 |
+
+Colour similarity (histogram intersection, 1 = identical) of same-label detections from different frames, split by whether the memory put them in one object. The veto threshold is 0.35: it refuses a geometric match below it, so a threshold that is too high creates duplicates.
+
+| Scan | Same-object pairs | min / median | Different-object pairs | p10 / median | Below threshold (same / different) |
+|---|---|---|---|---|---|
+| 5 | 15 | 0.59 / 0.83 | 159 | 0.25 / 0.57 | 0 / 35 |
+| 4 | 23 | 0.44 / 0.68 | 229 | 0.27 / 0.54 | 0 / 51 |
+| 3 | 3 | 0.81 / 0.82 | 1 | 0.86 / 0.86 | 0 / 0 |
+| 2 | 19 | 0.37 / 0.59 | 62 | 0.35 / 0.46 | 0 / 7 |
+| 1 | 6 | 0.80 / 0.81 | 9 | 0.74 / 0.83 | 0 / 0 |
+
+<!-- eval_memory:end -->

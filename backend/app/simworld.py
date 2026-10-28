@@ -39,9 +39,11 @@ def _hist(rng: random.Random, dominant: int) -> list:
     return [x / s for x in v]
 
 
-def make_scene(seed: int = 0, n: int = 16, min_gap_deg: float = 14.0) -> list[Truth]:
+def make_scene(seed: int = 0, n: int = 16, min_gap_deg: float = 14.0, twins: int = 0, twin_gap_deg: float = 3.0) -> list[Truth]:
     """`n` objects around the room. Same-label objects are at least `min_gap_deg` apart and have different colours,
-    so each really is a separate thing the memory must keep apart."""
+    so each really is a separate thing the memory must keep apart. `twins` more objects are then placed
+    `twin_gap_deg` from an existing one with the same label and size but another colour: on position alone they
+    are the same object, and only their appearance says otherwise."""
     rng = random.Random(seed)
     truths: list[Truth] = []
     tries = 0
@@ -55,6 +57,11 @@ def make_scene(seed: int = 0, n: int = 16, min_gap_deg: float = 14.0) -> list[Tr
         used = {max(range(NBINS), key=t.hist.__getitem__) for t in truths if t.label == label}
         dom = rng.choice([b for b in range(0, NBINS, 2) if b not in used])
         truths.append(Truth(len(truths), label, yaw, pitch, sw * rng.uniform(0.85, 1.15), sh * rng.uniform(0.85, 1.15), _hist(rng, dom)))
+    for k in range(twins):
+        base = truths[(k * 3) % n]
+        used = {max(range(NBINS), key=t.hist.__getitem__) for t in truths if t.label == base.label}
+        dom = rng.choice([b for b in range(1, NBINS, 2) if b not in used and b != 26])
+        truths.append(Truth(len(truths), base.label, (base.yaw + twin_gap_deg) % 360, base.pitch, base.w, base.h, _hist(rng, dom)))
     return truths
 
 
