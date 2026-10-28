@@ -13,7 +13,7 @@ import {explainNotFound,ago} from './explain.js';
 import {SCREENS,NAV,ids,sectionId,isCamera,navTab,hasState,applyState} from './screens.js';
 import {createStore,INITIAL,roomById,activeRoom,roomLabel,freeNameChips} from './store.js';
 import {makeApi,describeFailure} from './api.js';
-import {el as mk,paintThumbs,thumb,roomCard,roomChip,switcherRow,summaryTiles,groupTile,historyRow,changeCard,findGroup,since} from './views.js';
+import {el as mk,paintThumbs,thumb,roomCard,roomChip,switcherRow,summaryTiles,groupTile,historyRow,changeCard,findGroup,since,labelRow,instanceRow,sightingCard} from './views.js';
 import {fixture} from './fixtures.js';
 const $=id=>document.getElementById(id),P=new URLSearchParams(location.search);
 const body=document.body;let demo=P.has('demo'),scrn='home';
@@ -57,7 +57,7 @@ function goBack(){ // the screen before this one, skipping camera screens, the r
   let to=null;while(hist.length&&!to){const c=hist.pop();if(c!==scrn&&!isCamera(c)&&!['summary','primer','welcome'].includes(c))to=c}
   reopen(to||'home')}
 function reopen(id){ // open a screen again through its loader, so what it shows is current
-  const OPEN={home:openHome,find:()=>openFind(),changes:()=>openChanges(),settings:openSettings,room:()=>openRoom(S().viewRoomId),roomsettings:()=>openRoomSettings(S().viewRoomId),wizard:()=>openWizard(),result:()=>go('result')};
+  const OPEN={home:openHome,find:()=>openFind(),changes:()=>openChanges(),settings:openSettings,room:()=>openRoom(S().viewRoomId),roomsettings:()=>openRoomSettings(S().viewRoomId),wizard:()=>openWizard(),result:()=>go('result'),labels:()=>openLabels(insp.scanId),instances:()=>openInstances(insp.label),sightings:()=>openSightings(insp.objectId)};
   (OPEN[id]||openHome)()}
 const showsWorld=()=>arOn&&isCamera(scrn);
 function worldRoom(){return scrn==='scan'?S().scan?.roomId:scrn==='explore'?S().viewRoomId:S().activeId}
@@ -71,7 +71,7 @@ const ICON={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',find:'<circle cx="11"
 $('nav').replaceChildren(...NAV.map(([id,label])=>{const b=mk('button',null,null,{'data-act':'nav','data-nav':id});b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[id]}</svg>`;b.append(mk('span',null,label));return b}));
 function renderSwitchers(){const a=activeRoom(S());for(const b of document.querySelectorAll('.roomsw')){b.classList.toggle('none',!a);b.querySelector('.rn').textContent=a?a.name:'No room'}}
 function openSwitcher(){const rs=S().rooms;$('swlist').replaceChildren(...rs.map(switcherRow));setState('switcher',rs.length?'default':'empty');section('switcher').classList.add('on')}
-function closeSwitcher(){section('switcher').classList.remove('on')}
+function closeSwitcher(){section('switcher').classList.remove('on');section('quick').classList.remove('on')} // both sheets
 async function setActive(id){ // the user's explicit choice: the default room for Find, Explore and the Reality API
   if(demo){store.set({activeId:id,rooms:S().rooms.map(r=>({...r,active:r.id===id}))});return true}
   const r=await api.patchRoom(id,{active:true});
@@ -79,6 +79,7 @@ async function setActive(id){ // the user's explicit choice: the default room fo
   await loadRooms();toast('Active room: '+roomLabel(S()));return true}
 store.on((st,changed)=>{if(changed.includes('rooms')||changed.includes('activeId'))renderSwitchers()});
 async function loadRooms(){
+  if(demo)return{ok:true,data:null}; // demo mode never talks to a server
   const r=await api.rooms();
   if(r.ok)store.set({rooms:r.data.rooms,recent:r.data.recent,activeId:r.data.active_id,roomsLoaded:true});
   return r}
@@ -360,7 +361,7 @@ RENDER.find=(state,d={})=>{
   if(d.groups)lastGroups=d.groups;
   if(d.scope)store.set({scope:d.scope});
   for(const b of $('fscope').children)b.setAttribute('aria-pressed',String(b.dataset.v===S().scope));
-  $('fchips').replaceChildren(...(d.labels||[]).map(l=>mk('button','chip',l,{'data-act':'find-chip','data-label':l})));
+  fillQuick(d.labels||[]);
   $('q').placeholder=S().scope==='all'?'Find something in any room…':`Find something in ${findRoom()?.name||'a room'}…`;
   if(d.query)$('q').value=d.query;
   if(state==='room-empty')txt('fempty',`${findRoom()?.name||'This room'} has not been scanned yet`);
@@ -371,7 +372,9 @@ async function openFind({roomId=null,scope=null}={}){
   store.set({findRoomId:roomId,scope:scope||S().scope});go('find');findDone();
   RENDER.find('idle',{labels:[],scope:S().scope});idleFind();
   const r=findRoom();
-  if(r?.scan_id&&!demo){const d=await api.room(r.id);if(d.ok&&scrn==='find')$('fchips').replaceChildren(...Object.keys(d.data.labels).slice(0,8).map(l=>mk('button','chip',l,{'data-act':'find-chip','data-label':l})))}}
+  if(r?.scan_id&&!demo){const d=await api.room(r.id);if(d.ok&&scrn==='find')fillQuick(Object.keys(d.data.labels).slice(0,12))}}
+// Quick ask: what the room contains, as tap-to-ask names in a bottom sheet over Find (not a row of chips on the screen)
+function fillQuick(labels){$('quicklist').replaceChildren(...labels.map(l=>mk('button','chip',l,{'data-act':'find-chip','data-label':l})));setState('quick',labels.length?'default':'empty')}
 function findDone(){findPending=false;findTimers.forEach(clearTimeout);findTimers=[]}
 function doFind(label,all=null){
   const q=(typeof label==='string'?label:$('q').value).trim();if(!q&&!demo)return;
@@ -509,6 +512,79 @@ async function reviewChange(key,state){ // confirm or dismiss one change (an emp
   for(const k of['moved','removed','added'])for(const e of c[k])if(e.key===key)e.review=state||null;
   RENDER.changes('default',{room:roomById(S(),chgRoom),data:c})}
 
+/* Objects review (the simple phone version of the dashboard inspector): labels, then instances, then sightings */
+let insp={scanId:null,roomId:null,label:null,objectId:null,data:null,detail:null,picked:new Set()};
+RENDER.labels=(state,d={})=>{
+  setState('labels',state);
+  if(state==='error'||state==='offline'){txt('lberrtitle',state==='offline'?'Server not reachable':'Could not load the objects');txt('lberr',d.message||'')}
+  if(state==='default'||state==='empty'){
+    const c=d.data;insp.data=c;insp.scanId=c.scan.id;insp.roomId=c.scan.room_id;
+    txt('lbpill',((c.scan.room_name||'Objects')+' · #'+c.scan.id).toUpperCase());
+    txt('lbsum',`${c.instances} object${c.instances===1?'':'s'} · ${c.sightings} sightings${c.scan.status==='draft'?' · unsaved scan':''}`);
+    $('lbrows').replaceChildren(...c.labels.map(labelRow));
+    $('lbhidden').replaceChildren(...(c.hidden_labels.length?[mk('h2','sec','Not an object in this room'),...c.hidden_labels.map(h=>{const r=mk('div','srow'),t=mk('div');t.append(h.label,mk('small',null,h.sightings+' sightings hidden'));r.append(t,mk('button','mini','Restore',{'data-act':'unmark-object','data-label':h.label}));return r})]:[]));
+    txt('lbdups',c.possible_duplicates?`${c.possible_duplicates} possible duplicate${c.possible_duplicates===1?'':'s'}: merge instances of a label here, or review them with pictures on the laptop dashboard.`:'')}};
+async function openLabels(scanId){
+  if(scanId==null)return toast('There is no scan to review.');
+  insp.scanId=scanId;go('labels');RENDER.labels('loading');
+  if(demo){const f=fixture('labels','default');return RENDER.labels('default',f)}
+  const r=await api.scanObjects(scanId);if(scrn!=='labels')return;
+  if(!r.ok){const f=describeFailure(r,'load the objects');return RENDER.labels(f.kind==='offline'?'offline':'error',{message:f.text})}
+  RENDER.labels(r.data.labels.length?'default':'empty',{data:r.data})}
+async function refreshInspect(){ // after a correction: the scan's objects as they are now
+  if(demo)return;
+  const r=await api.scanObjects(insp.scanId);if(r.ok)insp.data=r.data;
+  loadRooms()}
+RENDER.instances=(state,d={})=>{
+  if(d.data){insp.data=d.data;insp.scanId=d.data.scan.id;insp.roomId=d.data.scan.room_id}
+  if(d.label!==undefined)insp.label=d.label;
+  const g=insp.data?.labels.find(x=>x.label===insp.label);
+  if(state==='default'&&!g)state='empty';
+  setState('instances',state);
+  if(state==='error')txt('inerr',d.message||'');
+  if(state!=='default')return;
+  insp.picked=new Set([...insp.picked].filter(id=>g.objects.some(o=>o.id===id)));
+  txt('inpill',(insp.label||'').toUpperCase());txt('insum',`${g.instances} instance${g.instances===1?'':'s'} · ${g.sightings} sightings. Tick two or more to merge them into one object.`);
+  $('mergebtn').textContent=`Merge selected (${insp.picked.size})`;$('mergebtn').disabled=insp.picked.size<2;
+  txt('notobjbtn',`“${g.label}” is not an object here`);
+  $('inrows').replaceChildren(...g.objects.map(o=>instanceRow(o,insp.picked.has(o.id))));paintThumbs($('inrows'))};
+async function openInstances(label){
+  insp.label=label;insp.picked=new Set();go('instances');
+  if(!insp.data){RENDER.instances('loading');const r=await api.scanObjects(insp.scanId);if(!r.ok)return RENDER.instances('error',{message:describeFailure(r,'load the objects').text});insp.data=r.data}
+  RENDER.instances('default',{})}
+RENDER.sightings=(state,d={})=>{
+  setState('sightings',state);
+  if(state==='error')txt('sierr',d.message||'');
+  if(state!=='default')return;
+  const x=d.detail;insp.detail=x;insp.objectId=x.object.id;const o=x.object;
+  txt('sipill',(o.label+' #'+o.id).toUpperCase());
+  $('sifacts').replaceChildren(...[['Direction',`${Math.round(o.yaw)}° / ${Math.round(o.pitch)}°`],['Uncertainty',`±${o.uncertainty_deg}°`],['Sightings',x.sightings.length],['Confidence',Math.round(o.avg_confidence*100)+'%']].map(([k,v])=>{const c=mk('div');c.append(mk('span','label',k),mk('b',null,String(v)));return c}));
+  $('sirows').replaceChildren(...x.sightings.map(s=>sightingCard(s,x.sightings.length>1)));paintThumbs($('sirows'))};
+async function openSightings(objectId){
+  insp.objectId=objectId;go('sightings');RENDER.sightings('loading');
+  if(demo)return RENDER.sightings('default',fixture('sightings','default'));
+  const r=await api.object(objectId);if(scrn!=='sightings')return;
+  if(!r.ok)return RENDER.sightings('error',{message:describeFailure(r,'load this object').text});
+  RENDER.sightings('default',{detail:r.data})}
+async function correct(call,done){ // every correction goes to the server, which records it; then the lists are refreshed
+  if(demo){toast('Done (demo)');return}
+  const r=await call();if(!r.ok)return toast(describeFailure(r,'do that').text);
+  await refreshInspect();done(r.data)}
+async function mergePicked(){
+  const ids=[...insp.picked];if(ids.length<2)return;
+  await correct(()=>api.mergeObjects(ids),r=>{insp.picked=new Set();toast(`Merged into one ${r.label}.`);RENDER.instances('default',{})})}
+async function notObjectHere(){
+  const label=insp.label;
+  if(!await confirmDlg({title:`“${label}” is not an object here?`,body:`Every ${label} in this room, in all its scans and in future scans, is hidden. You can restore it from the labels list.`,yes:'Hide it',no:'Keep it'}))return;
+  await correct(()=>api.markNotObject(insp.roomId,label),()=>{toast(`“${label}” is no longer treated as an object here.`);openLabels(insp.scanId)})}
+async function restoreLabel(label){await correct(()=>api.unmarkNotObject(insp.roomId,label),()=>{toast(`Restored “${label}”.`);openLabels(insp.scanId)})}
+async function deleteObjectHere(){
+  const o=insp.detail?.object;if(!o)return;
+  if(!await confirmDlg({title:`Delete ${o.label} #${o.id}?`,body:`Its ${insp.detail.sightings.length} sighting(s) are ignored from now on. This is recorded as a correction.`,yes:'Delete',no:'Keep it'}))return;
+  await correct(()=>api.deleteObject(o.id),()=>{toast(`Deleted ${o.label} #${o.id}.`);const still=insp.data?.labels.some(g=>g.label===insp.label);goBack();if(!still)goBack()})}
+async function detachHere(id){
+  await correct(()=>api.detachSighting(id),async r=>{toast(`Detached into its own object (#${r.object_id}).`);const x=await api.object(insp.objectId);if(x.ok)RENDER.sightings('default',{detail:x.data})})}
+
 /* Settings (global) and room settings */
 const dbgEnabled=()=>P.has('debug')&&prefs.get('debug');
 function applyDebug(){body.classList.toggle('dbg',dbgEnabled());for(const b of $('dbgseg').children)b.setAttribute('aria-pressed',String((b.dataset.v==='1')===dbgEnabled()))}
@@ -604,7 +680,7 @@ const ACT={
   'save-scan':b=>scanAction('save-scan',+b.dataset.scan),'discard-scan':b=>scanAction('discard-scan',+b.dataset.scan),'delete-scan':b=>scanAction('delete-scan',+b.dataset.scan),
   'set-baseline':b=>scanAction('set-baseline',+b.dataset.scan),'clear-baseline':b=>scanAction('clear-baseline',+b.dataset.scan),
   scope:b=>{store.set({scope:b.dataset.v});findDone();$('fgroups').replaceChildren();RENDER.find('idle',{labels:[],scope:b.dataset.v});idleFind()},
-  'find-chip':b=>{$('q').value=b.dataset.label;doFind(b.dataset.label)},'find-go':()=>doFind(),mic:startMic,'ask-act':()=>askRun&&askRun(),
+  'find-chip':b=>{closeSwitcher();$('q').value=b.dataset.label;doFind(b.dataset.label)},'open-quick':()=>section('quick').classList.add('on'),'find-go':()=>doFind(),mic:startMic,'ask-act':()=>askRun&&askRun(),
   'open-group':b=>openGroupResult(+b.dataset.room),
   'find-all-rooms':()=>{const q=find?.query||'';openFind({scope:'all'});$('q').value=q;if(q)doFind(q,true)},'find-again':()=>openFind(),
   'guide-me':guideMe,'guide-end':()=>{stopGuide();go('result')},'guide-done':()=>{stopGuide();world.highlight(null);openHome()},'toggle-ar':()=>setAr(!arOn),
@@ -612,6 +688,9 @@ const ACT={
   'intro-next':introNext,'intro-back':()=>{ob.back();RENDER.welcome()},'intro-skip':()=>{const r=ob.replay;ob.markSeen();r?go('settings'):openHome()},
   'primer-go':primerGo,'primer-later':()=>{pendingAction=null;openHome()},
   'replay-intro':()=>openIntro(true),'delete-all':deleteAll,'open-room-settings':b=>openRoomSettings(+b.dataset.id),'rename-room':renameRoom,'delete-room':deleteRoom,
+  'inspect-scan':b=>openLabels(+(b.dataset.scan||summary?.scan_id)||null),'open-label':b=>openInstances(b.dataset.label),'open-instance':b=>openSightings(+b.dataset.id),
+  'pick-instance':b=>{const id=+b.dataset.id;insp.picked.has(id)?insp.picked.delete(id):insp.picked.add(id);RENDER.instances('default',{})},
+  'merge-picked':mergePicked,'not-object':notObjectHere,'unmark-object':b=>restoreLabel(b.dataset.label),'delete-object':deleteObjectHere,'detach-sighting':b=>detachHere(+b.dataset.id),
   debug:b=>{prefs.set('debug',b.dataset.v==='1');applyDebug()},
 };
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b||b.disabled)return;const f=ACT[b.dataset.act];if(f){e.preventDefault();f(b)}});
@@ -707,6 +786,10 @@ function showFixture(id,state){
     case'switcher':go('home');RENDER.home('default',fixture('home','default'));if(state==='empty')store.set({rooms:[]});openSwitcher();break;
     case'guide':find=d.result;go('guide');RENDER.guide(state,d);if(state==='default')startGuide();break;
     case'explore':RENDER.explore(state,d);go('explore');break;
+    case'labels':go('labels');RENDER.labels(state,d);break;
+    case'instances':go('instances');RENDER.instances(state,d);break;
+    case'sightings':go('sightings');RENDER.sightings(state,d);break;
+    case'quick':go('find');RENDER.find('idle',{labels:d.labels,scope:'room'});setState('quick',state);section('quick').classList.add('on');break;
     case'summary':go('summary');RENDER.summary(state,d);break;
     case'result':RENDER.result(state,d);break;
     case'home':if(['loading','error','offline','slow'].includes(state))store.set({roomsLoaded:false});if(state==='empty')store.set({rooms:[],recent:[],activeId:null});go('home');RENDER.home(state,d);break;

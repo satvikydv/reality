@@ -112,7 +112,20 @@ test("the api client builds room-scoped urls and bodies", async () => {
   await api.deleteRoom(4);
   await api.deleteAll();
   await api.overlay(2, 8);
-  assert.deepEqual(calls.map((c) => c.slice(0, 2).join(" ")), [
+  await api.scanObjects(4);
+  await api.duplicates(4);
+  await api.object(9);
+  await api.mergeObjects([1, 2]);
+  await api.detachSighting(7);
+  await api.deleteObject(3);
+  await api.markNotObject(1, "wall");
+  await api.unmarkNotObject(1, "ceiling light");
+  assert.deepEqual(calls.slice(16).map((c) => c.slice(0, 2).join(" ")), [
+    "/api/scans/4/objects GET", "/api/scans/4/duplicates GET", "/api/objects/9 GET", "/api/objects/merge POST", "/api/sightings/7/detach?source=phone POST",
+    "/api/objects/3?source=phone DELETE", "/api/rooms/1/not-objects POST", "/api/rooms/1/not-objects/ceiling%20light?source=phone DELETE"]);
+  assert.deepEqual(calls[19][2], { ids: [1, 2], source: "phone" }, "corrections say who made them");
+  assert.deepEqual(calls[22][2], { label: "wall", source: "phone" });
+  assert.deepEqual(calls.slice(0, 16).map((c) => c.slice(0, 2).join(" ")), [
     "/api/rooms GET", "/api/rooms POST", "/api/rooms/3 PATCH", "/api/rooms/3/changes?after=9 GET", "/api/rooms/3/changes GET",
     "/api/search?q=water%20bottle&room_id=2 GET", "/api/search GET", "/api/rooms/1/scans/7/save POST", "/api/rooms/1/scans/7/discard POST",
     "/api/rooms/1/scans/7 DELETE", "/api/rooms/1/baseline POST", "/api/rooms/1/changes/review POST", "/api/guide POST", "/api/rooms/4 DELETE", "/api/data DELETE",

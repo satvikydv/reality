@@ -756,7 +756,7 @@ def test_every_screen_opens_in_every_demo_state_without_errors_or_media(site, si
         p = site.page().open(f"/?demo&screen={sid}&state={st}")
         p.settle(0.5)
         assert p.eval(f"document.getElementById('s-{sid}').dataset.state") == st, (sid, st)
-        if sid != "switcher":
+        if sid not in ("switcher", "quick"):  # sheets open over the screen below
             assert p.screen() == sid, (sid, st)
         assert p.eval(f"document.getElementById('s-{sid}').classList.contains('on')") is True, (sid, st)
         assert p.media() == [] and p.errors == [], (sid, st, p.errors)
@@ -795,3 +795,87 @@ def test_every_visible_button_is_a_large_tap_target(site, sid):
     small = p.eval("""[...document.querySelectorAll('button,select,input[type=text],input[type=search]')].filter(e=>e.offsetParent!==null&&!e.closest('#dev')&&!e.hidden&&!e.closest('[hidden]')).map(e=>{const b=e.getBoundingClientRect();
       return [e.id||e.dataset.act||e.className||e.textContent.slice(0,20),Math.round(b.width),Math.round(b.height)]}).filter(([,w,h])=>w<44||h<44)""")
     assert small == [], f"tap targets under 44px on {sid}: {small}"
+
+
+# ------------------------------------------------------------------------------------------------ objects review and quick ask
+
+def bottles_scene(site):
+    """A room with a saved scan: bottle A (two sightings), bottle B 15 degrees away, a cup."""
+    wm = site.svc_.wm
+    rid = wm.create_room("Study", active=True)["id"]
+    sid = wm.start_scan(room_id=rid, ts=1.0)
+    for yaw, ts, label, conf in ((0, 1.0, "bottle", 0.9), (2, 2.0, "bottle", 0.7), (15, 3.0, "bottle", 0.8), (90, 4.0, "cup", 0.6)):
+        fid = wm.add_frame(sid, ts, yaw, 0.0, 480, 640, roll=0.0, screen_angle=0.0, jpeg=b"jpg")
+        wm.observe(fid, [{"label": label, "conf": conf, "box": [220, 300, 260, 340], "polygon": [[220, 300], [260, 300], [260, 340]]}])
+    wm.end_scan(sid, 5.0)
+    return rid, sid
+
+
+def test_phone_objects_review_from_labels_to_sightings_with_recorded_corrections(site, clean):
+    rid, sid = bottles_scene(site)
+    wm = site.svc_.wm
+    bottles = lambda: [o for o in wm.list_objects(sid) if o["label"] == "bottle"]  # noqa: E731
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("#rhist [data-act=inspect-scan]")
+    p.wait("document.getElementById('s-labels').dataset.state==='default'")
+    rows = p.eval("[...document.querySelectorAll('#lbrows .lrow')].map(r=>r.textContent)")
+    assert "bottle" in rows[0] and "2 ×" in rows[0] and "3 sightings" in rows[0] and "80%" in rows[0] and "cup" in rows[1]
+    assert "1 possible duplicate" in p.text("#lbdups")
+    p.tap("#lbrows .lrow")
+    p.wait("document.getElementById('s-instances').dataset.state==='default'")
+    assert p.eval("document.querySelectorAll('#inrows .irow').length") == 2 and p.eval("document.getElementById('mergebtn').disabled") is True
+    p.tap("#inrows .irow:nth-child(1) .pick")  # the list is redrawn after each tap, so tap them one by one
+    p.tap("#inrows .irow:nth-child(2) .pick")
+    p.wait("!document.getElementById('mergebtn').disabled")
+    assert "Merge selected (2)" in p.text("#mergebtn")
+    p.tap("#mergebtn")
+    p.wait("document.querySelectorAll('#inrows .irow').length===1")
+    assert len(bottles()) == 1 and [(c["kind"], c["source"]) for c in wm.list_corrections(scan_id=sid)] == [("merge", "phone")]
+
+    p.tap("#inrows .irow-open")
+    p.wait("document.getElementById('s-sightings').dataset.state==='default'")
+    assert p.eval("document.querySelectorAll('#sirows .srow3').length") == 3 and "SAM confidence" in p.text("#sirows .srow3")
+    p.tap("#sirows [data-act=detach-sighting]")
+    p.wait("document.querySelectorAll('#sirows .srow3').length===2")
+    assert sorted(o["n_obs"] for o in bottles()) == [1, 2]
+
+    p.tap("[data-act=delete-object]")
+    p.tap("#dlgyes")
+    p.wait("document.body.dataset.screen==='instances'")
+    assert len(bottles()) == 1 and "delete" in [c["kind"] for c in wm.list_corrections(scan_id=sid)]
+
+    p.tap("#notobjbtn")
+    p.tap("#dlgyes")
+    p.wait("document.body.dataset.screen==='labels'")
+    p.wait("document.getElementById('lbhidden').textContent.includes('Not an object in this room')")
+    assert wm.not_object_labels(rid) == ["bottle"] and bottles() == []
+    p.tap("#lbhidden [data-act=unmark-object]")
+    p.wait("document.querySelectorAll('#lbrows .lrow').length===2")
+    assert wm.not_object_labels(rid) == [] and len(bottles()) == 1
+    assert {c["source"] for c in wm.list_corrections(scan_id=sid)} | {c["source"] for c in wm.list_corrections(room_id=rid)} == {"phone"}
+    assert p.errors == []
+
+
+def test_the_review_screen_opens_the_objects_review(site, clean):
+    rid, sid = bottles_scene(site)
+    p = booted(site)
+    p.eval("window.__ui.RENDER.summary('review',{summary:{scan_id:%d,room_id:%d,room_name:'Study',speech:'x',coverage:{covered_deg:200},frames:{stored:1},seconds:5,cost_usd:0,objects:[{id:1,label:'cup',yaw:0,pitch:0,replay:null}]}})" % (sid, rid))
+    p.tap("[data-act=inspect-scan]")
+    p.wait("document.getElementById('s-labels').dataset.state==='default'")
+    assert "bottle" in p.text("#lbrows")
+
+
+def test_quick_ask_is_a_bottom_sheet_not_a_row_of_chips(site, clean):
+    site.room("Study", active=True, label="mug")
+    p = booted(site)
+    p.tap("#nav [data-nav=find]")
+    p.wait("document.querySelectorAll('#quicklist .chip').length>=1", what="the room's names")
+    assert p.eval("document.querySelectorAll('#s-find .body .chip').length") == 0, "no chips on the screen itself"
+    assert p.eval("document.getElementById('s-quick').classList.contains('on')") is False
+    p.tap("#quickbtn")
+    assert p.eval("document.getElementById('s-quick').classList.contains('on')") is True and "mug" in p.text("#quicklist")
+    p.tap("#quicklist .chip")
+    p.wait("document.body.dataset.screen==='result'", what="the result of the quick ask")
+    assert p.eval("document.getElementById('s-quick').classList.contains('on')") is False

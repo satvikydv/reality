@@ -275,3 +275,16 @@ body.nav-on .scr:not(.sheetwrap){padding-bottom:calc(var(--nav-h) + var(--b) + 1
 #s-wizard .hbtns{margin-top:auto}
 #wzactive{margin-top:2px}
 #chg{display:flex;flex-direction:column;gap:var(--gap-lg);overflow:visible;margin:0;padding:0}
+
+/* ---- objects review (labels, instances, sightings) ---- */
+.lrow{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;padding:12px 16px;text-align:left;color:var(--ink)}
+.lrow b{flex:1;min-width:0;font:600 var(--fs-lg) var(--sans);overflow:hidden;text-overflow:ellipsis}.lrow small{font:400 var(--fs-sm) var(--mono);color:var(--dim);text-align:right}
+.irow{display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;text-align:left;color:var(--ink);min-height:var(--tap)}
+.irow .pick{flex:none;width:44px;height:44px;border-radius:var(--r-sm);border:2px solid var(--line);display:grid;place-items:center;font:700 18px var(--mono)}.irow[aria-pressed=true] .pick{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.irow canvas{flex:none;width:88px;height:66px;border-radius:var(--r-xs);background:#111}
+.irow .t{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}.irow .t b{font:600 var(--fs-md) var(--sans)}.irow .t small{font:400 12px var(--mono);color:var(--dim)}
+.srow3{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--r-card)}
+.srow3 canvas{width:100%;aspect-ratio:4/3;border-radius:var(--r-sm);background:#111}
+.srow3 .m{font:400 var(--fs-sm)/1.5 var(--mono);color:var(--dim)}.srow3 .m b{color:var(--ink)}
+#sifacts{display:grid;grid-template-columns:1fr 1fr;gap:10px}#sifacts div{display:flex;flex-direction:column;gap:6px}#sifacts b{font:600 var(--fs-md) var(--mono)}
+#quickbtn{align-self:stretch;margin-bottom:var(--gap)}

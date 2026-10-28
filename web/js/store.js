@@ -26,6 +26,7 @@ export const INITIAL = {
   scope: "room",        // Find: "room" or "all"
   findResult: null,     // the result the Result screen shows
   filterRoomId: null,   // Home search: limit to one room
+  inspect: null,        // the objects review: {scanId, roomId, label, objectId}
 };
 
 export const roomById = (st, id) => st.rooms.find((r) => r.id === id) || null;

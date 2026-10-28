@@ -49,6 +49,24 @@ const CHANGES = () => ({ status: "ok", room: ref(R(1)), scan_before: 2, scan_aft
 
 const settingsRooms = () => rooms();
 
+// the objects review: a scan's objects grouped by label
+const thumbOf = (o) => ({ ...SHOT, image_url: "/world/frame/1.jpg", box: SHOT.box });
+const labelsData = (empty = false) => {
+  const by = new Map();
+  for (const o of OBJECTS) by.set(o.label, [...(by.get(o.label) || []), o]);
+  const labels = empty ? [] : [...by].map(([label, objs]) => ({ label, instances: objs.length, sightings: objs.length * 3, avg_confidence: 0.82,
+    objects: objs.map((o, i) => ({ id: o.id, label, sightings: 3, avg_confidence: 0.8 + i * 0.03, best_confidence: 0.93, yaw: o.yaw, pitch: o.pitch, uncertainty_deg: 3.2, first_seen: t(900), last_seen: t(300), thumb: thumbOf(o) })) }))
+    .sort((a, b) => b.instances - a.instances);
+  return { scan: { id: 3, status: "saved", room_id: 1, room_name: "Living Room", started_at: t(7200), ended_at: t(7170), n_frames: 42 }, labels,
+    instances: labels.reduce((n, g) => n + g.instances, 0), sightings: labels.reduce((n, g) => n + g.sightings, 0), possible_duplicates: empty ? 0 : 2,
+    hidden_labels: empty ? [] : [{ label: "wall", sightings: 6 }] };
+};
+const detailData = () => ({ scan: { id: 3, status: "saved", room_id: 1, room_name: "Living Room" },
+  object: { id: 1, label: "laptop", sightings: 3, avg_confidence: 0.85, best_confidence: 0.93, yaw: 340, pitch: 5, uncertainty_deg: 3.2 }, spread_deg: 2.1, fov_error_deg: 1.4,
+  sightings: [0.93, 0.84, 0.78].map((c, i) => ({ id: 11 + i, frame_id: 1 + i, image_url: `/world/frame/${1 + i}.jpg`, box: SHOT.box, width: 640, height: 480, confidence: c, mask: null,
+    anchor: { yaw: 340 + i, pitch: 5 }, fragment: i === 2, track_id: null, fov_error_deg: 1.2, camera: { yaw: 335 + i * 4, pitch: 2, roll: 0, hfov_deg: 60, ts: 1 + i } })),
+  decisions: [{ action: "new", text: "Started a new object: nothing close enough to join." }], corrections: [], decisions_source: "log" });
+
 export const FIXTURES = {
   welcome: { default: () => ({}) },
   primer: { default: () => ({}), denied: () => ({ problem: { kind: "denied", retry: true, title: "Camera access was blocked", body: "Reality OS needs the camera to see the room. Tap Try again and choose Allow." } }) },
@@ -109,6 +127,16 @@ export const FIXTURES = {
   roomsettings: { default: () => ({ room: R(1), scans: scans() }), error: () => ({ room: R(1), scans: scans(), message: "There is already a room called Desk." }) },
   explore: { default: () => ({ room: R(1) }), "no-memory": () => ({ room: R(3) }) },
   switcher: { default: () => ({ rooms: rooms() }), empty: () => ({ rooms: [] }) },
+  labels: {
+    default: () => ({ data: labelsData() }), empty: () => ({ data: labelsData(true) }), loading: () => ({}),
+    error: () => ({ message: "The server answered with an error (500)." }), offline: () => ({ message: "The server is not reachable. Reality OS keeps trying to reconnect by itself." }),
+  },
+  instances: {
+    default: () => ({ data: labelsData(), label: "laptop" }), empty: () => ({ data: labelsData(), label: "nothing" }), loading: () => ({}),
+    error: () => ({ message: "The server answered with an error (500)." }),
+  },
+  sightings: { default: () => ({ detail: detailData() }), loading: () => ({}), error: () => ({ message: "The server answered with an error (500)." }) },
+  quick: { default: () => ({ labels: ["charger", "laptop", "keys", "mug", "water bottle"] }), empty: () => ({ labels: [] }) },
 };
 
 export const fixture = (screen, state) => FIXTURES[screen]?.[state]?.();

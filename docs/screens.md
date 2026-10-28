@@ -153,11 +153,11 @@ Room details. Name and active badge; Find in this room, Rescan, View changes, Ex
 
 ### `find`
 
-Find in the active room (or any room named from Room details), or in all rooms (read-only, results grouped per room, each opened only after switching to that room). Text field and microphone, quick chips of what the room contains. The camera is off.
+Find in the active room (or any room named from Room details), or in all rooms (read-only, results grouped per room, each opened only after switching to that room). Text field and microphone, and a Quick ask button that opens a sheet of what the room contains. The camera is off.
 
 | State | Shows |
 |---|---|
-| `idle` | scope toggle (This room / All rooms), chips, the input |
+| `idle` | scope toggle (This room / All rooms), Quick ask, the input |
 | `busy` | "Looking for …" with Cancel |
 | `slow` | "Still looking, slower than usual" with Cancel |
 | `error` | what went wrong with Try again |
@@ -250,6 +250,60 @@ Explore (AR), opened from Room details: the room's remembered objects drawn over
 
 - Data: the room's overlay objects (direction, outline, age, uncertainty).
 - API: `GET /api/overlay?room_id=`.
+
+### `labels`
+
+Objects review, step 1 (opened with **Review objects** on the scan review, or **Objects** on a scan in a room's history): a scan's objects grouped by label with instances, sightings and mean confidence, the labels hidden as "not an object" in this room (with Restore), and how many possible duplicates there are. This is the simple phone version of the laptop dashboard's inspector.
+
+| State | Shows |
+|---|---|
+| `default` | one row per label: "3 × · 9 sightings · 82%", the hidden labels, the duplicates note |
+| `empty` | the scan has no objects (nothing recognised, or every kind hidden) |
+| `loading` | skeleton rows |
+| `error` | what failed, Try again |
+| `offline` | the server is not reachable, Try again |
+
+- Data: the scan's grouped objects, hidden labels, duplicate count.
+- API: `GET /api/scans/{id}/objects`, `GET /api/scans/{id}/duplicates`, `POST /api/rooms/{id}/not-objects`, `DELETE /api/rooms/{id}/not-objects/{label}`.
+
+### `instances`
+
+Objects review, step 2: the instances of one label, each with a thumbnail, its sightings and mean confidence. Tick two or more and Merge selected; "not an object here" hides the whole label in this room (in every scan, now and in future scans). Tapping an instance opens its sightings. Every correction is recorded by the server.
+
+| State | Shows |
+|---|---|
+| `default` | the instance rows with a pick box each, Merge selected (n), Not an object here |
+| `empty` | the label has no instances any more |
+| `loading` | skeleton rows |
+| `error` | what failed, Try again |
+
+- Data: the instances of one label (id, sightings, confidence, direction, thumbnail), the picked ones.
+- API: `POST /api/objects/merge`, `POST /api/rooms/{id}/not-objects`, `DELETE /api/objects/{id}`.
+
+### `sightings`
+
+Objects review, step 3: one instance and every sighting that made it: the stored picture with the object's box, the SAM confidence, the camera's direction. Detach turns a sighting into an object of its own; Delete object ignores all its sightings from now on.
+
+| State | Shows |
+|---|---|
+| `default` | direction, uncertainty, sightings, confidence, a card per sighting, Delete this object |
+| `loading` | skeleton |
+| `error` | what failed, Try again |
+
+- Data: the instance and its sightings (picture, box, confidence, camera direction).
+- API: `GET /api/objects/{id}`, `POST /api/sightings/{id}/detach`, `DELETE /api/objects/{id}`.
+
+### `quick`
+
+Quick ask: a bottom sheet over Find listing what the room contains as tap-to-ask names (it replaces a row of chips on the Find screen). Choosing one runs the search.
+
+| State | Shows |
+|---|---|
+| `default` | the names as chips, Close |
+| `empty` | "This room has no objects to ask about yet" |
+
+- Data: what the room contains.
+- API: `WS find{query, room_id | all_rooms}`.
 
 ### `switcher`
 

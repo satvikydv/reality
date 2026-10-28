@@ -28,6 +28,15 @@ export function makeApi(call = fetchJson) {
     guide: (objectId, roomId) => send("POST", "/api/guide", { object_id: objectId, room_id: roomId }),
     overlay: (roomId, scanId) => get(`/api/overlay${q({ room_id: roomId, scan_id: scanId })}`, 10000),
     deleteAll: () => send("DELETE", "/api/data", undefined, 120000),
+    // the objects review: what a scan believes, and corrections (each one is recorded by the server, source "phone")
+    scanObjects: (scanId) => get(`/api/scans/${scanId}/objects`),
+    duplicates: (scanId) => get(`/api/scans/${scanId}/duplicates`),
+    object: (id) => get(`/api/objects/${id}`),
+    mergeObjects: (ids) => send("POST", "/api/objects/merge", { ids, source: "phone" }),
+    detachSighting: (id) => send("POST", `/api/sightings/${id}/detach?source=phone`),
+    deleteObject: (id) => send("DELETE", `/api/objects/${id}?source=phone`),
+    markNotObject: (roomId, label) => send("POST", `/api/rooms/${roomId}/not-objects`, { label, source: "phone" }),
+    unmarkNotObject: (roomId, label) => send("DELETE", `/api/rooms/${roomId}/not-objects/${encodeURIComponent(label)}?source=phone`),
   };
 }
 

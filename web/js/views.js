@@ -74,6 +74,40 @@ export function groupTile(g, open) {
   return b;
 }
 
+// The objects review: a label, an instance with a pick box, a sighting.
+export function labelRow(g) {
+  const b = el("button", "lrow panel", null, { "data-act": "open-label", "data-label": g.label });
+  b.append(el("b", null, g.label), el("small", null, `${g.instances} × · ${g.sightings} sightings · ${Math.round(g.avg_confidence * 100)}%`));
+  return b;
+}
+
+export function instanceRow(o, picked) {
+  const row = el("div", "irow panel");
+  const pick = el("button", "pick", picked ? "✓" : "", { "data-act": "pick-instance", "data-id": o.id, "aria-pressed": String(!!picked), "aria-label": `Select ${o.label} ${o.id} to merge` });
+  const open = el("button", "irow-open", null, { "data-act": "open-instance", "data-id": o.id });
+  open.style.cssText = "display:flex;align-items:center;gap:12px;flex:1;min-width:0;text-align:left;color:inherit";
+  const c = el("canvas");
+  if (o.thumb) c.dataset.replay = JSON.stringify(o.thumb);
+  const t = el("div", "t");
+  t.append(el("b", null, `#${o.id} · ${o.sightings} sighting${o.sightings === 1 ? "" : "s"}`), el("small", null, `confidence ${Math.round(o.avg_confidence * 100)}% · ${Math.round(o.yaw)}° / ${Math.round(o.pitch)}°`));
+  open.append(c, t);
+  row.append(pick, open);
+  return row;
+}
+
+export function sightingCard(s, canDetach) {
+  const card = el("div", "srow3 panel");
+  const c = el("canvas");
+  c.dataset.replay = JSON.stringify({ frame_id: s.frame_id, box: s.box, width: s.width, height: s.height, image_url: s.image_url });
+  const m = el("div", "m");
+  m.append(el("b", null, `Sighting #${s.id}`), ` · SAM confidence `, el("b", null, `${Math.round(s.confidence * 100)}%`), document.createElement("br"),
+    `camera ${Math.round(s.camera.yaw)}° / ${Math.round(s.camera.pitch)}° · object ${Math.round(s.anchor.yaw)}° / ${Math.round(s.anchor.pitch)}°${s.fragment ? " · edge-clipped" : ""}`);
+  const b = el("button", "mini", "Detach: make it its own object", { "data-act": "detach-sighting", "data-id": s.id });
+  b.disabled = !canDetach;
+  card.append(c, m, b);
+  return card;
+}
+
 export function historyRow(s, { memory = false } = {}) {
   const row = el("div", "hrow" + (s.status === "draft" ? " draft" : ""));
   const t = el("div", "ht");
@@ -85,6 +119,7 @@ export function historyRow(s, { memory = false } = {}) {
   t.append(el("b", null, when), badges, el("small", null, `${s.n_objects} objects · ${s.n_frames} frames`));
   const acts = el("div", "hacts");
   const a = (label, act, cls) => acts.append(el("button", cls || "mini", label, { "data-act": act, "data-scan": s.id }));
+  a("Objects", "inspect-scan");
   if (s.status === "draft") { a("Save", "save-scan"); a("Discard", "discard-scan", "mini danger"); }
   else {
     a(s.baseline ? "Clear baseline" : "Set baseline", s.baseline ? "clear-baseline" : "set-baseline");

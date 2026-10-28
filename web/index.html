@@ -82,6 +82,7 @@
       <div class="thumbs" id="sumdetail" hidden></div>
       <div class="meta"><div><span class="label">Frames</span><b id="mf">–</b></div><div><span class="label">Seconds</span><b id="ms">–</b></div><div><span class="label">Cover</span><b id="mc">–</b></div><div><span class="label">Cost</span><b id="mu">–</b></div></div>
       <div class="row"><button class="btn ghost" data-act="discard-review">Discard</button><button class="btn" data-act="save-review" id="sumsave">Save</button></div>
+      <button class="plainbtn" data-act="inspect-scan" id="sumobjs">Review objects</button>
       <button class="plainbtn" data-act="view-room">View in room</button>
     </div>
   </div>
@@ -120,7 +121,7 @@
     <div class="statecard panel" data-show="room-empty"><h2 id="fempty">This room has not been scanned yet</h2><p>Scan it once, then ask where things are.</p><button class="btn" data-act="rescan">Scan this room</button></div>
     <div id="fgroups" data-show="all-results"></div>
     <div class="statecard panel" data-show="all-none"><h2>Not seen in any room</h2><p>Nothing called that is in any room’s memory. The rooms may not have been scanned where it is.</p></div>
-    <div class="chips scroll" id="fchips" data-show="idle busy slow error offline"></div>
+    <button class="plainbtn" id="quickbtn" data-act="open-quick" data-show="idle busy slow error offline">Quick ask ▴</button>
   </div>
   <div class="bot">
     <div class="askstate panel" id="askstate" data-show="busy slow error offline" role="status"><div class="spin" id="askspin"></div><span id="askmsg"></span><button id="askact" data-act="ask-act"></button></div>
@@ -231,6 +232,55 @@
     <div class="statecard panel" data-show="no-memory"><h2>Nothing to show yet</h2><p>This room has not been scanned, so there is nothing to draw over the camera.</p><button class="btn" data-act="rescan">Scan this room</button></div>
     <p class="note center" data-show="default">Point the camera around: remembered objects appear where they were.</p>
   </div>
+</section>
+
+<!-- ============ Objects review on the phone: labels, instances, sightings ============ -->
+<section class="scr" id="s-labels">
+  <header class="top"><button class="pill panel" data-act="back">‹ BACK</button><span class="pill panel mono" id="lbpill">OBJECTS</span></header>
+  <div class="body">
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-show="error offline"><h2 id="lberrtitle"></h2><p id="lberr"></p><button class="plainbtn" data-act="retry">Try again</button></div>
+    <div class="statecard panel" data-show="empty"><h2>No objects in this scan</h2><p>Nothing was recognised, or every kind was hidden as not an object in this room.</p></div>
+    <div data-show="default empty"><p class="dim" id="lbsum"></p>
+      <div class="cards" id="lbrows" data-show="default"></div>
+      <div id="lbhidden"></div>
+      <p class="dim" id="lbdups"></p></div>
+  </div>
+</section>
+
+<section class="scr" id="s-instances">
+  <header class="top"><button class="pill panel" data-act="back">‹ BACK</button><span class="pill panel mono" id="inpill">INSTANCES</span></header>
+  <div class="body">
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-show="error"><h2>Could not load this</h2><p id="inerr"></p><button class="plainbtn" data-act="retry">Try again</button></div>
+    <div class="statecard panel" data-show="empty"><h2>Nothing left here</h2><p>This kind has no instances in the scan any more.</p></div>
+    <div data-show="default">
+      <p class="dim" id="insum"></p>
+      <div class="actions"><button class="btn" data-act="merge-picked" id="mergebtn">Merge selected</button><button class="btn ghost" data-act="not-object" id="notobjbtn">Not an object here</button></div>
+      <div class="cards" id="inrows"></div></div>
+  </div>
+</section>
+
+<section class="scr" id="s-sightings">
+  <header class="top"><button class="pill panel" data-act="back">‹ BACK</button><span class="pill panel mono" id="sipill">SIGHTINGS</span></header>
+  <div class="body">
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-show="error"><h2>Could not load this</h2><p id="sierr"></p><button class="plainbtn" data-act="retry">Try again</button></div>
+    <div data-show="default">
+      <div class="card panel" id="sifacts"></div>
+      <h2 class="sec">Sightings</h2>
+      <div class="cards" id="sirows"></div>
+      <button class="dangerbtn" data-act="delete-object">Delete this object</button></div>
+  </div>
+</section>
+
+<!-- ============ Quick ask: what the room contains, as a bottom sheet over Find ============ -->
+<section class="scr sheetwrap" id="s-quick" aria-label="Quick ask">
+  <div class="scrim" data-act="close-switcher"></div>
+  <div class="sheet2 panel"><h2>Ask about</h2>
+    <div class="chips" id="quicklist" data-show="default"></div>
+    <p class="dim" data-show="empty">This room has no objects to ask about yet.</p>
+    <button class="plainbtn" data-act="close-switcher">Close</button></div>
 </section>
 
 <!-- ============ Room switcher: a sheet over any screen ============ -->
