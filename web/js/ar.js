@@ -3,6 +3,9 @@
 // live pose and the server's FOV, so they stay on the things they were found on while the phone turns.
 import {fit,ACCENT,rgba} from './ui.js';
 import {coverFit,projectObject} from './project.js';
+import {overlayConfig,showsHud} from './overlay-config.js';
+import {selectLabels} from './calm.js';
+import {cachedOutline} from './simplify.js';
 import {directionToPixel} from './guide.js';
 const A=ACCENT,G='#5EE6A0',MONO='JetBrains Mono,monospace',SANS='Sora,sans-serif';
 export const nd=d=>((d%360)+540)%360-180;
@@ -64,25 +67,49 @@ function world(x,w,s,cur,fitv,t){
     if(o.hl){const p=(t*1.4)%1;x.strokeStyle=A;x.globalAlpha*=1-p;x.lineWidth=2;x.beginPath();x.arc(ax,ay,30+p*40,0,7);x.stroke();x.globalAlpha=pr.alpha}
     if(pr.anchor){x.fillStyle=col;x.beginPath();x.arc(ax,ay,o.hl?3.5:2.5,0,7);x.fill()}
     const ly=bb?Math.min(bb.y1+6,s.h-s.bot-30):ay+28;
-    chip(x,o.label,o.hl?Math.round(Math.hypot(dx,dy))+'°':'',Math.min(w-50,Math.max(50,bb?(bb.x0+bb.x1)/2:ax)),Math.max(s.top,ly),col===G?G:col);
+    chip(x,o.label,(s.detail==='debug'?Math.round((o.confidence??0)*100)+'% ±'+Math.round(o.uncertainty_deg??0)+'°':o.hl?Math.round(Math.hypot(dx,dy))+'°':''),Math.min(w-50,Math.max(50,bb?(bb.x0+bb.x1)/2:ax)),Math.max(s.top,ly),col===G?G:col);
     x.restore();drawn++;
   }
   return{drawn,hidden};
 }
 
-// s: {mode, now, yaw, pitch, roll, view:{width,height,hfov} (the camera image), world:[objects], showWorld, bins, gapBins, gap,
+// Calm overlay: a handful of labels chosen by confidence x centrality x recency (calm.js, thresholds in overlay-config.js), duplicates
+// grouped ("3 bottles"), labels kept apart, and ONE outline: the Find / Guide target, else the object under the reticle, with its mask
+// simplified and rounded. Everything else stays quiet.
+function calmWorld(x,w,s,cur,fitv,t){
+  const cfg=overlayConfig('calm'),view={w,h:s.h,top:s.top,bot:s.bot};
+  const items=s.world.map(o=>{const pr=projectObject(o,cur,fitv,{maxUncertainty:999,outline:false});return{o,at:pr&&pr.anchor}}); // positions only: no mask is warped for objects that will not be outlined
+  const r=selectLabels(items,view,cfg);
+  for(const l of r.labels){
+    x.save();x.globalAlpha=l.target?1:.92;
+    x.fillStyle=l.target?A:'rgba(255,255,255,.9)';x.beginPath();x.arc(l.at[0],l.at[1],l.target?3.5:2.5,0,7);x.fill(); // what the label belongs to
+    chip(x,l.text,'',l.x+l.w/2,l.y,l.target?A:'rgba(255,255,255,.92)');x.restore()}
+  if(r.outlineId!=null){
+    const o=s.world.find(q=>q.id===r.outlineId);
+    if(o){const o2=o.mask&&o.mask.poly?{...o,mask:{...o.mask,poly:cachedOutline(o.id,o.mask.poly,cfg.outline)}}:o,pr=projectObject(o2,cur,fitv,{maxUncertainty:999});
+      if(pr&&pr.outline){const col=o.hl?A:'rgba(255,255,255,.95)';
+        x.save();x.globalAlpha=pr.alpha;x.beginPath();pr.outline.forEach(([px,py],i)=>i?x.lineTo(px,py):x.moveTo(px,py));x.closePath();
+        x.fillStyle=o.hl?rgba(A,.12):'rgba(255,255,255,.06)';x.fill();x.lineJoin='round';x.lineWidth=o.hl?3:2;x.strokeStyle=col;x.setLineDash(pr.source==='footprint'?[6,5]:[]);
+        x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=5;x.stroke();x.restore()}
+      if(o.hl&&pr&&pr.anchor){const p=(t*1.4)%1;x.save();x.strokeStyle=A;x.globalAlpha=1-p;x.lineWidth=2;x.beginPath();x.arc(pr.anchor[0],pr.anchor[1],30+p*40,0,7);x.stroke();x.restore()}}}
+  return{drawn:r.shown,hidden:s.world.length-r.shown,labels:r.labels.length,hiddenBy:r.hidden,calm:r};
+}
+
+// s: {mode, now, yaw, pitch, roll, view:{width,height,hfov} (the camera image), world:[objects], showWorld, detail ('calm' | 'normal' | 'debug'), bins, gapBins, gap,
 //     markers, target, found, label, pulse, shutter, tapeY, top, bot}
 export function drawAR(c,s){
   const{x,w,h}=fit(c);s.w=w;s.h=h;s.cy=h/2;const t=s.now/1000,v=s.view;
   const fitv=coverFit(v.width,v.height,w,h),cur={yaw:s.yaw,pitch:s.pitch,roll:s.roll||0,width:v.width,height:v.height,hfov:v.hfov};
   s.ppd=(v.width/2/Math.tan(v.hfov*Math.PI/360))*fitv.s*Math.PI/180; // screen pixels per degree at the image centre
   const at=(yaw,pitch)=>{const p=directionToPixel(yaw,pitch,v.width,v.height,cur.yaw,cur.pitch,cur.roll,v.hfov);return p&&[fitv.ox+p[0]*fitv.s,fitv.oy+p[1]*fitv.s]};
-  tape(x,w,s);
+  const hud=showsHud(s.detail,s.mode); // Calm: the tape, horizon and ladder only while guiding
+  if(hud)tape(x,w,s);
   // horizon: where pitch 0 is, tilted with the phone's roll
-  const h1=at(s.yaw-35,0),h2=at(s.yaw+35,0);
+  const h1=hud&&at(s.yaw-35,0),h2=hud&&at(s.yaw+35,0);
   if(h1&&h2){x.setLineDash([3,7]);x.strokeStyle='rgba(255,255,255,.28)';x.lineWidth=1;x.beginPath();x.moveTo(h1[0],h1[1]);x.lineTo(h2[0],h2[1]);x.stroke();x.setLineDash([])}
-  ladder(x,w,s);
-  s.stats=s.showWorld?world(x,w,s,cur,fitv,t):{drawn:0,hidden:0};
+  if(hud)ladder(x,w,s);
+  s.stats=s.showWorld?(s.detail==='calm'?calmWorld(x,w,s,cur,fitv,t):world(x,w,s,cur,fitv,t)):{drawn:0,hidden:0};
+  s.stats.hud=hud;
   // scan: gap indicator
   if(s.mode==='scan'&&s.gap){const dx=nd(s.gap.mid-s.yaw);if(Math.abs(dx)>v.hfov/2-4)edge(x,w,s,dx,0,A,'gap',s.gap.size,t)}
   // guide target

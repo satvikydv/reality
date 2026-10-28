@@ -702,10 +702,11 @@ def test_settings_persist_and_replaying_the_intro_changes_nothing_stored(site, c
     p.tap("#nav [data-nav=settings]")
     assert p.eval("!document.getElementById('dbgrow').hidden")
     p.tap("#kfseg button:nth-child(3)")
+    assert p.eval("document.querySelector('#detailseg button:nth-child(1)').getAttribute('aria-pressed')") == "true" and p.text("#detailseg button:nth-child(1)") == "Calm"  # Calm is the default
     p.tap("#detailseg button:nth-child(2)")
     p.eval("(()=>{const s=document.getElementById('langsel');s.value='hi-IN';s.dispatchEvent(new Event('change'))})()")
     p.tap("#dbgseg [data-v='0']")
-    assert p.eval("localStorage.getItem('ros.kfps')") == "3" and p.eval("localStorage.getItem('ros.lang')") == "hi-IN" and p.eval("localStorage.getItem('ros.detail')") == "labels"
+    assert p.eval("localStorage.getItem('ros.kfps')") == "3" and p.eval("localStorage.getItem('ros.lang')") == "hi-IN" and p.eval("localStorage.getItem('ros.detail')") == "normal"
     assert p.eval("document.body.classList.contains('dbg')") is False
     p.tap("[data-act=replay-intro]")
     assert p.screen() == "welcome"
@@ -795,6 +796,46 @@ def test_every_visible_button_is_a_large_tap_target(site, sid):
     small = p.eval("""[...document.querySelectorAll('button,select,input[type=text],input[type=search]')].filter(e=>e.offsetParent!==null&&!e.closest('#dev')&&!e.hidden&&!e.closest('[hidden]')).map(e=>{const b=e.getBoundingClientRect();
       return [e.id||e.dataset.act||e.className||e.textContent.slice(0,20),Math.round(b.width),Math.round(b.height)]}).filter(([,w,h])=>w<44||h<44)""")
     assert small == [], f"tap targets under 44px on {sid}: {small}"
+
+
+# ------------------------------------------------------------------------------------------------ calm overlay
+
+def overlay_stats(p, settle=1.2):
+    time.sleep(settle)
+    return p.eval("window.__ar.stats()")
+
+
+def test_calm_is_the_default_overlay_few_labels_and_no_compass_outside_guide(site, clean):
+    p = site.page(READY).open("/?demo&screen=explore&objects=60&fov=100&yaw=40")
+    s = overlay_stats(p)
+    assert p.eval("window.__ui.prefs.get('detail')") == "calm"
+    assert s["hud"] is False and 1 <= s["labels"] <= 5 and s["objects"] == 60
+    assert s["hiddenBy"]["overflow"] + s["hiddenBy"]["collision"] > 0, "most of the visible objects stayed quiet"
+    assert p.errors == []
+
+
+def test_normal_and_debug_draw_everything_with_the_compass(site, clean):
+    for mode in ("normal", "debug"):
+        p = site.page({**READY, "ros.detail": mode}).open("/?demo&screen=explore&objects=60&fov=100&yaw=40")
+        s = overlay_stats(p)
+        assert s["hud"] is True and s["drawn"] > 5 and "labels" not in s, (mode, s)
+        assert p.errors == []
+
+
+def test_the_compass_tape_shows_in_guide_even_in_calm(site, clean):
+    p = site.page(READY).open("/?demo&screen=guide&yaw=40")
+    assert overlay_stats(p)["hud"] is True
+    q = site.page(READY).open("/?demo&screen=scan&state=live&yaw=40")
+    assert overlay_stats(q)["hud"] is False
+
+
+def test_changing_the_detail_setting_changes_the_overlay_at_once(site, clean):
+    p = site.page(READY).open("/?demo&screen=explore&objects=60&fov=100&yaw=40")
+    assert overlay_stats(p)["hud"] is False
+    p.eval("window.__ui.prefs.set('detail','normal')")
+    assert overlay_stats(p, 0.8)["hud"] is True
+    p.eval("window.__ui.prefs.set('detail','calm')")
+    assert overlay_stats(p, 0.8)["hud"] is False
 
 
 # ------------------------------------------------------------------------------------------------ objects review and quick ask

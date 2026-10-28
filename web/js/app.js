@@ -771,11 +771,13 @@ async function boot(){
 
 /* ---------- demo: /?demo&screen=ID&state=STATE shows a screen from fixtures.js with the same render code ---------- */
 const demoBase=()=>{const b=fixture('home','default');store.set({rooms:b.rooms,recent:b.recent,activeId:1,roomsLoaded:true})};
-function demoWorld(){
-  const blob=(rx,ry)=>Array.from({length:10},(_,i)=>{const a=i/10*Math.PI*2;return[270+Math.cos(a)*rx*(1+.12*Math.sin(a*3)),480+Math.sin(a)*ry*(1+.12*Math.cos(a*2))]});
-  const all=[['laptop',-20,5],['laptop',35,0],['laptop',200,8],['cable',60,-25],['cable',-75,-30],['cable',150,-20],['bottle',95,-5],['bottle',250,0],['charger',-60,-10],['mug',120,2],['keys',300,-15],['phone',10,-12],['monitor',-5,20],['lamp',330,35]];
-  world.apply({hfov_deg:P.has('fov')?+P.get('fov'):60,fov_calibrated:false,scan_id:3,objects:all.map(([label,yaw,pitch],i)=>({id:i+1,label,yaw:(yaw+360)%360,pitch,uncertainty_deg:i===5?30:i%4,n_obs:3,confidence:.9,
-    age_s:[5,5,20,400,900,5,60,5,5,5,5,5,5,5][i],footprint:[(yaw+360)%360,-7,7,pitch-6,pitch+6],mask:i%2?null:{poly:blob(60+i*3,46),yaw:(yaw+360)%360,pitch,roll:0,width:540,height:960,hfov:60}}))})}
+function demoWorld(){ // what the overlay shows in demo mode; /?demo&screen=explore&objects=60 makes a crowded room for measuring
+  const blob=(rx,ry)=>Array.from({length:40},(_,i)=>{const a=i/40*Math.PI*2;return[270+Math.cos(a)*rx*(1+.12*Math.sin(a*3)+.03*Math.sin(a*11)),480+Math.sin(a)*ry*(1+.12*Math.cos(a*2)+.03*Math.cos(a*9))]});
+  const all=[['laptop',-20,5],['laptop',35,0],['laptop',200,8],['cable',60,-25],['cable',-75,-30],['cable',150,-20],['bottle',95,-5],['bottle',250,0],['charger',-60,-10],['mug',120,2],['keys',300,-15],['phone',10,-12],['monitor',-5,20],['lamp',330,35],['wall',20,0],['ceiling',90,70]];
+  const kinds=['laptop','cable','bottle','mug','keys','phone','book','pen','lamp','plant','remote','wall'],want=+P.get('objects')||0;
+  for(let k=all.length;k<want;k++)all.push([kinds[k%kinds.length],(k*47)%360-180,((k*29)%50)-25]);
+  world.apply({hfov_deg:P.has('fov')?+P.get('fov'):60,fov_calibrated:false,scan_id:3,objects:all.map(([label,yaw,pitch],i)=>({id:i+1,label,yaw:(yaw+360)%360,pitch,uncertainty_deg:i===5?30:i%4,n_obs:3,confidence:i%6===4?.35:i<16?.9:.5+((i*13)%50)/100,
+    age_s:i<14?[5,5,20,400,900,5,60,5,5,5,5,5,5,5][i]:(i*37)%900,footprint:[(yaw+360)%360,-7,7,pitch-6,pitch+6],mask:i%2?null:{poly:blob(60+(i%7)*3,46),yaw:(yaw+360)%360,pitch,roll:0,width:540,height:960,hfov:60}}))})}
 function showFixture(id,state){
   state=state&&hasState(id,state)?state:SCREENS[id].states[0];const d=fixture(id,state)||{};demoBase();
   const viewId=d.room?.id??1;store.set({viewRoomId:viewId,findRoomId:null});

@@ -83,11 +83,12 @@ const span = (pts) => {
 
 // o: an object from /api/overlay. cur: the live camera {yaw, pitch, roll, width, height, hfov} in video pixels.
 // Returns null when the object should not be drawn, else {anchor, outline, source, alpha} in screen pixels.
-export function projectObject(o, cur, fit, { maxUncertainty = MAX_UNCERTAINTY_DEG } = {}) {
+export function projectObject(o, cur, fit, { maxUncertainty = MAX_UNCERTAINTY_DEG, outline: wantOutline = true } = {}) {
   if (!isReliable(o, maxUncertainty)) return null;
   const a = directionToPixel(o.yaw, o.pitch, cur.width, cur.height, cur.yaw, cur.pitch, cur.roll ?? 0, cur.hfov);
   const big = MAX_OUTLINE_SPAN * cur.width;
   let outline = null, source = null;
+  if (!wantOutline) return a ? { anchor: toScreen(a, fit), outline: null, source: null, alpha: fadeAlpha(o.age_s ?? 0) } : null; // positions only (the calm overlay's label selection)
   if (o.mask && o.mask.poly && o.mask.poly.length >= 3) {
     const w = warpPoints(homography(o.mask, cur), o.mask.poly);
     if (w && span(w).w < big && span(w).h < big) { outline = w; source = "mask"; }

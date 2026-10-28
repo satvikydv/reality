@@ -2,11 +2,13 @@
 // settings. Storage can be missing or throw (private windows, blocked site data); then the values live in memory for the
 // session, so the app still behaves (the intro shows once per visit) instead of crashing or asking again on every screen.
 
+import { DEFAULT_MODE } from "./overlay-config.js";
+
 export const KFPS = [1, 2, 3];       // keyframes per second at most; the scan also waits for the phone to turn and hold steady
 export const LANGS = [["", "Phone default"], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["en-IN", "English (India)"],
   ["hi-IN", "हिन्दी"], ["es-ES", "Español"], ["fr-FR", "Français"], ["de-DE", "Deutsch"]];
-export const DETAILS = [["full", "Outlines and labels"], ["labels", "Labels only"]]; // how the AR overlay draws remembered objects
-export const DEFAULTS = { onboarded: false, primed: false, kfps: 2, lang: "", ar: true, debug: true, detail: "full" }; // debug: the HUD is on when the page is opened with ?debug, unless switched off
+export const DETAILS = [["calm", "Calm"], ["normal", "Normal"], ["debug", "Debug"]]; // how much the AR overlay shows (thresholds: overlay-config.js)
+export const DEFAULTS = { onboarded: false, primed: false, kfps: 2, lang: "", ar: true, debug: true, detail: DEFAULT_MODE }; // debug: the HUD is on when the page is opened with ?debug, unless switched off
 const BOOL = new Set(["onboarded", "primed", "ar", "debug"]);
 
 export function memoryStorage() {
