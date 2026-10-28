@@ -99,11 +99,50 @@ Record: device ______ · browser and version ______ · date ______
 - [ ] Delete all data: the dialog says how many rooms; Keep my data cancels; Delete everything empties Home. Check `data/world_frames/` on the laptop is empty.
 - [ ] No dots menu and no Debug HUD row on a normal URL. With `/?debug` both exist and the toggle works.
 
+**Objects review and calm overlay**
+- [ ] Review a real scan: Review objects lists the kinds with sensible counts. Open a kind with many instances (bottles, cables): do the thumbnails look like the same thing? Merge two that are one object; the count drops and a rescan of the room does not undo it (corrections are kept, but a new scan is a new scan).
+- [ ] Detach one sighting that is clearly a different object; Delete an object that is not real; mark a background kind (for example "wall") as not an object: it leaves the room's overlay, and Restore brings it back. Check the laptop dashboard, Objects, Corrections log lists each action with "by phone".
+- [ ] Dashboard Objects: sighting pictures are large enough to judge the mask and box; the decision log explains why two sightings were merged or kept apart.
+- [ ] Calm is the default: in Explore at least three labels at a time and never more than five, no label on top of another, duplicates read "3 bottles", one outline only, no compass tape. Guide shows the tape. Settings, Overlay detail, Normal and Debug show the old, busier overlay.
+- [ ] Walk around a cluttered shelf with Calm on: does the one outline follow the object you point at? Does the label choice feel right? Note any label you expected and did not get, and any that jumped between frames.
+- [ ] Frame rate: dev menu (`?debug`) fps and draw ms in Calm, Normal and Debug on the same view: Calm ____ , Normal ____ , Debug ____ .
+
 **Upgrade**
 - [ ] Start the server on a database from before rooms: Home shows one room, "Unassigned", with the old scans, not active; Find says to choose a room until you pick one.
 
 **Demo**
 - [ ] `/?demo` and `/?demo&screen=<id>&state=<state>` for any pair in `docs/screens.md` open with no prompt of any kind.
+
+## Calm overlay and objects inspector: measurements
+
+Measured 2026-10-29. Label counts come from `scripts/export_overlay.py` (a copy of `data/world.sqlite`) and `node scripts/measure_overlay.mjs`, which run the phone's own projection and selection code over 108 viewpoints (yaw every 10 degrees at pitch -15, 0 and 15, FOV 60 degrees, a 390x844 screen with the HUD bands kept free). Before is Normal (the old overlay: every reliable object on screen gets a label and an outline); after is Calm. Object ages are taken relative to the end of the scan, as if viewed right after scanning.
+
+| Scan (objects) | Labels per view, mean / p95 / max, before | after | Outlines per view, before | after | Overlapping label pairs per view, before | after | Views with more than 5 labels |
+|---|---|---|---|---|---|---|---|
+| 6 (35 objects, 10 kinds) | 5.4 / 18 / 22 | 1.8 / 5 / 5 | 5.4 | 0.3 | 2.9 (max 19) | 0.0 | 43 of 108, then 0 |
+| 5 (36 objects, 7 kinds) | 3.8 / 14 / 18 | 1.6 / 5 / 5 | 3.8 | 0.2 | 1.7 (max 10) | 0.0 | 34 of 108, then 0 |
+| 4 (64 objects, 10 kinds; stored before masks were kept, so no outlines either way) | 5.9 / 30 / 38 | 1.8 / 5 / 5 | 0.0 | 0.2 | 5.3 (max 49) | 0.0 | 29 of 108, then 0 |
+
+Calm's per-view labels stand for 2.8 to 5.0 objects on average because duplicates are grouped. On these three scans nothing was hidden for low confidence, background class or uncertainty except 12 object-views on scan 5 (uncertainty): the stored SAM confidences are all at least 0.5 and none of the kinds is a background class (the biggest are laptop, cable, bottle, clothing), so on this data the reduction comes from the five-label limit, off-screen objects, grouping and collision avoidance. The confidence and background filters matter when a scan contains wall, floor or low-confidence detections, which these did not.
+
+Frame rate and draw time in headless Chrome (`python scripts/measure_overlay_fps.py`), demo overlay with 16 and 60 objects and a 100 degree FOV so many are in view, median of 3 s after a 1.5 s warm-up. This machine's headless Chrome is capped at 60 fps and is not a phone; the 6x rows throttle the CPU as a rough stand-in for a slower one.
+
+| CPU throttle | Objects | Mode | fps | Draw ms | Labels shown |
+|---|---|---|---|---|---|
+| 1x | 16 | calm | 60 | 0.36 | 3 |
+| 1x | 16 | normal | 60 | 0.64 | 5 |
+| 1x | 16 | debug | 60 | 0.84 | 5 |
+| 1x | 60 | calm | 60 | 0.57 | 5 |
+| 1x | 60 | normal | 60 | 1.36 | 19 |
+| 1x | 60 | debug | 60 | 1.68 | 19 |
+| 6x | 16 | calm | 59 | 2.49 | 3 |
+| 6x | 16 | normal | 29 | 4.54 | 5 |
+| 6x | 16 | debug | 31 | 5.24 | 5 |
+| 6x | 60 | calm | 60 | 2.76 | 5 |
+| 6x | 60 | normal | 19 | 10.05 | 19 |
+| 6x | 60 | debug | 20 | 10.23 | 19 |
+
+Calm draws less than half the time of Normal at 1x and about a quarter at 6x with 60 objects, because only the chosen object's mask is projected and the rest are positions only. Not measured on the phone.
 
 ## Results
 

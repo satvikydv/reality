@@ -216,7 +216,7 @@ What changed in one room: a Before and an After picker over the room's saved sca
 
 ### `settings`
 
-Global settings: voice language, keyframes per second (1, 2, 3), overlay detail (outlines and labels, or labels only), Your rooms (Edit opens Room settings), Replay intro, Delete all data (confirms), and the debug HUD switch (only with `?debug` in the URL).
+Global settings: voice language, keyframes per second (1, 2, 3), overlay detail (Calm, Normal or Debug, see below), Your rooms (Edit opens Room settings), Replay intro, Delete all data (confirms), and the debug HUD switch (only with `?debug` in the URL).
 
 | State | Shows |
 |---|---|
@@ -241,7 +241,7 @@ One room's settings: rename (a taken name is an error), make it the active room,
 
 ### `explore`
 
-Explore (AR), opened from Room details: the room's remembered objects drawn over the live camera, locked to where they were (outlines and labels, or labels only per Settings). Camera on.
+Explore (AR), opened from Room details: the room's remembered objects drawn over the live camera, locked to where they were, as much as Settings, Overlay detail allows (see below). Camera on.
 
 | State | Shows |
 |---|---|
@@ -316,6 +316,14 @@ Room switcher: a sheet listing the rooms with the active one marked. Choosing on
 
 - Data: the rooms.
 - API: `GET /api/rooms`, `PATCH /api/rooms/{id}`.
+
+## Overlay detail (what the camera screens draw)
+
+One setting, three modes, all thresholds in `web/js/overlay-config.js`; the choices are pure functions in `web/js/calm.js` and `web/js/simplify.js`.
+
+- **Calm (default).** At most five labels, picked by confidence × centrality × recency, kept apart so none overlaps another, with duplicates grouped ("3 bottles"). One outline only: the Find / Guide target, else the object under the reticle (its mask simplified and rounded). Objects the detector is unsure of, whose direction is uncertain, or that are background classes (wall, floor, ceiling, door, window...) are not shown. The compass tape, horizon and pitch ladder appear only on the Guide screen.
+- **Normal.** Every reliable object with its label and outline, and the compass tape, as before.
+- **Debug.** Normal plus confidence and uncertainty on each label.
 
 ## Dialogs, toasts and captions (not screens)
 
