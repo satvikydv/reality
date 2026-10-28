@@ -7,3 +7,14 @@ a{color:var(--accent);text-decoration:none}a:hover{color:#fff}
 .panel{background:var(--panel);backdrop-filter:blur(18px) saturate(1.2);-webkit-backdrop-filter:blur(18px) saturate(1.2);border:1px solid var(--line);border-radius:18px}
 .label{font:500 11px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
 .stripe{background:repeating-linear-gradient(135deg,#171a1d 0 10px,#1d2125 10px 20px);display:grid;place-items:center;font:400 11px var(--mono);color:var(--dim);letter-spacing:.08em}
+/* Design tokens. The phone app's stylesheet (app.css) uses only these for radii, spacing, tap sizes, fills and type sizes, so
+   a new look is mostly a change of values here. Colours above (--accent, --green, --red, --amber, --ink, --panel...) are tokens too. */
+:root{
+  --on-accent:#070a1a;
+  --fill-1:rgba(255,255,255,.07);--fill-2:rgba(255,255,255,.11);--fill-3:rgba(255,255,255,.14);
+  --danger-fill:rgba(255,90,82,.16);--danger-line:rgba(255,90,82,.5);--warn-line:rgba(255,213,79,.5);--scrim:rgba(0,0,0,.66);
+  --r-pill:99px;--r-btn:20px;--r-card:18px;--r-ctl:16px;--r-sm:14px;--r-xs:10px;
+  --pad:16px;--gap:10px;--gap-lg:14px;
+  --fs-xs:11px;--fs-sm:13px;--fs-md:15px;--fs-lg:17px;--fs-xl:22px;
+  --tap:48px;--btn-h:64px;--nav-h:64px;
+}

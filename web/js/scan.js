@@ -32,10 +32,11 @@ export class ScanController {
 
   _emit() { this.onChange(this.st, this.coverage); }
 
-  start() {
+  // roomId: the room being scanned. The scan is a draft on the server until the user saves it.
+  start(roomId = null) {
     if (this.st.phase === "scanning" || this.st.phase === "starting") return;
     this.reset();
-    if (!this.sock.sendJson({ type: "scan_start", name: new Date().toISOString() })) {
+    if (!this.sock.sendJson({ type: "scan_start", name: new Date().toISOString(), room_id: roomId })) {
       this.st.phase = "error";
       this.st.error = "not connected to the server";
       return this._emit();

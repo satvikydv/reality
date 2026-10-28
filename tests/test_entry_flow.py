@@ -74,6 +74,9 @@ SPY = r"""
   Object.defineProperty(navigator, 'wakeLock', { configurable: true, value: { request: async () => {
     log.push('wakeLock.request'); const s = new EventTarget(); s.release = async () => { log.push('wakeLock.release'); }; return s; } } });
   try { screen.orientation.lock = async (m) => { log.push('orientation.lock ' + m); }; screen.orientation.unlock = () => { log.push('orientation.unlock'); }; } catch (e) {}
+  // Tests must be silent: speech is recorded in window.__spoken instead of coming out of the laptop's speakers.
+  window.__spoken = [];
+  try { speechSynthesis.speak = (u) => { window.__spoken.push(u.text); }; speechSynthesis.cancel = () => {}; } catch (e) {}
   const f = window.fetch.bind(window);
   window.fetch = (u, ...a) => (window.__offline && String(u).includes('/api/status') ? Promise.reject(new TypeError('Failed to fetch')) : f(u, ...a));
 })();
@@ -188,7 +191,7 @@ def site(tmp_path_factory):
     prof = tempfile.mkdtemp(prefix="ros-chrome-")
     cport = free_port()
     proc = subprocess.Popen([BROWSER, "--headless=new", f"--remote-debugging-port={cport}", f"--user-data-dir={prof}", "--no-first-run",
-                             "--disable-gpu", "--no-default-browser-check", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
+                             "--disable-gpu", "--no-default-browser-check", "--mute-audio", "--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE 127.0.0.1",
                              "--autoplay-policy=no-user-gesture-required", "about:blank"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     end = time.time() + 20
     while time.time() < end:
@@ -211,15 +214,22 @@ def site(tmp_path_factory):
             self.pages.append(p)
             return p
 
-        def scan(self, yaws=(0,)):
-            with websockets_sync.connect(f"ws://127.0.0.1:{port}/ws") as ws:
-                ws.send(json.dumps({"type": "scan_start"}))
-                assert json.loads(ws.recv())["type"] == "scan_started"
-                for i, yaw in enumerate(yaws):
-                    ws.send(frame_msg(i + 1, 2, meta(yaw), jpeg()))
-                ws.send(json.dumps({"type": "scan_end"}))
-                while json.loads(ws.recv())["type"] != "scan_summary":
-                    pass
+        def room(self, name, active=False, label=None, yaw=0.0, ts=100.0, saved=True, frames=1):
+            """A room, optionally with a scan holding one object, stored straight in the world model."""
+            wm = self.svc_.wm
+            rid = wm.create_room(name, active=active)["id"]
+            if label:
+                self.scan_in(rid, label, yaw, ts, saved, frames)
+            return rid
+
+        def scan_in(self, rid, label="mug", yaw=0.0, ts=100.0, saved=True, frames=1):
+            wm = self.svc_.wm
+            sid = wm.start_scan(ts=ts, room_id=rid, status="saved" if saved else "draft")
+            for i in range(frames):
+                fid = wm.add_frame(sid, ts + i, yaw, 0.0, 480, 640, roll=0.0, screen_angle=0.0, jpeg=b"jpg")
+                wm.observe(fid, [{"label": label, "box": [220, 300, 260, 340]}])
+            wm.end_scan(sid, ts + 5)
+            return sid
 
     s = Site()
     yield s
@@ -233,22 +243,36 @@ def site(tmp_path_factory):
 
 
 READY = {"ros.onboarded": "1", "ros.primed": "1"}  # a returning user who has been through the intro and the permission primer
+HOME_LOADED = "document.getElementById('s-home').dataset.state!=='loading'&&document.getElementById('s-home').dataset.state!=='slow'"
 
 
 @pytest.fixture()
 def clean(site):
-    site.svc_.wm.db.execute("DELETE FROM scans")  # every test starts with no scans unless it makes one
-    site.svc_.wm.db.commit()
+    site.svc_.wm.delete_all()  # every test starts with no rooms and no scans, and makes what it needs
     yield
+
+
+def booted(site, seed=READY, path="/"):
+    p = site.page(seed).open(path)
+    p.wait(HOME_LOADED, what="Home to load")
+    return p
+
+
+def registry():
+    """{screen: [states]} from the page's own registry (web/js/screens.js)."""
+    out = subprocess.run(["node", "-e", "import('./web/js/screens.js').then(m=>console.log(JSON.stringify(Object.fromEntries(Object.entries(m.SCREENS).map(([k,v])=>[k,v.states])))))"],
+                         capture_output=True, text=True, cwd=str(Path(__file__).resolve().parents[1]), check=True)
+    return json.loads(out.stdout)
 
 
 # ------------------------------------------------------------------------------------------------ entry flow
 
 @pytest.mark.parametrize("seed,landing,path", [({}, "welcome", "/"), (READY, "home", "/"), (READY, "home", "/?debug"), ({}, "welcome", "/?debug")])
 def test_opening_the_page_does_not_touch_camera_sensors_or_microphone(site, clean, seed, landing, path):
+    site.room("Living Room", active=True, label="mug")
     p = site.page(seed).open(path)
     p.wait("document.getElementById('stat').textContent.startsWith('Connected')", what="the server check to finish")
-    p.settle(1.5)  # long enough for any auto-start, a status poll and the world layer to have run
+    p.settle(1.5)  # long enough for any auto-start, a status poll and the rooms load to have run
     assert p.media() == [], f"the page touched media or sensor APIs on load: {p.media()}"
     assert p.screen() == landing
     assert p.eval("document.getElementById('v').srcObject") is None
@@ -256,45 +280,58 @@ def test_opening_the_page_does_not_touch_camera_sensors_or_microphone(site, clea
     assert p.errors == []
 
 
-def test_home_shows_the_connection_and_the_four_buttons(site, clean):
-    p = site.page(READY).open()
-    p.wait("document.getElementById('stat').textContent.startsWith('Connected')")
-    assert p.text("#stat") == "Connected · API key valid"
-    assert "No scan yet" in p.text("#lastcard")
-    assert [p.text(s) for s in ("#scanbtn", "#askbtn", "#chgbtn", "#setbtn")] == ["New scan", "Find something", "What changed", "Settings"]
-    assert p.eval("['scanbtn','askbtn','chgbtn','setbtn'].every(i=>!document.getElementById(i).disabled)")
+def test_home_lists_rooms_and_the_bottom_bar_has_five_tabs(site, clean):
+    site.room("Living Room", active=True, label="mug")
+    site.room("Wardrobe")
+    p = booted(site)
+    p.wait("document.querySelectorAll('#hrooms .rcard').length===2")
+    assert p.eval("[...document.querySelectorAll('#nav button')].map(b=>b.textContent)") == ["Home", "Find", "Scan", "Changes", "Settings"]
+    assert p.eval("document.querySelector('#nav [aria-current=page]').dataset.nav") == "home"
+    cards = p.eval("[...document.querySelectorAll('#hrooms .rcard')].map(c=>c.textContent)")
+    assert any("Living Room" in c and "ACTIVE" in c and "1 object" in c for c in cards) and any("Wardrobe" in c and "Not scanned yet" in c for c in cards)
+    assert p.text("#s-home .roomsw .rn") == "Living Room"
 
 
-def test_the_spy_really_sees_the_camera_so_the_empty_log_above_means_something(site, clean):
-    p = site.page(READY).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
-    assert p.media() == []
-    p.tap("#askbtn")
+def test_home_with_no_rooms_has_an_empty_state(site, clean):
+    p = booted(site)
+    assert p.eval("document.getElementById('s-home').dataset.state") == "empty" and "No rooms yet" in p.text("#s-home .statecard")
+    assert p.text("#s-home .roomsw .rn") == "No room"
+    p.tap("#s-home [data-show=empty] [data-act=add-room]")
+    assert p.screen() == "wizard" and p.media() == []
+
+
+def test_the_spy_sees_the_camera_and_the_camera_starts_only_after_the_wizard(site, clean):
+    p = booted(site)
+    p.tap("#nav [data-nav=scan]")
+    assert p.screen() == "wizard" and p.gum() == [] and p.eval("document.body.classList.contains('nav-on')") is False
+    p.tap("#wzchips [data-name=Desk]")
+    p.tap("#wzgo")
     p.wait("document.body.classList.contains('live')", what="the camera to start")
-    assert len(p.gum()) == 1 and '"audio":false' in p.gum()[0]
+    assert p.screen() == "scan" and len(p.gum()) == 1 and '"audio":false' in p.gum()[0]
+    assert p.eval("document.getElementById('s-scan').dataset.state") == "ready" and p.text("#scanroom") == "Desk"
+    assert site.svc_.wm.resolve_room("Desk") is not None  # the wizard created the room
 
 
-@pytest.mark.parametrize("button,screen", [("#scanbtn", "scan"), ("#askbtn", "ask")])
-def test_the_camera_starts_from_a_tap_on_new_scan_or_find_something(site, clean, button, screen):
-    p = site.page(READY).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
-    p.settle(0.5)
+def test_the_camera_starts_from_a_tap_on_explore_and_on_guide_me(site, clean):
+    rid = site.room("Living Room", active=True, label="mug")
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
     assert p.gum() == []
-    p.tap(button)
+    p.tap("[data-act=explore-room]")
     p.wait("document.body.classList.contains('live')")
-    assert p.screen() == screen and len(p.gum()) == 1
-    assert not any("audio\":true" in m for m in p.media()), "the microphone must never be requested"
+    assert p.screen() == "explore" and len(p.gum()) == 1
+    p.tap("#s-explore [data-act=stop]")
+    assert p.screen() == "room" and p.eval("document.body.classList.contains('live')") is False
 
-
-def test_the_camera_starts_from_a_tap_on_guide_me(site, clean):
-    p = site.page(READY).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
-    p.eval("window.__ui.go('find')")
-    p.settle(0.3)
-    assert p.gum() == []
+    p.tap("#nav [data-nav=find]")
+    p.eval("document.getElementById('q').value='mug'")
+    p.tap("#findbtn")
+    p.wait("document.getElementById('s-result')?.classList.contains('on')", what="the find result")
+    assert p.screen() == "result" and len(p.gum()) == 1
     p.tap("#guidebtn")
     p.wait("document.body.classList.contains('live')")
-    assert p.screen() == "guide" and len(p.gum()) == 1
+    assert p.screen() == "guide" and len(p.gum()) == 2
 
 
 # ------------------------------------------------------------------------------------------------ first run
@@ -323,7 +360,7 @@ def test_first_run_intro_then_primer_then_the_browser_prompts_in_that_order(site
 
 def test_the_intro_is_shown_once_and_can_be_skipped(site, clean):
     p = site.page().open()
-    p.tap("#introskip")
+    p.tap("[data-act=intro-skip]")
     assert p.screen() == "home" and p.media() == []
     p.call("Page.reload")
     p.wait("!!window.__ui")
@@ -332,23 +369,27 @@ def test_the_intro_is_shown_once_and_can_be_skipped(site, clean):
 
 
 def test_a_user_who_skipped_the_intro_still_gets_the_primer_before_the_camera(site, clean):
-    p = site.page({"ros.onboarded": "1"}).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
-    p.tap("#scanbtn")
-    assert p.screen() == "primer" and p.media() == []
+    p = booted(site, {"ros.onboarded": "1"})
+    p.tap("#nav [data-nav=scan]")
+    p.tap("#wzchips [data-name=Kitchen]")
+    p.tap("#wzgo")
+    p.wait("document.body.dataset.screen==='primer'", what="the primer (the room is created first)")
+    assert p.media() == []
     p.tap("#primergo")
     p.wait("document.body.dataset.screen==='scan'", what="the scan screen after the permissions")
     p.wait("document.body.classList.contains('live')")
-    assert p.eval("document.getElementById('scan').dataset.ph") == "ready", "the pre-scan checklist, not a scan that already started"
+    assert p.eval("document.getElementById('s-scan').dataset.state") == "ready", "the pre-scan checklist, not a scan that already started"
 
 
 def test_denied_camera_is_explained_and_can_be_retried(site, clean):
-    p = site.page({"ros.onboarded": "1"}).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
+    p = booted(site, {"ros.onboarded": "1"})
     p.eval("window.__deny='NotAllowedError'")
-    p.tap("#scanbtn")
+    p.tap("#nav [data-nav=scan]")
+    p.tap("#wzchips [data-name=Desk]")
+    p.tap("#wzgo")
+    p.wait("document.body.dataset.screen==='primer'")
     p.tap("#primergo")
-    p.wait("!document.getElementById('primerproblem').hidden", what="the explanation")
+    p.wait("!document.querySelector('#s-primer .problem').hidden", what="the explanation")
     assert "Camera access was blocked" in p.text("#problemtitle") and "Try again" in p.text("#problembody")
     assert p.text("#primergo") == "Try again" and p.screen() == "primer"
     assert p.eval("localStorage.getItem('ros.primed')") is None, "a refusal is not remembered as done"
@@ -359,10 +400,12 @@ def test_denied_camera_is_explained_and_can_be_retried(site, clean):
 
 
 def test_a_camera_taken_away_later_goes_back_to_the_explanation(site, clean):
-    p = site.page(READY).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
+    rid = site.room("Living Room", active=True, label="mug")
+    p = booted(site)
     p.eval("window.__deny='NotAllowedError'")
-    p.tap("#askbtn")
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("[data-act=explore-room]")
     p.wait("document.body.dataset.screen==='primer'")
     assert "Camera access was blocked" in p.text("#problemtitle")
     assert p.eval("document.body.classList.contains('live')") is False
@@ -371,45 +414,50 @@ def test_a_camera_taken_away_later_goes_back_to_the_explanation(site, clean):
 # ------------------------------------------------------------------------------------------------ camera lifecycle
 
 def test_every_way_out_of_a_camera_screen_stops_the_camera(site, clean):
-    p = site.page(READY).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
+    rid = site.room("Living Room", active=True, label="mug")
+    p = booted(site)
     stops = lambda: p.eval("window.__stops")  # noqa: E731
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
 
-    p.tap("#askbtn")
+    p.tap("[data-act=explore-room]")
     p.wait("document.body.classList.contains('live')")
-    assert p.eval("document.querySelector('#ask .camstop').textContent").startswith("Camera on") and p.text("#ask .camstop b") == "STOP"
+    assert p.eval("document.querySelector('#s-explore .camstop').textContent").startswith("Camera on") and p.text("#s-explore .camstop b") == "STOP"
     p.wait("window.__media.includes('wakeLock.request')", what="the wake lock")
     assert "orientation.lock portrait" in p.media()
     assert any(m.startswith("new AbsoluteOrientationSensor") for m in p.media()), "the sensors start with the camera"
-
-    p.tap("#ask [data-stop]")  # the Stop control
-    assert p.screen() == "home" and stops() == 1
+    p.tap("#s-explore [data-act=stop]")  # the Stop control
+    assert p.screen() == "room" and stops() == 1
     assert p.eval("document.getElementById('v').srcObject") is None and p.eval("document.body.classList.contains('live')") is False
     assert "wakeLock.release" in p.media() and "orientation.unlock" in p.media()
 
-    p.tap("#askbtn")  # Back button
+    p.tap("[data-act=explore-room]")  # Back button
     p.wait("document.body.classList.contains('live')")
-    p.tap("#askback")
-    assert p.screen() == "home" and stops() == 2
+    p.tap("#s-explore [data-act=back]")
+    assert stops() == 2 and p.eval("document.body.classList.contains('live')") is False
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
 
-    p.tap("#askbtn")  # a result: leaving for another screen
+    p.tap("[data-act=explore-room]")  # leaving for another screen through the bottom bar
     p.wait("document.body.classList.contains('live')")
-    p.eval("window.__ui.go('find')")
+    p.eval("window.__ui.go('settings')")
     assert stops() == 3 and p.eval("document.getElementById('v').srcObject") is None
 
-    p.eval("window.__ui.go('home')")
-    p.tap("#scanbtn")  # cancelling before the scan starts
+    p.tap("#nav [data-nav=scan]")  # cancelling before the scan starts
+    p.tap(f"#wzrooms [data-id='{rid}']")
+    p.tap("#wzgo")
     p.wait("document.body.classList.contains('live')")
-    assert p.eval("document.getElementById('scan').dataset.ph") == "ready" and p.eval("getComputedStyle(document.getElementById('checklist')).display") != "none"
+    assert p.eval("document.getElementById('s-scan').dataset.state") == "ready" and p.eval("getComputedStyle(document.getElementById('checklist')).display") != "none"
     p.tap("#scancancel")
     assert p.screen() == "home" and stops() == 4
     assert len(p.gum()) == 4 and p.errors == []
 
 
 def test_hiding_the_tab_stops_the_camera_and_showing_it_does_not_restart_it(site, clean):
-    p = site.page(READY).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
-    p.tap("#askbtn")
+    rid = site.room("Living Room", active=True, label="mug")
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("[data-act=explore-room]")
     p.wait("document.body.classList.contains('live')")
     p.eval("Object.defineProperty(document,'hidden',{get:()=>true,configurable:true});document.dispatchEvent(new Event('visibilitychange'))")
     assert p.eval("window.__stops") == 1 and p.eval("document.getElementById('v').srcObject") is None
@@ -421,141 +469,329 @@ def test_hiding_the_tab_stops_the_camera_and_showing_it_does_not_restart_it(site
 
 
 def test_a_track_that_ends_by_itself_turns_everything_off(site, clean):
-    p = site.page(READY).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
-    p.tap("#askbtn")
+    rid = site.room("Living Room", active=True, label="mug")
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("[data-act=explore-room]")
     p.wait("document.body.classList.contains('live')")
     p.eval("(()=>{const t=document.getElementById('v').srcObject.getVideoTracks()[0];t.stop();t.dispatchEvent(new Event('ended'))})()")
     p.wait("document.body.dataset.screen==='home'")
     assert p.eval("document.body.classList.contains('live')") is False and "wakeLock.release" in p.media()
 
 
-# ------------------------------------------------------------------------------------------------ states
+# ------------------------------------------------------------------------------------------------ rooms in the app
 
 def test_offline_server_is_shown_and_the_page_reconnects_by_itself(site, clean):
-    p = site.page(READY).open()
+    site.room("Living Room", active=True, label="mug")
+    p = booted(site)
     p.wait("document.getElementById('stat').textContent.startsWith('Connected')")
     p.eval("window.__offline=true")
     p.wait("document.getElementById('stat').textContent==='Server offline'", timeout=20, what="the offline state")
-    assert p.eval("document.getElementById('scanbtn').disabled") is True
-    assert "Reconnecting automatically" in p.text("#noticetext") and p.eval("!document.getElementById('homenotice').hidden")
-    assert p.eval("document.getElementById('setbtn').disabled") is False, "Settings still opens"
     p.eval("window.__offline=false")
     p.wait("document.getElementById('stat').textContent.startsWith('Connected')", timeout=15, what="the page to reconnect without a reload")
-    assert p.eval("document.getElementById('scanbtn').disabled") is False
+    assert p.eval("document.querySelectorAll('#hrooms .rcard').length") == 1
 
 
-def test_last_scan_summary_and_delete_from_settings(site, clean):
-    site.scan(yaws=(0, 90))
-    p = site.page(READY).open()
-    p.wait("document.getElementById('lastcard').textContent.includes('Last scan')")
-    card = p.text("#lastcard")
-    assert "Objects" in card and "Covered" in card and "When" in card and ("just now" in card or "min ago" in card)
-    p.tap("#setbtn")
-    p.wait("document.getElementById('scanlist').textContent.includes('Scan #')")
-    p.tap(".srow button")
-    assert p.eval("document.getElementById('dlg').classList.contains('on')") and "cannot be undone" in p.text("#dlgbody")
+def test_find_in_a_room_that_was_not_scanned_says_so_and_never_shows_another_rooms_objects(site, clean):
+    site.room("Living Room", active=True, label="mug")
+    desk = site.room("Desk")
+    p = booted(site)
+    p.tap("#s-home .roomsw")
+    p.tap(f"#swlist [data-id='{desk}']")
+    p.wait("document.querySelector('#s-home .roomsw .rn').textContent==='Desk'")
+    assert site.svc_.wm.active_room()["name"] == "Desk"  # the choice is stored on the server
+    p.tap("#nav [data-nav=find]")
+    assert p.eval("document.getElementById('s-find').dataset.state") == "room-empty" and "Desk has not been scanned yet" in p.text("#fempty")
+    p.eval("document.getElementById('q').value='mug'")
+    assert p.eval("getComputedStyle(document.getElementById('q')).display") == "none" or p.eval("document.querySelector('#s-find .row').hidden") is True  # nothing to search in an unscanned room
+
+
+def test_find_with_no_active_room_asks_to_choose_one(site, clean):
+    site.room("Living Room", label="mug")  # a room, but none is active
+    p = booted(site)
+    p.tap("#nav [data-nav=find]")
+    assert p.eval("document.getElementById('s-find').dataset.state") == "no-room" and p.text("#s-find .roomsw .rn") == "No room"
+    p.tap("#nav [data-nav=changes]")
+    assert p.eval("document.getElementById('s-changes').dataset.state") == "no-room"
+
+
+def test_find_in_all_rooms_groups_results_and_opening_one_asks_to_switch(site, clean):
+    a = site.room("Kitchen", active=True)
+    site.room("Desk", label="mug", yaw=40)
+    p = booted(site)
+    p.tap("#nav [data-nav=find]")
+    p.tap("#fscope [data-v=all]")
+    p.eval("document.getElementById('q').value='mug'")
+    p.tap("#findbtn")
+    p.wait("document.getElementById('s-find').dataset.state==='all-results'", what="the grouped results")
+    groups = p.eval("[...document.querySelectorAll('#fgroups .fgroup')].map(g=>g.textContent)")
+    assert any("Desk" in g and "mug" in g for g in groups) and any("Kitchen" in g and "Not scanned yet" in g for g in groups)
+    assert site.svc_.wm.active_room()["id"] == a, "searching all rooms switches nothing"
+    p.tap("#fgroups .fopen")
+    assert p.eval("document.getElementById('dlg').classList.contains('on')") and "Switch to Desk" in p.text("#dlgtitle")
     p.tap("#dlgno")
-    assert "Scan #" in p.text("#scanlist"), "cancelling the dialog keeps the scan"
-    p.tap(".srow button")
+    assert p.screen() == "find" and site.svc_.wm.active_room()["id"] == a
+    p.tap("#fgroups .fopen")
     p.tap("#dlgyes")
-    p.wait("document.getElementById('scanlist').textContent.includes('No scans are stored')")
-    assert site.svc_.wm.list_scans() == []
-    p.tap("#setback")
-    p.wait("document.getElementById('lastcard').textContent.includes('No scan yet')", timeout=20)
+    p.wait("document.body.dataset.screen==='result'", what="the result after switching")
+    assert site.svc_.wm.active_room()["name"] == "Desk" and p.text("#resroom") == "Desk"
+
+
+def test_a_scan_is_reviewed_then_saved_or_discarded(site, clean):
+    rid = site.room("Living Room", active=True, label="mug", ts=100)
+    draft = site.scan_in(rid, "keys", yaw=90, ts=200, saved=False)
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    assert "unsaved scan" in p.text("#hrooms") or p.eval("document.querySelectorAll('#rhist .hrow.draft').length") == 1
+    assert p.eval("document.querySelectorAll('#rhist .hrow').length") == 2
+    assert p.eval("[...document.querySelectorAll('#rhist .hrow .badge')].map(b=>b.textContent).includes('UNSAVED')")
+    assert site.svc_.wm.latest_scan_id(rid) != draft  # the draft is not the room's memory
+    p.tap("#rhist .hrow.draft [data-act=save-scan]")
+    p.wait("document.querySelectorAll('#rhist .hrow.draft').length===0", what="the scan to be saved")
+    assert site.svc_.wm.latest_scan_id(rid) == draft
+    assert [s["status"] for s in site.svc_.wm.room_scans(rid)] == ["saved", "saved"]
+
+    d2 = site.scan_in(rid, "cup", yaw=10, ts=300, saved=False)
+    p.tap("#nav [data-nav=home]")
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.querySelectorAll('#rhist .hrow.draft').length===1")
+    p.tap("#rhist .hrow.draft [data-act=discard-scan]")
+    p.tap("#dlgyes")
+    p.wait("document.querySelectorAll('#rhist .hrow.draft').length===0")
+    assert site.svc_.wm.get_scan(d2) is None and site.svc_.wm.latest_scan_id(rid) == draft
+
+
+def test_the_review_screen_saves_a_draft_scan_over_the_api(site, clean):
+    rid = site.room("Living Room", active=True, label="mug", ts=100)
+    draft = site.scan_in(rid, "keys", yaw=90, ts=200, saved=False)
+    p = booted(site)
+    p.eval("window.__ui.RENDER.summary('review',{summary:{scan_id:%d,room_id:%d,room_name:'Living Room',speech:'I found keys.',coverage:{covered_deg:200},frames:{stored:1},seconds:5,cost_usd:0,"
+           "objects:[{id:1,label:'keys',yaw:90,pitch:0,replay:null},{id:2,label:'keys',yaw:95,pitch:0,replay:null}]}})" % (draft, rid))
+    assert p.screen() == "summary" and p.eval("document.getElementById('s-summary').dataset.state") == "review"
+    assert p.eval("document.querySelectorAll('#sumtiles .gtile').length") == 1 and "keys" in p.text("#sumtiles")
+    p.tap("#sumtiles .gtile")
+    assert p.eval("document.getElementById('sumdetail').hidden") is False and p.eval("document.querySelectorAll('#sumdetail .thumb').length") == 2
+    p.tap("[data-act=save-review]")
+    p.wait("document.body.dataset.screen==='room'", what="the room page after saving")
+    assert site.svc_.wm.latest_scan_id(rid) == draft
+
+    d2 = site.scan_in(rid, "cup", yaw=10, ts=300, saved=False)
+    p.eval("window.__ui.RENDER.summary('review',{summary:{scan_id:%d,room_id:%d,room_name:'Living Room',speech:'I found a cup.',coverage:{covered_deg:50},frames:{stored:1},seconds:5,cost_usd:0,objects:[{id:3,label:'cup',yaw:10,pitch:0,replay:null}]}})" % (d2, rid))
+    p.tap("[data-act=discard-review]")
+    p.tap("#dlgyes")
+    p.wait("document.body.dataset.screen==='home'")
+    assert site.svc_.wm.get_scan(d2) is None
+
+
+def test_the_summary_groups_many_kinds_with_a_tappable_others_tile(site, clean):
+    p = booted(site)
+    objs = ",".join("{id:%d,label:'kind%d',yaw:%d,pitch:0,replay:null}" % (i, i % 8, i * 10) for i in range(1, 17))
+    p.eval("window.__ui.RENDER.summary('review',{summary:{scan_id:1,room_id:1,room_name:'R',speech:'x',coverage:{covered_deg:300},frames:{stored:1},seconds:1,cost_usd:0,objects:[%s]}})" % objs)
+    assert p.eval("document.querySelectorAll('#sumtiles .gtile').length") == 6 and p.eval("document.querySelector('#sumtiles .gtile.others')?.textContent").startswith("Others")
+    p.tap("#sumtiles .gtile.others")
+    assert p.eval("document.getElementById('sumdetail').hidden") is False and p.eval("document.querySelectorAll('#sumdetail .thumb').length") == 6  # the 3 smallest kinds, 2 each
+
+
+def test_changes_compare_two_scans_of_one_room_with_an_angle_and_confirm(site, clean):
+    rid = site.room("Living Room", active=True, label="mug", yaw=0, ts=100)
+    site.scan_in(rid, "mug", yaw=60, ts=200)
+    other = site.room("Desk", label="mug", yaw=0, ts=150)
+    p = booted(site)
+    p.tap("#nav [data-nav=changes]")
+    p.wait("document.getElementById('s-changes').dataset.state==='default'", what="the comparison")
+    assert p.eval("document.querySelectorAll('#chbefore option').length") == 2, "only this room's scans are offered"
+    card = p.text("#chg .chgcard")
+    assert "moved" in card and "to the right" in card and " m " not in card and "meter" not in card
+    p.tap("#chg .chgcard [data-state=confirmed]")
+    p.wait("!!document.querySelector('#chg .chgcard.confirmed')", what="the confirmation")
+    r = site.svc_.wm.reviews(rid, *site.svc_.wm.default_compare(rid))
+    assert list(r.values()) == ["confirmed"]
+    p.tap("#chg .chgcard [data-state=dismissed]")
+    p.wait("!!document.querySelector('#chg .chgcard.dismissed')")
+    assert list(site.svc_.wm.reviews(rid, *site.svc_.wm.default_compare(rid)).values()) == ["dismissed"]
+    p.eval("window.__ui.go('home')")
+    p.tap(f"#hrooms [data-id='{other}']")  # the other room has one scan only
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("[data-act=changes-room]")
+    p.wait("document.getElementById('s-changes').dataset.state==='need-two'")
+    assert "two saved scans of Desk" in p.text("#chgtext")
+
+
+def test_room_settings_rename_conflict_and_delete_with_warning(site, clean):
+    a = site.room("Living Room", active=True, label="mug")
+    b = site.room("Desk", label="cup", yaw=30)
+    files = [Path(f["path"]) for s in site.svc_.wm.room_scans(b) for f in site.svc_.wm.list_frames(s["id"])]
+    assert files and all(f.exists() for f in files)
+    p = booted(site)
+    p.tap("#nav [data-nav=settings]")
+    p.wait("document.querySelectorAll('#setrooms .srow').length===2")
+    p.tap(f"#setrooms [data-id='{b}']")
+    assert p.screen() == "roomsettings" and p.eval("document.getElementById('rsname').value") == "Desk"
+    p.eval("document.getElementById('rsname').value='Living Room'")
+    p.tap("[data-act=rename-room]")
+    p.wait("document.getElementById('s-roomsettings').dataset.state==='error'")
+    assert "already a room called" in p.text("#rserr") and site.svc_.wm.get_room(b)["name"] == "Desk"
+    p.eval("document.getElementById('rsname').value='Study'")
+    p.tap("[data-act=rename-room]")
+    p.wait("window.__ui.store.get().rooms.some(r=>r.name==='Study')")
+    assert site.svc_.wm.get_room(b)["name"] == "Study"
+    assert "Erases 1 scan" in p.text("#rsdeltext") and "1 remembered object" in p.text("#rsdeltext")
+    p.tap("[data-act=delete-room]")
+    assert "cannot be undone" in p.text("#dlgbody") and "Other rooms are not touched" in p.text("#dlgbody")
+    p.tap("#dlgno")
+    assert site.svc_.wm.get_room(b) is not None
+    p.tap("[data-act=delete-room]")
+    p.tap("#dlgyes")
+    p.wait("document.body.dataset.screen==='home'")
+    assert site.svc_.wm.get_room(b) is None and not any(f.exists() for f in files)  # its photos are gone
+    assert site.svc_.wm.get_room(a) is not None and site.svc_.wm.latest_scan_id(a)  # the other room is untouched
+
+
+def test_wizard_new_room_name_conflict_and_rescan_preselects_the_active_room(site, clean):
+    a = site.room("Living Room", active=True, label="mug")
+    p = booted(site)
+    p.tap("#nav [data-nav=scan]")
+    assert p.eval("document.getElementById('s-wizard').dataset.state") == "rescan"
+    assert p.eval("document.querySelector('#wzrooms .chip.on')?.textContent") == "Living Room"  # rescan: the active room is chosen
+    p.eval("document.getElementById('wzname').value='living room';document.getElementById('wzname').dispatchEvent(new Event('input'))")
+    p.tap("#wzgo")
+    p.wait("document.getElementById('s-wizard').dataset.state==='error'")
+    assert "already a room called" in p.text("#wzerr") and p.gum() == []
+    p.eval("document.getElementById('wzname').value='';document.getElementById('wzname').dispatchEvent(new Event('input'))")
+    p.tap(f"#wzrooms [data-id='{a}']")
+    assert p.eval("document.querySelector('#wzrooms .chip.on')?.textContent") == "Living Room"
+
+
+def test_delete_all_data_from_settings(site, clean):
+    site.room("A", active=True, label="mug")
+    site.room("B", label="cup")
+    p = booted(site)
+    p.tap("#nav [data-nav=settings]")
+    p.tap("[data-act=delete-all]")
+    assert "All 2 rooms" in p.text("#dlgbody")
+    p.tap("#dlgno")
+    assert len(site.svc_.wm.list_rooms()) == 2
+    p.tap("[data-act=delete-all]")
+    p.tap("#dlgyes")
+    p.wait("document.body.dataset.screen==='home'")
+    assert site.svc_.wm.list_rooms() == [] and site.svc_.wm.list_scans() == []
+    p.wait("document.getElementById('s-home').dataset.state==='empty'")
+
+
+def test_search_filters_by_room(site, clean):
+    a = site.room("Kitchen", active=True, label="mug")
+    b = site.room("Desk", label="mug", yaw=50)
+    site.room("Wardrobe", label="shirt", yaw=80)
+    p = booted(site)
+    p.eval("document.getElementById('hsearch').value='mug';document.getElementById('hsearch').dispatchEvent(new Event('input'))")
+    p.wait("document.querySelectorAll('#hresults .thumb').length===2", what="results from both rooms")
+    assert p.eval("document.getElementById('hmain').hidden") is True
+    p.tap(f"#hchips [data-id='{b}']")
+    p.wait("document.querySelectorAll('#hresults .thumb').length===1")
+    assert "Desk" in p.text("#hresults")
+    p.eval("document.getElementById('hsearch').value='shirt';document.getElementById('hsearch').dispatchEvent(new Event('input'))")
+    p.wait("document.getElementById('hresults').textContent.includes('No object called')")
+    assert p.screen() == "home"
 
 
 def test_settings_persist_and_replaying_the_intro_changes_nothing_stored(site, clean):
-    p = site.page(READY).open("/?debug")
-    p.wait("!document.getElementById('scanbtn').disabled")
+    p = booted(site, READY, "/?debug")
     assert p.eval("document.body.classList.contains('dbg')") is True
-    p.tap("#setbtn")
+    p.tap("#nav [data-nav=settings]")
     assert p.eval("!document.getElementById('dbgrow').hidden")
     p.tap("#kfseg button:nth-child(3)")
+    p.tap("#detailseg button:nth-child(2)")
     p.eval("(()=>{const s=document.getElementById('langsel');s.value='hi-IN';s.dispatchEvent(new Event('change'))})()")
-    p.tap("#dbgseg button[data-v='0']")
-    assert p.eval("localStorage.getItem('ros.kfps')") == "3" and p.eval("localStorage.getItem('ros.lang')") == "hi-IN"
+    p.tap("#dbgseg [data-v='0']")
+    assert p.eval("localStorage.getItem('ros.kfps')") == "3" and p.eval("localStorage.getItem('ros.lang')") == "hi-IN" and p.eval("localStorage.getItem('ros.detail')") == "labels"
     assert p.eval("document.body.classList.contains('dbg')") is False
-    p.tap("#replayintro")
+    p.tap("[data-act=replay-intro]")
     assert p.screen() == "welcome"
-    p.tap("#introskip")
+    p.tap("[data-act=intro-skip]")
     assert p.screen() == "settings" and p.eval("localStorage.getItem('ros.onboarded')") == "1"
     p.call("Page.reload")
     p.wait("!!window.__ui")
-    p.tap("#setbtn")
+    p.tap("#nav [data-nav=settings]")
     assert p.eval("document.querySelector('#kfseg button:nth-child(3)').getAttribute('aria-pressed')") == "true"
+    assert p.eval("document.querySelector('#detailseg button:nth-child(2)').getAttribute('aria-pressed')") == "true"
     assert p.eval("document.getElementById('langsel').value") == "hi-IN"
 
 
 def test_debug_hud_and_its_setting_are_hidden_without_debug_in_the_url(site, clean):
-    p = site.page({**READY, "ros.debug": "1"}).open()
-    p.wait("!document.getElementById('scanbtn').disabled")
+    p = booted(site, {**READY, "ros.debug": "1"})
     assert p.eval("getComputedStyle(document.getElementById('dev')).display") == "none"
-    p.tap("#setbtn")
+    p.tap("#nav [data-nav=settings]")
     assert p.eval("document.getElementById('dbgrow').hidden") is True
 
 
 def test_a_spoken_reply_is_also_shown_as_text(site, clean):
-    p = site.page(READY).open("/?demo")
-    p.eval("window.__ui.go('ask');window.__ui.say('The charger is 60 degrees to your left.')")
+    p = booted(site, READY, "/?demo")
+    p.eval("window.__ui.go('find');window.__ui.say('The charger is 60 degrees to your left.')")
     assert p.eval("getComputedStyle(document.getElementById('cap')).display") == "block"
     assert p.text("#captext") == "The charger is 60 degrees to your left."
+    assert p.eval("window.__spoken") == ["The charger is 60 degrees to your left."]  # it was "spoken" into the recorder, not out loud
 
 
-# ------------------------------------------------------------------------------------------------ demo mode
+# ------------------------------------------------------------------------------------------------ demo mode and the registry
 
-DEMO = {"summary": "summary", "find": "find", "guide": "guide", "changes": "changes", "scan": "scan", "welcome": "welcome", "primer": "primer",
-        "primer-denied": "primer", "settings": "settings", "ask": "ask", "ask-busy": "ask", "notfound": "find", "scan-ready": "scan",
-        "processing": "summary", "changes-empty": "changes", "home-offline": "home", "home-loading": "home", "home-empty": "home", "home-nokey": "home"}
+def test_registry_matches_the_markup_and_every_state_has_a_demo(site):
+    """Every screen in screens.js has a section, every state a fixture, and the markup uses no state the registry does not list."""
+    reg = registry()
+    html = (Path(__file__).resolve().parents[1] / "web" / "index.html").read_text(encoding="utf-8")
+    import re
+    for sid, states in reg.items():
+        assert f'id="s-{sid}"' in html, f"no section for {sid}"
+        sect = html[html.index(f'id="s-{sid}"'):]
+        sect = sect[:sect.index("</section>")]
+        used = {t for m in re.findall(r'data-show="([^"]+)"', sect) for t in m.split()}
+        assert used <= set(states), f"{sid}: markup uses states the registry does not list: {used - set(states)}"
+    assert len(re.findall(r'<section class="scr[^"]*" id="s-', html)) == len(reg)
 
 
-@pytest.mark.parametrize("name,screen", DEMO.items())
-def test_demo_mode_screens_still_open_without_media(site, name, screen):
-    p = site.page().open(f"/?demo&screen={name}")
-    p.settle(0.6)
-    assert p.screen() == screen
-    assert p.media() == []
-    assert p.errors == [], p.errors
+@pytest.mark.parametrize("sid", sorted(registry()))
+def test_every_screen_opens_in_every_demo_state_without_errors_or_media(site, sid):
+    for st in registry()[sid]:
+        p = site.page().open(f"/?demo&screen={sid}&state={st}")
+        p.settle(0.5)
+        assert p.eval(f"document.getElementById('s-{sid}').dataset.state") == st, (sid, st)
+        if sid != "switcher":
+            assert p.screen() == sid, (sid, st)
+        assert p.eval(f"document.getElementById('s-{sid}').classList.contains('on')") is True, (sid, st)
+        assert p.media() == [] and p.errors == [], (sid, st, p.errors)
+        p.close()
 
 
-def test_demo_home_and_flows_without_a_server_check(site):
+def test_demo_home_and_flows_without_a_server(site):
     p = site.page().open("/?demo")
-    assert p.screen() == "home" and p.text("#stat") == "Connected · API key valid" and "Last scan" in p.text("#lastcard")
-    p.tap("#scanbtn")  # demo: no primer and no camera, straight to the checklist
-    assert p.screen() == "scan" and p.eval("document.getElementById('scan').dataset.ph") == "ready"
+    assert p.screen() == "home" and "Living Room" in p.text("#hrooms") and p.text("#stat") == "Connected · API key valid"
+    p.tap("#nav [data-nav=scan]")
+    assert p.screen() == "wizard"
+    p.tap("#wzgo")  # the active room is preselected: no primer, no camera in demo
+    assert p.screen() == "scan" and p.eval("document.getElementById('s-scan').dataset.state") == "ready"
     p.tap("#startbtn")
-    p.wait("document.getElementById('scan').dataset.ph==='live'")
+    p.wait("document.getElementById('s-scan').dataset.state==='live'")
     p.tap("#scancancel")
     p.tap("#dlgyes")
     assert p.screen() == "home"
-    p.tap("#askbtn")
+    p.tap("#nav [data-nav=find]")
     p.eval("document.getElementById('q').value='where is my keys'")
     p.tap("#findbtn")
-    assert p.screen() == "find" and p.media() == [] and p.errors == []
-    p.eval("window.__ui.go('home')")
-    p.tap("#askbtn")
+    assert p.screen() == "result" and p.media() == [] and p.errors == []
+    p.eval("window.__ui.go('find')")
     p.eval("document.getElementById('q').value='where is my passport'")
     p.tap("#findbtn")
-    assert p.screen() == "find" and "Not found in your last scan" in p.text("#nftitle")
+    assert p.screen() == "result" and p.eval("document.getElementById('s-result').dataset.state") == "notfound"
     assert "87% of the room" in p.text("#nftext") and "not checked" in p.text("#nftext")
-
-
-def test_not_found_explains_what_was_not_checked(site):
-    p = site.page().open("/?demo&screen=notfound")
-    assert p.eval("document.getElementById('result').classList.contains('nf')") is True
-    assert "87% of the room" in p.text("#nftext")
-    assert p.eval("getComputedStyle(document.getElementById('guidebtn')).display") == "none"
 
 
 # ------------------------------------------------------------------------------------------------ touch targets
 
-TARGETS = ["home", "ask", "scan-ready", "scan", "find", "guide", "settings", "welcome", "primer", "notfound", "processing", "changes-empty"]
-
-
-@pytest.mark.parametrize("name", TARGETS)
-def test_every_visible_button_is_a_large_tap_target(site, name):
-    p = site.page().open(f"/?demo&screen={name}")
+@pytest.mark.parametrize("sid", sorted(registry()))
+def test_every_visible_button_is_a_large_tap_target(site, sid):
+    p = site.page().open(f"/?demo&screen={sid}")
     p.settle(0.6)
-    small = p.eval("""[...document.querySelectorAll('button,select,input[type=text]')].filter(e=>e.offsetParent!==null&&!e.closest('#dev')).map(e=>{const b=e.getBoundingClientRect();
-      return [e.id||e.className||e.textContent.slice(0,20),Math.round(b.width),Math.round(b.height)]}).filter(([,w,h])=>w<44||h<44)""")
-    assert small == [], f"tap targets under 44px on {name}: {small}"
+    small = p.eval("""[...document.querySelectorAll('button,select,input[type=text],input[type=search]')].filter(e=>e.offsetParent!==null&&!e.closest('#dev')&&!e.hidden&&!e.closest('[hidden]')).map(e=>{const b=e.getBoundingClientRect();
+      return [e.id||e.dataset.act||e.className||e.textContent.slice(0,20),Math.round(b.width),Math.round(b.height)]}).filter(([,w,h])=>w<44||h<44)""")
+    assert small == [], f"tap targets under 44px on {sid}: {small}"

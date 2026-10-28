@@ -5,7 +5,8 @@
 export const KFPS = [1, 2, 3];       // keyframes per second at most; the scan also waits for the phone to turn and hold steady
 export const LANGS = [["", "Phone default"], ["en-US", "English (US)"], ["en-GB", "English (UK)"], ["en-IN", "English (India)"],
   ["hi-IN", "हिन्दी"], ["es-ES", "Español"], ["fr-FR", "Français"], ["de-DE", "Deutsch"]];
-export const DEFAULTS = { onboarded: false, primed: false, kfps: 2, lang: "", ar: true, debug: true }; // debug: the HUD is on when the page is opened with ?debug, unless switched off
+export const DETAILS = [["full", "Outlines and labels"], ["labels", "Labels only"]]; // how the AR overlay draws remembered objects
+export const DEFAULTS = { onboarded: false, primed: false, kfps: 2, lang: "", ar: true, debug: true, detail: "full" }; // debug: the HUD is on when the page is opened with ?debug, unless switched off
 const BOOL = new Set(["onboarded", "primed", "ar", "debug"]);
 
 export function memoryStorage() {
@@ -38,6 +39,7 @@ export class Prefs {
     if (raw === null) return DEFAULTS[key];
     if (BOOL.has(key)) return raw === "1";
     if (key === "kfps") return KFPS.includes(+raw) ? +raw : DEFAULTS.kfps;
+    if (key === "detail") return DETAILS.some(([v]) => v === raw) ? raw : DEFAULTS.detail;
     return raw;
   }
 

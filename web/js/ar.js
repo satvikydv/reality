@@ -56,7 +56,7 @@ function world(x,w,s,cur,fitv,t){
     const born=o.born!=null?(s.now-o.born)/700:2,fresh=born<1;
     const col=o.hl||fresh?A:(s.mode==='scan'?G:'rgba(255,255,255,.92)');
     x.save();x.globalAlpha=pr.alpha*(fresh?.4+.6*ease(born):(o.hl?1:hasHl?.45:1));
-    if(pr.outline){
+    if(pr.outline&&s.detail!=='labels'){ // "labels only" (Settings, overlay detail) skips the outlines
       x.beginPath();pr.outline.forEach(([px,py],i)=>i?x.lineTo(px,py):x.moveTo(px,py));x.closePath();
       x.fillStyle=col===A?rgba(A,fresh?.16*(1-born):.10):'rgba(255,255,255,.07)';x.fill();
       x.lineJoin='round';x.lineWidth=o.hl?3:2;x.strokeStyle=col;x.setLineDash(pr.source==='footprint'?[6,5]:[]);if(soft){x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=5}x.stroke();x.setLineDash([]);x.shadowBlur=0;

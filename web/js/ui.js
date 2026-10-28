@@ -5,8 +5,10 @@ export const rgba=(hex,a)=>{const n=parseInt(hex.replace('#',''),16);return `rgb
 const A=ACCENT,G='#5EE6A0',TAU=Math.PI*2,rad=d=>(d-90)*Math.PI/180;
 export function fit(c){const d=Math.min(devicePixelRatio||1,2),r=c.getBoundingClientRect();if(c.width!==Math.round(r.width*d)||c.height!==Math.round(r.height*d)){c.width=Math.round(r.width*d);c.height=Math.round(r.height*d)}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,r.width,r.height);return{x,w:r.width,h:r.height}}
 
-// Coverage compass ring: 36 segments, N marker, heading dot + view cone.
-export function drawRing(c,bins,yaw,pulse=0){
+// Coverage compass: 36 yaw segments (what was looked at), N marker, the view cone of the camera as wide as its real field of
+// view, a heading dot, and three pitch bands at the side (floor / eye level / ceiling) filled by how much of each was seen.
+// It shows what the scan has covered, never where objects are. o: {hfov, pitch, bands:{low,mid,high}.fraction}.
+export function drawRing(c,bins,yaw,pulse=0,o={}){
   const{x,w,h}=fit(c),cx=w/2,cy=h/2,R=Math.min(w,h)/2-30,T=Math.max(9,Math.min(16,Math.min(w,h)*.045));
   x.lineCap='butt';
   for(let i=0;i<36;i++){
@@ -20,7 +22,7 @@ export function drawRing(c,bins,yaw,pulse=0){
   x.strokeStyle='rgba(255,255,255,.25)';x.lineWidth=1;x.beginPath();x.arc(cx,cy,R-T/2-10,0,TAU);x.stroke();
   for(let d=0;d<360;d+=30){const a=rad(d),r1=R-T/2-10,r2=r1-(d%90?5:10);x.beginPath();x.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);x.lineTo(cx+Math.cos(a)*r2,cy+Math.sin(a)*r2);x.stroke()}
   // view cone
-  const ya=rad(yaw);x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R-T/2-10,rad(yaw-30),rad(yaw+30));x.closePath();
+  const half=(o.hfov||60)/2,ya=rad(yaw);x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R-T/2-10,rad(yaw-half),rad(yaw+half));x.closePath();
   const g=x.createRadialGradient(cx,cy,0,cx,cy,R);g.addColorStop(0,rgba(A,0));g.addColorStop(1,rgba(A,.22));x.fillStyle=g;x.fill();
   // N marker
   x.fillStyle=A;x.beginPath();const ny=cy-R-T/2-4;x.moveTo(cx,ny+1);x.lineTo(cx-6,ny-10);x.lineTo(cx+6,ny-10);x.closePath();x.fill();
@@ -29,6 +31,12 @@ export function drawRing(c,bins,yaw,pulse=0){
   const hx=cx+Math.cos(ya)*R,hy=cy+Math.sin(ya)*R;
   x.beginPath();x.arc(hx,hy,13+pulse*10,0,TAU);x.fillStyle=rgba(A,.25*(1-pulse)+.12);x.fill();
   x.beginPath();x.arc(hx,hy,8,0,TAU);x.fillStyle=A;x.fill();x.lineWidth=3;x.strokeStyle='#07090b';x.stroke();
+  if(o.bands){ // pitch bands: high on top, low at the bottom; a tick marks where the camera points now
+    const bx=w-9,bw=7,gap=4,bh=(Math.min(h,170)-2*gap)/3,top=cy-Math.min(h,170)/2;
+    [['high',0],['mid',1],['low',2]].forEach(([n,i])=>{const y=top+i*(bh+gap),f=Math.max(0,Math.min(1,o.bands[n]?.fraction??0));
+      x.fillStyle='rgba(255,255,255,.2)';x.fillRect(bx,y,bw,bh);x.fillStyle=G;x.fillRect(bx,y+bh*(1-f),bw,bh*f)});
+    const py=top+(Math.min(h,170))*(.5-Math.max(-60,Math.min(60,o.pitch||0))/120);x.fillStyle=A;x.beginPath();x.moveTo(bx-3,py);x.lineTo(bx-10,py-4);x.lineTo(bx-10,py+4);x.closePath();x.fill();
+  }
 }
 
 // Radial room map. yaw clockwise from scan start (top), pitch up = toward centre.

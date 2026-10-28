@@ -3,353 +3,252 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#07090b"><title>Reality OS</title>
 <link rel="stylesheet" href="css/theme.css">
-<style>
-body{position:fixed;inset:0;--b:max(env(safe-area-inset-bottom),14px);--t:max(env(safe-area-inset-top),12px);touch-action:none}
-#v{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#0b0d0f}
-body.demo #v{display:none}
-#bg{position:absolute;inset:0;display:block;overflow:hidden;background:#0b0d10}
-body.live #bg{display:none}
-#bg i{position:absolute;inset:-10%;background:radial-gradient(circle at 18% 12%,#1c2745 0,transparent 46%),radial-gradient(circle at 88% 85%,#14292b 0,transparent 42%)}
-body.demo #bg{background:#14181c}
-body.demo #bg i{background:radial-gradient(circle at 25% 25%,#9a8a66 0,transparent 32%),radial-gradient(circle at 78% 62%,#4a6a80 0,transparent 38%),radial-gradient(circle at 50% 90%,#6b4f3a 0,transparent 34%),repeating-linear-gradient(100deg,#4d443c 0 38px,#5b5147 38px 76px)}
-[hidden]{display:none!important}
-#hud{position:absolute;inset:0;pointer-events:none;background:radial-gradient(ellipse at 50% 42%,transparent 50%,#000b 100%),linear-gradient(#000b 0,transparent 18%,transparent 58%,#000d 100%)}
-#ar{position:absolute;inset:0;width:100%;height:100%;display:none}
-.scr{position:absolute;inset:0;display:none;flex-direction:column;padding:var(--t) 16px var(--b);pointer-events:none;animation:in .35s ease}
-.scr button,.scr input,.scr .panel,.scr canvas,.chg{pointer-events:auto}
-@keyframes in{from{opacity:0;transform:translateY(8px)}}
-body[data-screen=home] #home,body[data-screen=ask] #ask,body[data-screen=scan] #scan,body[data-screen=summary] #summary,body[data-screen=find] #result,body[data-screen=guide] #guide,body[data-screen=changes] #changes,body[data-screen=welcome] #welcome,body[data-screen=primer] #primer,body[data-screen=settings] #settings{display:flex}
-body[data-screen=ask] #ar,body[data-screen=scan] #ar,body[data-screen=guide] #ar{display:block}
-.top{display:flex;justify-content:space-between;align-items:center;min-height:48px;gap:8px}
-.pill{white-space:nowrap;display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 14px;border-radius:99px;font:500 12px var(--mono);letter-spacing:.06em}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
-.dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
-.dot.warn{background:var(--amber);box-shadow:0 0 8px var(--amber)}
-.dot.wait{background:#8a9096;box-shadow:none;animation:pulse 1.2s ease-in-out infinite}
-@keyframes pulse{50%{opacity:.35}}
-.sp{flex:1}
-button{font:600 16px var(--sans);color:var(--ink);border:0;cursor:pointer;min-height:48px;border-radius:16px;background:none}
-.btn{white-space:nowrap;background:var(--accent);color:#070a1a;height:64px;border-radius:20px;font-size:17px;display:flex;align-items:center;justify-content:center;gap:10px;padding:0 20px}
-.btn:active{transform:scale(.97)}
-.btn.red{background:var(--red);color:#fff}.btn.ghost{background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(18px);color:var(--ink)}
-.row{display:flex;gap:10px;align-items:stretch}
-.find{flex:1;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;height:64px;min-width:0}
-.find input{flex:1;min-width:0;height:48px;background:none;border:0;outline:0;color:var(--ink);font:400 16px var(--sans)}
-.find input::placeholder{color:var(--dim)}
-.find button{width:48px;padding:0;border-radius:14px;background:rgba(255,255,255,.1);display:grid;place-items:center}
-.quick{display:flex;gap:8px;margin-bottom:10px;overflow-x:auto;scrollbar-width:none;pointer-events:auto}.quick::-webkit-scrollbar{display:none}
-.quick button{min-height:44px;padding:0 16px;border-radius:99px;font:500 14px var(--sans);background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(14px);white-space:nowrap}
-.quick .label{align-self:center;margin-right:2px}
-/* overlay on/off */
-.tog{min-height:44px;height:44px;padding:0 14px;border-radius:99px;font:600 11px var(--mono);letter-spacing:.1em;color:var(--dim);display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(14px);pointer-events:auto}
-.tog i{width:8px;height:8px;border-radius:50%;background:#555;font-style:normal}
-.tog.on{color:var(--ink)}.tog.on i{background:var(--accent);box-shadow:0 0 8px var(--accent)}
-.ringwrap{position:relative;width:min(100%,212px);aspect-ratio:1;margin:0 auto}
-#ring{width:100%;height:100%}
-.pct{position:absolute;inset:0;display:grid;place-content:center;text-align:center;pointer-events:none}
-.pct b{font:700 46px/1 var(--mono);letter-spacing:-.04em}.pct b i{font:500 17px var(--mono);color:var(--dim);font-style:normal;margin-left:2px}
-.pct .label{margin-top:6px;font-size:10px}
-.flash{position:absolute;inset:-6px;border-radius:50%;opacity:0;pointer-events:none}
-.flash.go{animation:sh .4s ease-out}
-@keyframes sh{0%{opacity:1;box-shadow:inset 0 0 0 6px #5EE6A099,0 0 0 0 #5EE6A055}100%{opacity:0;box-shadow:inset 0 0 0 0 #0000,0 0 0 20px #5EE6A000}}
-#scanline{font:600 22px/1.25 var(--sans);text-align:center;margin:10px 8px 0;text-shadow:0 1px 14px #000a;min-height:28px}
-#hint{font:400 12px var(--mono);color:var(--dim);text-align:center;margin:2px 0 8px;min-height:16px}
-.stats{display:flex;gap:8px;margin:12px 0 10px}
-.stats>div{flex:1;padding:10px 12px;min-width:0}
-.stats b{display:block;font:600 20px var(--mono);margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sheet{margin-top:auto;padding:18px;max-height:84%;display:flex;flex-direction:column;gap:14px}
-.sheet h1{font:600 20px/1.3 var(--sans);margin:0}
-#mapc{width:100%;aspect-ratio:1;max-height:290px}
-.chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{font:500 13px var(--sans);padding:7px 12px;border-radius:99px;border:1px solid var(--line);background:rgba(255,255,255,.07)}
-.chip em{font:700 13px var(--mono);font-style:normal;color:var(--accent);margin-right:6px}
-.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.meta div{display:flex;flex-direction:column;gap:7px}.meta b{font:600 18px var(--mono)}
-.proc{display:none;align-items:center;gap:12px;font:500 14px var(--mono);color:var(--dim)}
-.sheet.busy .proc{display:flex}.sheet.busy .after{display:none!important}
-.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--accent);animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
-/* find */
-#result{padding:0;background:#07090b}
-.photo{position:relative;flex:0 0 52%;border-radius:0 0 28px 28px;overflow:hidden;background:#111}
-#replay{width:100%;height:100%;display:block}
-.photo:after{content:"";position:absolute;inset:0;background:linear-gradient(#000a,transparent 28%,transparent 70%,#0009);pointer-events:none}
-.photo .top{position:absolute;left:16px;right:16px;top:var(--t);z-index:2}
-.photo .tag{position:absolute;left:14px;bottom:14px;z-index:2;padding:8px 12px;border-radius:10px;font-size:11px;letter-spacing:.08em}
-.ans{font:600 23px/1.3 var(--sans);margin:0;text-wrap:pretty}
-.fsheet{flex:1;padding:18px 16px var(--b);display:flex;flex-direction:column;gap:14px;min-height:0}
-.drow{display:flex;gap:14px;align-items:center}
-#bear{width:84px;height:84px;flex:none}
-.dgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px 12px;flex:1}
-.dgrid b{display:block;font:600 22px var(--mono);margin-top:6px;color:var(--accent)}.dgrid b.w{color:var(--ink);font-size:15px;margin-top:9px}
-/* guide */
-.garrow{position:relative;width:148px;height:148px;margin:0 auto 8px}
-.garrow svg{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 4px 18px #000a)}
-#arrow{transition:transform .45s cubic-bezier(.3,.8,.3,1);transform-origin:150px 150px}
-.gdeg{text-align:center;font:700 52px/1 var(--mono);text-shadow:0 2px 16px #000}.gdeg i{font:500 18px var(--mono);color:var(--dim);font-style:normal}
-#ghint{text-align:center;font:600 23px var(--sans);margin:8px 0 14px;text-shadow:0 1px 14px #000a}
-.found .garrow{display:none}.found #gdeg,.found #ghint{color:var(--green)}
-.found .gdeg i{display:none}
-/* changes */
-.chg{overflow:auto;margin:6px -16px 0;padding:0 16px 14px;display:flex;flex-direction:column;gap:14px;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent}
-.chg h2{font:600 15px var(--sans);margin:0 0 10px;display:flex;align-items:center;gap:10px}
-.chg h2 .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font:700 16px var(--mono);color:#07090b}
-.chg h2 .n{margin-left:auto;font:500 12px var(--mono);color:var(--dim)}
-.grp{padding:14px}
-.sumline{font:600 18px/1.35 var(--sans);text-wrap:pretty}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
-.pair.one{grid-template-columns:1fr}
-.pair .stripe{aspect-ratio:4/3;border-radius:12px;position:relative;overflow:hidden;background:#111;color:var(--dim)}
-.stripe canvas{position:absolute;inset:0;width:100%;height:100%}
-.pair .stripe i{position:absolute;left:8px;top:8px;font:500 10px var(--mono);font-style:normal;padding:4px 7px;background:#000a;border-radius:6px;color:#fff;letter-spacing:.1em;z-index:1}
-.pair+p{margin:0 0 14px;font:400 14px/1.4 var(--sans)}.grp p:last-child{margin-bottom:0}
-.unv{border-style:dashed}
-#dev{position:absolute;right:10px;top:calc(var(--t) + 108px);z-index:9;font:12px var(--mono);pointer-events:auto;display:none}
-body.dbg #dev{display:block}
-#dev summary{list-style:none;width:48px;height:34px;display:grid;place-items:center;margin-left:auto;color:var(--dim);cursor:pointer;border-radius:10px;background:var(--panel)}
-#dev[open] summary{color:var(--accent)}
-#dev>div{margin-top:6px;padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;width:230px}
-#dev button{min-height:48px;font:500 12px var(--mono);background:rgba(255,255,255,.08);border-radius:10px}
-#dev .info{grid-column:1/3;font:400 11px/1.5 var(--mono);color:var(--dim);padding:2px 4px}
-body:not([data-screen=home]):not([data-screen=ask]):not([data-screen=guide]):not([data-screen=scan]) #dev{display:none!important}
-.toast{position:absolute;left:16px;right:16px;top:calc(var(--t) + 150px);padding:12px 16px;font:500 14px var(--sans);display:none;z-index:8;text-align:center}
-/* home */
-.brand{display:flex;align-items:center;gap:10px;font:700 18px var(--sans);letter-spacing:.01em}
-.brand svg{color:var(--accent)}
-button.pill{min-height:44px;height:44px}
-.homebody{flex:1;display:flex;flex-direction:column;justify-content:center;gap:12px;min-height:0;overflow:auto;padding:12px 0;pointer-events:none}
-.homebody>*{pointer-events:auto}
-.card{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
-.card h2{margin:0;font:600 17px/1.3 var(--sans)}
-.card p{margin:0;font:400 14px/1.5 var(--sans);color:var(--dim)}
-.card .big{display:flex;gap:22px}
-.card .big div{display:flex;flex-direction:column;gap:7px}.card .big b{font:600 24px var(--mono)}
-.notice{padding:14px 16px;display:flex;gap:14px;align-items:center;font:500 14px/1.45 var(--sans)}
-.notice.bad{border-color:rgba(255,90,82,.5)}.notice.warn{border-color:rgba(255,213,79,.5)}
-.notice span{flex:1}
-.notice button{min-height:48px;padding:0 16px;border-radius:14px;background:rgba(255,255,255,.1);font:600 14px var(--sans);white-space:nowrap}
-.skel{height:14px;border-radius:7px;background:linear-gradient(90deg,rgba(255,255,255,.06),rgba(255,255,255,.16),rgba(255,255,255,.06));background-size:200% 100%;animation:sk 1.2s linear infinite}
-@keyframes sk{to{background-position:-200% 0}}
-.hbtns{display:flex;flex-direction:column;gap:10px}
-.hbtns .row .btn{flex:1}
-.btn[disabled]{opacity:.38;pointer-events:none}
-/* camera on + stop */
-.camstop{display:inline-flex;align-items:center;gap:9px;min-height:44px;padding:0 5px 0 14px;border-radius:99px;background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(14px);font:500 12px var(--mono);letter-spacing:.06em;color:var(--ink);white-space:nowrap}
-.camstop .rec{width:9px;height:9px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red);animation:pulse 1.4s ease-in-out infinite}
-.camstop b{display:grid;place-items:center;height:34px;padding:0 14px;border-radius:99px;background:var(--red);color:#fff;font:700 12px var(--mono);letter-spacing:.1em}
-.camstop.starting .rec{background:#aaa;box-shadow:none}
-/* ask */
-.askstate{display:flex;align-items:center;gap:12px;padding:12px 14px;margin-bottom:10px;font:500 14px/1.4 var(--sans)}
-.askstate span{flex:1}.askstate.err{border-color:rgba(255,90,82,.5)}
-.askstate button{min-height:48px;padding:0 16px;border-radius:14px;background:rgba(255,255,255,.12);font:600 14px var(--sans)}
-#mic.on{background:var(--red)!important;color:#fff}
-.find button{min-width:48px;min-height:48px}
-/* intro and primer */
-.sheetscr{justify-content:center;gap:14px}
-.sheetscr .skip{align-self:flex-end;min-height:48px;padding:0 14px;color:var(--dim);font:500 15px var(--sans)}
-.intro{padding:26px 22px;gap:16px;display:flex;flex-direction:column}
-.intro .ic{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;font:600 30px var(--mono);background:rgba(138,164,255,.16);color:var(--accent)}
-.intro h1{margin:0;font:600 24px/1.25 var(--sans);text-wrap:balance}
-.intro p{margin:0;font:400 16px/1.55 var(--sans)}
-.intro p+p{color:var(--dim)}
-.dots{display:flex;gap:8px;justify-content:center}.dots i{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,.22)}.dots i.on{background:var(--accent);width:22px;border-radius:5px}
-.navrow{display:flex;gap:10px}.navrow .btn{flex:1}
-.ritem{display:flex;gap:14px;align-items:flex-start}.ritem .ic{flex:none;width:44px;height:44px;margin-top:2px;border-radius:14px;display:grid;place-items:center;background:rgba(138,164,255,.16);color:var(--accent);font:600 20px var(--mono)}
-.ritem b{display:block;font:600 16px var(--sans);margin-bottom:3px}.ritem span{font:400 14px/1.45 var(--sans);color:var(--dim)}
-.problem{padding:14px 16px;border:1px solid rgba(255,90,82,.5);border-radius:16px;background:rgba(255,90,82,.1)}
-.problem b{display:block;font:600 16px var(--sans);margin-bottom:6px}.problem span{font:400 14px/1.5 var(--sans)}
-.note{font:400 13px/1.5 var(--sans);color:var(--dim);margin:0}
-/* scan: checklist before, coaching during */
-#scan[data-ph=ready] .live,#scan[data-ph=live] .ready{display:none}
-.check{padding:16px 18px;display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-.check h2{margin:0 0 6px;font:600 18px var(--sans)}
-.chk{display:flex;align-items:center;gap:14px;min-height:56px;width:100%;text-align:left;font:500 15px/1.4 var(--sans);padding:6px 4px;border-radius:12px}
-.chk i{flex:none;width:28px;height:28px;border-radius:8px;border:2px solid var(--line);display:grid;place-items:center;font:700 16px var(--mono);font-style:normal;color:#070a1a}
-.chk.ok i,.chk[aria-pressed=true] i{background:var(--green);border-color:var(--green)}.chk.bad i{background:var(--amber);border-color:var(--amber)}
-#scanline.warn{color:var(--amber)}#scanline.ok{color:var(--green)}
-/* processing */
-.bar{height:8px;border-radius:5px;background:rgba(255,255,255,.12);overflow:hidden;flex:1}.bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .4s}
-.procbox{display:none;flex-direction:column;gap:12px}.sheet.busy .procbox{display:flex}
-.procrow{display:flex;align-items:center;gap:12px;font:500 14px var(--mono);color:var(--dim)}
-.procact{display:flex;gap:10px}.procact button{flex:1;min-height:52px;border-radius:14px;background:rgba(255,255,255,.12);font:600 14px var(--sans)}
-.procbox.late .procrow,.procbox.stalled .procrow{color:var(--amber)}
-/* find: not found */
-#result.nf .photo{flex:0 0 calc(var(--t) + 64px);border-radius:0}
-#result.nf .photo canvas,#result.nf .photo .tag,#result.nf .photo:after,#result.nf .drow,#result.nf #guidebtn{display:none}
-.nfbox{display:none;flex-direction:column;gap:12px}#result.nf .nfbox{display:flex}
-#result.nf .ans{font-size:20px}
-.nfbox h2{margin:0;font:600 22px/1.3 var(--sans)}.nfbox p{margin:0;font:400 15px/1.55 var(--sans);color:var(--dim)}.nfbox p b{color:var(--ink);font-weight:600}
-/* changes and settings states */
-.statecard{padding:22px 18px;display:flex;flex-direction:column;gap:12px;align-items:flex-start}
-.statecard h2{margin:0;font:600 18px/1.3 var(--sans)}.statecard p{margin:0;font:400 14px/1.5 var(--sans);color:var(--dim)}
-.setbody{overflow:auto;margin:6px -16px 0;padding:0 16px 14px;display:flex;flex-direction:column;gap:14px;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent;pointer-events:auto}
-.setgrp{padding:16px;display:flex;flex-direction:column;gap:12px}
-.setgrp h2{margin:0;font:600 15px var(--sans)}.setgrp p{margin:0;font:400 13px/1.45 var(--sans);color:var(--dim)}
-.seg{display:flex;gap:8px}.seg button{flex:1;min-height:52px;border-radius:14px;background:rgba(255,255,255,.08);border:1px solid var(--line);font:600 15px var(--mono)}
-.seg button[aria-pressed=true]{background:var(--accent);color:#070a1a;border-color:var(--accent)}
-.setgrp select{min-height:52px;border-radius:14px;background:rgba(255,255,255,.08);color:var(--ink);border:1px solid var(--line);font:500 16px var(--sans);padding:0 12px}
-.setgrp select option{color:#000}
-.srow{display:flex;align-items:center;gap:12px;min-height:56px}.srow>div{flex:1;min-width:0;font:500 14px/1.35 var(--sans)}.srow small{display:block;color:var(--dim);font:400 12px var(--mono);margin-top:3px}
-.srow button{min-height:48px;padding:0 16px;border-radius:14px;background:rgba(255,90,82,.16);color:#ffb4af;font:600 14px var(--sans)}
-.dangerbtn{min-height:52px;border-radius:14px;background:rgba(255,90,82,.16);color:#ffb4af;font:600 15px var(--sans)}
-.plainbtn{min-height:52px;border-radius:14px;background:rgba(255,255,255,.1);font:600 15px var(--sans)}
-/* captions and confirm dialog */
-.cap{position:absolute;left:16px;right:16px;top:calc(var(--t) + 64px);padding:12px 16px;font:500 15px/1.4 var(--sans);display:none;z-index:8;pointer-events:auto}
-.cap b{font:600 10px var(--mono);letter-spacing:.14em;color:var(--dim);display:block;margin-bottom:5px}
-#dlg{position:absolute;inset:0;z-index:20;display:none;place-items:center;background:rgba(0,0,0,.66);padding:24px;pointer-events:auto}
-#dlg.on{display:grid}
-#dlg .box{width:100%;max-width:360px;padding:20px;display:flex;flex-direction:column;gap:14px;background:rgba(18,20,24,.96)}
-#dlg h2{margin:0;font:600 19px/1.3 var(--sans)}#dlg p{margin:0;font:400 14px/1.5 var(--sans);color:var(--dim)}
-#dlg .navrow button{flex:1;min-height:56px;border-radius:16px;font:600 16px var(--sans);background:rgba(255,255,255,.12)}
-#dlg .navrow button.go{background:var(--red);color:#fff}
-.gt{text-align:center;margin-bottom:8px}
-.brand{white-space:nowrap;flex:none}
-#connpill{min-width:0;padding:0 12px;gap:7px}#stat{overflow:hidden;text-overflow:ellipsis;font-size:11px;letter-spacing:.03em}
-.camstop.off .rec{background:#777;box-shadow:none;animation:none}
-body.demo .camstop{display:none}
-</style></head>
+<link rel="stylesheet" href="css/app.css">
+</head>
 <body data-screen="home">
 <video id="v" playsinline muted autoplay></video><div id="bg"><i></i></div>
 <div id="hud">
 <canvas id="ar"></canvas>
 
-<!-- Home: no camera here. It starts only from a tap on New scan, Find something or Guide me. -->
-<section class="scr" id="home">
-  <div class="top"><span class="brand"><svg width="24" height="24" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8.5"/><circle cx="11" cy="11" r="2.5" fill="currentColor"/></svg>Reality OS</span>
-    <button class="pill panel" id="connpill" aria-live="polite" aria-label="Server status. Tap to check again"><span class="dot wait" id="dotc"></span><span id="stat">Checking…</span></button></div>
-  <div class="homebody">
-    <div class="notice panel bad" id="homenotice" hidden><span id="noticetext"></span><button id="retrybtn">Retry now</button></div>
-    <div class="card panel" id="lastcard" aria-live="polite"></div>
-  </div>
-  <div class="hbtns">
-    <button class="btn" id="scanbtn"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8.5"/><circle cx="11" cy="11" r="2.5" fill="currentColor"/></svg>New scan</button>
-    <button class="btn ghost" id="askbtn"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="9" r="6"/><path d="M14 14l4 4"/></svg>Find something</button>
-    <div class="row"><button class="btn ghost" id="chgbtn">What changed</button><button class="btn ghost" id="setbtn">Settings</button></div>
-  </div>
-</section>
+<!-- Every screen is a section with id "s-<screen>" (see js/screens.js). Inside, data-show="state ..." parts appear only in
+     those states, and data-act names what a tap does. No other wiring: restyle freely, keep the ids, data-show and data-act. -->
 
-<!-- Ask: the camera is on so the remembered objects can be shown over it -->
-<section class="scr" id="ask">
-  <div class="top"><button id="askback" class="pill panel" style="font:500 13px var(--mono)">‹ HOME</button><button class="tog on" id="artog" aria-pressed="true" aria-label="Show remembered objects over the camera"><i></i>AR</button>
-    <button class="camstop" data-stop aria-label="Stop the camera"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button></div>
-  <div class="sp"></div>
-  <div class="bot">
-    <div class="askstate panel" id="askstate" hidden role="status"><div class="spin" id="askspin"></div><span id="askmsg"></span><button id="askact"></button></div>
-    <div class="quick" id="quick"></div>
-    <div class="row">
-      <div class="find panel"><input id="q" type="text" placeholder="Find something…" enterkeyhint="search" autocomplete="off" aria-label="What are you looking for?"><button id="mic" aria-label="Speak your question"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0012 0M10 16v3"/></svg></button><button id="findbtn" aria-label="Find" style="background:var(--accent);color:#070a1a"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 10h12M11 5l5 5-5 5"/></svg></button></div>
+<!-- ============ Rooms home. The camera is never on here. ============ -->
+<section class="scr" id="s-home">
+  <header class="top"><span class="brand"><svg width="24" height="24" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8.5"/><circle cx="11" cy="11" r="2.5" fill="currentColor"/></svg>Reality OS</span>
+    <button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><span>▾</span></button></header>
+  <div class="body">
+    <button class="pill panel conn" id="connpill" data-act="retry" aria-live="polite" aria-label="Server status. Tap to check again"><span class="dot wait" id="dotc"></span><span id="stat">Checking…</span></button>
+    <div class="notice panel" id="hnotice" data-show="error offline slow"><span id="hmsg"></span><button data-act="retry">Retry now</button></div>
+    <div class="search panel" data-show="default"><input id="hsearch" type="search" placeholder="Search objects in your rooms" autocomplete="off" enterkeyhint="search" aria-label="Search objects in your rooms"></div>
+    <div class="chips scroll" id="hchips" data-show="default"></div>
+    <div id="hresults" hidden></div>
+    <div id="hmain" data-show="default">
+      <h2 class="sec" id="hrecenthead">Recent</h2><div class="thumbs" id="hrecent"></div>
+      <h2 class="sec">Rooms</h2><div class="cards" id="hrooms"></div>
+      <button class="btn ghost" data-act="add-room">+ Add a room</button>
     </div>
+    <div class="statecard panel" data-show="empty"><h2>No rooms yet</h2><p>A room is a place you scan once, like your Living Room or Desk. Reality OS then remembers where things are in it.</p><button class="btn" data-act="add-room">Add your first room</button></div>
+    <div class="statecard panel" data-show="loading slow"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
   </div>
 </section>
 
-<section class="scr" id="scan" data-ph="ready">
-  <div class="top"><button class="camstop" data-stop aria-label="Stop the camera and discard this scan"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button><span class="pill panel" id="fcount">0 frames</span></div>
+<!-- ============ Scan wizard: which room, then the live scan ============ -->
+<section class="scr" id="s-wizard">
+  <header class="top"><button class="pill panel" data-act="back">‹ BACK</button><span class="pill panel mono">SCAN A ROOM</span></header>
+  <div class="body">
+    <div class="card panel" data-show="rescan error"><h2>Scan a room you already have</h2><div class="chips" id="wzrooms"></div></div>
+    <div class="card panel"><h2>Or name a new room</h2>
+      <input id="wzname" type="text" maxlength="60" placeholder="e.g. Living Room" autocomplete="off" aria-label="Room name">
+      <div class="chips" id="wzchips"></div>
+      <button class="chk" id="wzactive" data-act="toggle-active" aria-pressed="false"><i></i><span>Use this as my active room</span></button></div>
+    <div class="problem" role="alert" data-show="error"><span id="wzerr"></span></div>
+  </div>
+  <div class="hbtns"><button class="btn" id="wzgo" data-act="wizard-go">Continue to scan</button></div>
+</section>
+
+<!-- ============ Live scan: checklist, then coverage ============ -->
+<section class="scr" id="s-scan">
+  <header class="top"><button class="camstop" data-act="stop" aria-label="Stop the camera and discard this scan"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button><span class="pill panel" id="scanroom">Room</span><span class="pill panel" id="fcount">0 frames</span></header>
   <div class="sp"></div>
   <div class="bot">
-    <div class="check panel ready" id="checklist">
+    <div class="check panel" id="checklist" data-show="ready">
       <h2>Before you scan</h2>
       <div class="chk" id="chklight" role="status"><i>·</i><span id="lighttext">Checking the light…</span></div>
-      <button class="chk" id="chkpeople" aria-pressed="false"><i></i><span>The room is empty: no people in the room or in frame</span></button>
+      <button class="chk" id="chkpeople" data-act="toggle-people" aria-pressed="false"><i></i><span>The room is empty: no people in the room or in frame</span></button>
       <div class="chk ok"><i>✓</i><span>Stand in the middle of the room, hold the phone upright</span></div>
     </div>
-    <div class="live" id="scanline" role="status" aria-live="polite">Turn slowly to the left</div><div class="live" id="hint"></div>
-    <div class="ringwrap live"><canvas id="ring"></canvas><div class="flash" id="flash"></div>
+    <div id="scanline" data-show="live" role="status" aria-live="polite">Turn slowly to the left</div><div id="hint" data-show="live"></div>
+    <!-- the coverage compass: yaw bins around, the view cone, three pitch bands at the side. It shows what was looked at, not where things are. -->
+    <div class="ringwrap" data-show="live"><canvas id="ring"></canvas><div class="flash" id="flash"></div>
       <div class="pct"><b id="pct">0<i>%</i></b><span class="label">Covered</span></div></div>
-    <div class="stats live"><div class="panel"><span class="label">Frames</span><b id="nfr">0</b></div><div class="panel"><span class="label">Objects</span><b id="nob" style="color:var(--accent)">0</b></div><div class="panel" style="flex:1.5"><span class="label">Just saw</span><b id="nnm" style="font:500 14px var(--sans);margin-top:8px">—</b></div></div>
-    <div class="row"><button class="btn ghost" id="scancancel" style="flex:0 0 38%;height:60px">Cancel</button><button class="btn ready" id="startbtn" style="flex:1;height:60px">Start scanning</button><button class="btn red live" id="donebtn" style="flex:1;height:60px">Done</button></div>
+    <div class="stats" data-show="live"><div class="panel"><span class="label">Frames</span><b id="nfr">0</b></div><div class="panel"><span class="label">Objects</span><b id="nob">0</b></div><div class="panel wide"><span class="label">Just saw</span><b id="nnm">—</b></div></div>
+    <div class="row"><button class="btn ghost" data-act="scan-cancel" id="scancancel">Cancel</button><button class="btn" data-act="scan-start" id="startbtn" data-show="ready">Start scanning</button><button class="btn red" data-act="scan-done" id="donebtn" data-show="live">Done</button></div>
   </div>
 </section>
 
-<section class="scr" id="summary">
-  <div class="top"><span class="pill panel"><span class="dot"></span><span id="sumpill">Scan complete</span></span></div>
-  <div class="sheet panel busy" id="sumsheet">
-    <div class="procbox" id="procbox">
+<!-- ============ Scan summary: reading frames, then review (Save / Discard / View in room) ============ -->
+<section class="scr" id="s-summary">
+  <header class="top"><span class="pill panel"><span class="dot"></span><span id="sumpill">Scan complete</span></span></header>
+  <div class="sheet panel" id="sumsheet">
+    <div class="procbox" data-show="processing stalled">
       <div class="procrow"><div class="spin"></div><span id="proctxt">Reading frames…</span></div>
       <div class="procrow"><div class="bar" aria-hidden="true"><i id="procbar"></i></div><span id="procpct">0%</span></div>
-      <div class="procact" id="procact" hidden><button id="proccheck">Check the server</button><button id="prochome">Go home</button></div>
+      <div class="procact" data-show="stalled"><button data-act="proc-check">Check the server</button><button data-act="proc-home">Go home</button></div>
     </div>
-    <div class="after" style="display:contents">
-    <h1 id="sumtext">I found 14 objects.</h1>
-    <canvas id="mapc"></canvas>
-    <div class="chips" id="chips"></div>
-    <div class="meta"><div><span class="label">Frames</span><b id="mf">–</b></div><div><span class="label">Seconds</span><b id="ms">–</b></div><div><span class="label">Cover</span><b id="mc">–</b></div><div><span class="label">Cost</span><b id="mu">–</b></div></div>
-    <div class="row"><button class="btn ghost" id="sumback" style="flex:0 0 96px;height:56px">Home</button><button class="btn" id="sumfind" style="flex:1;height:56px">Ask where something is</button></div></div>
+    <div class="after" data-show="review empty">
+      <h1 id="sumtext">I found 14 objects.</h1>
+      <div class="gtiles" id="sumtiles"></div>
+      <div class="thumbs" id="sumdetail" hidden></div>
+      <div class="meta"><div><span class="label">Frames</span><b id="mf">–</b></div><div><span class="label">Seconds</span><b id="ms">–</b></div><div><span class="label">Cover</span><b id="mc">–</b></div><div><span class="label">Cost</span><b id="mu">–</b></div></div>
+      <div class="row"><button class="btn ghost" data-act="discard-review">Discard</button><button class="btn" data-act="save-review" id="sumsave">Save</button></div>
+      <button class="plainbtn" data-act="view-room">View in room</button>
+    </div>
   </div>
 </section>
 
-<section class="scr" id="result">
+<!-- ============ Room details ============ -->
+<section class="scr" id="s-room">
+  <header class="top"><button class="pill panel" data-act="back">‹ BACK</button><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><span>▾</span></button></header>
+  <div class="body">
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-show="error"><h2>Could not load this room</h2><p id="rerr"></p><button class="plainbtn" data-act="retry">Try again</button></div>
+    <div data-show="default empty">
+      <div class="rhead"><h1 id="rname">Room</h1><span class="badge" id="ractive">ACTIVE</span></div>
+      <div class="actions">
+        <button class="btn" data-act="find-room">Find in this room</button>
+        <button class="btn ghost" data-act="rescan">Rescan</button>
+        <button class="btn ghost" data-act="changes-room">View changes</button>
+        <button class="btn ghost" data-act="explore-room">Explore (AR)</button>
+        <button class="btn ghost" data-act="activate-this" id="ractbtn">Make active</button>
+        <button class="btn ghost" data-act="room-settings">Room settings</button>
+      </div>
+      <div class="card panel" id="rinfo"></div>
+      <div class="statecard panel" data-show="empty"><h2>Not scanned yet</h2><p>Scan this room once and Reality OS will remember where things are in it.</p><button class="btn" data-act="rescan">Scan this room</button></div>
+      <div data-show="default"><h2 class="sec">Recent objects</h2><div class="thumbs" id="rrecent"></div></div>
+      <h2 class="sec" id="rhisthead">Scan history</h2><div id="rhist"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Find (in the active room, or all rooms) ============ -->
+<section class="scr" id="s-find">
+  <header class="top"><span class="pill panel mono">FIND</span><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><span>▾</span></button></header>
+  <div class="body">
+    <div class="seg" id="fscope" role="group" aria-label="Where to look"><button data-act="scope" data-v="room" aria-pressed="true">This room</button><button data-act="scope" data-v="all" aria-pressed="false">All rooms</button></div>
+    <div class="statecard panel" data-show="no-room"><h2>Choose a room first</h2><p>Find looks in one room at a time. Pick the room you are in, or search all rooms.</p><button class="btn" data-act="switcher">Choose a room</button></div>
+    <div class="statecard panel" data-show="room-empty"><h2 id="fempty">This room has not been scanned yet</h2><p>Scan it once, then ask where things are.</p><button class="btn" data-act="rescan">Scan this room</button></div>
+    <div id="fgroups" data-show="all-results"></div>
+    <div class="statecard panel" data-show="all-none"><h2>Not seen in any room</h2><p>Nothing called that is in any room’s memory. The rooms may not have been scanned where it is.</p></div>
+    <div class="chips scroll" id="fchips" data-show="idle busy slow error offline"></div>
+  </div>
+  <div class="bot">
+    <div class="askstate panel" id="askstate" data-show="busy slow error offline" role="status"><div class="spin" id="askspin"></div><span id="askmsg"></span><button id="askact" data-act="ask-act"></button></div>
+    <div class="row" data-show="idle busy slow error offline all-results all-none">
+      <div class="find panel"><input id="q" type="text" placeholder="Find something…" enterkeyhint="search" autocomplete="off" aria-label="What are you looking for?"><button id="mic" data-act="mic" aria-label="Speak your question"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0012 0M10 16v3"/></svg></button><button id="findbtn" data-act="find-go" aria-label="Find"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 10h12M11 5l5 5-5 5"/></svg></button></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Find result ============ -->
+<section class="scr" id="s-result">
   <div class="photo"><canvas id="replay"></canvas>
-    <div class="top"><button id="resback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ BACK</button><span class="pill panel mono" id="resq" style="max-width:220px;overflow:hidden;text-overflow:ellipsis"></span></div>
+    <div class="top"><button id="resback" class="pill panel" data-act="back">‹ BACK</button><span class="pill panel mono" id="resq"></span></div>
     <span class="tag panel mono" id="rtag">CHARGER · FRAME 14</span></div>
   <div class="fsheet">
-    <p class="ans" id="resulttext">The charger was last seen about 60 degrees to the left of where the scan started, below the laptop.</p>
-    <div class="nfbox" id="nfbox"><h2 id="nftitle"></h2><p id="nftext"></p>
-      <div class="row"><button class="btn ghost" id="nfscan" style="flex:1;height:56px">Scan the room</button><button class="btn" id="nfask" style="flex:1;height:56px">Find something else</button></div></div>
-    <div class="drow"><canvas id="bear"></canvas>
-      <div class="dgrid"><div><span class="label">Yaw</span><b id="dyaw">60° L</b></div><div><span class="label">Pitch</span><b id="dpit">10° ↓</b></div><div style="grid-column:1/3"><span class="label">Confidence</span><b class="w" id="dseen">3 sightings · last 2 min ago</b></div></div></div>
+    <span class="pill panel mono" id="resroom">Room</span>
+    <p class="ans" id="resulttext"></p>
+    <div class="nfbox" data-show="notfound notscanned"><h2 id="nftitle"></h2><p id="nftext"></p>
+      <div class="row"><button class="btn ghost" data-act="find-all-rooms" data-show="notfound">Search all rooms</button><button class="btn ghost" data-act="rescan">Scan this room</button><button class="btn" data-act="find-again">Find something else</button></div></div>
+    <div class="drow" data-show="found"><canvas id="bear"></canvas>
+      <div class="dgrid"><div><span class="label">Yaw</span><b id="dyaw">60° L</b></div><div><span class="label">Pitch</span><b id="dpit">10° ↓</b></div><div class="wide"><span class="label">Confidence</span><b class="w" id="dseen">–</b></div></div></div>
     <div class="sp"></div>
-    <button class="btn" id="guidebtn" style="width:100%">Guide me</button>
+    <button class="btn" id="guidebtn" data-act="guide-me" data-show="found">Guide me</button>
   </div>
 </section>
 
-<section class="scr" id="guide">
-  <div class="top"><button id="gback" class="pill panel" style="font:500 13px var(--mono)">‹ END</button><button class="tog on" id="artog2" aria-pressed="true" aria-label="Show remembered objects over the camera"><i></i>AR</button>
-    <button class="camstop" data-stop aria-label="Stop the camera"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button></div>
+<!-- ============ Guided search (camera on). Direction in words and degrees; never a distance. ============ -->
+<section class="scr" id="s-guide">
+  <header class="top"><button class="pill panel" data-act="guide-end">‹ END</button><button class="tog on" id="artog2" data-act="toggle-ar" aria-pressed="true" aria-label="Show remembered objects over the camera"><i></i>AR</button>
+    <button class="camstop" data-act="stop" aria-label="Stop the camera"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button></header>
   <div class="sp"></div>
   <div class="bot">
     <div class="gt"><span class="pill panel" id="gobj">Charger</span></div>
     <div class="garrow"><svg viewBox="0 0 300 300"><circle cx="150" cy="150" r="140" fill="rgba(7,9,11,.55)" stroke="rgba(255,255,255,.2)"/><circle cx="150" cy="150" r="104" fill="none" stroke="rgba(255,255,255,.1)" stroke-dasharray="2 8"/><g id="arrow"><path id="cone" d="" fill="rgba(138,164,255,.20)" stroke="rgba(138,164,255,.45)" stroke-width="1.5"/><path d="M150 38 L204 148 L166 148 L166 232 L134 232 L134 148 L96 148 Z" fill="#8AA4FF" stroke="#07090b" stroke-width="5" stroke-linejoin="round"/></g></svg></div>
     <div class="gdeg" id="gdeg"><span id="gnum">60</span><i>° to go</i></div>
     <div id="ghint" role="status" aria-live="polite">Turn right</div>
-    <button class="btn ghost" id="gfound" style="width:100%;display:none;border-color:var(--green);color:var(--green)">Done</button>
+    <div id="gwords" class="gwords"></div>
+    <div id="ginfo" class="ginfo"></div>
+    <button class="btn ghost found-btn" id="gfound" data-act="guide-done" data-show="found">Done</button>
   </div>
 </section>
 
-<section class="scr" id="changes">
-  <div class="top"><button id="cback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ BACK</button><span class="pill panel mono" id="chgpill">SCAN A → B</span></div>
-  <div class="chg" id="chg"></div>
+<!-- ============ What changed (one room, two of its saved scans) ============ -->
+<section class="scr" id="s-changes">
+  <header class="top"><span class="pill panel mono" id="chgpill">WHAT CHANGED</span><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><span>▾</span></button></header>
+  <div class="body">
+    <div class="picker panel" data-show="default nothing-changed"><label>Before<select id="chbefore" aria-label="Earlier scan"></select></label><label>After<select id="chafter" aria-label="Later scan"></select></label></div>
+    <div class="chg" id="chg" data-show="default nothing-changed"></div>
+    <div class="statecard panel" data-show="loading slow"><div class="spin"></div><h2 id="chgloadtitle">Comparing your scans…</h2><p id="chgloadtext">This usually takes a second.</p></div>
+    <div class="statecard panel" data-show="need-two error offline no-room"><h2 id="chgtitle"></h2><p id="chgtext"></p><button class="plainbtn" id="chgact" data-act="changes-act"></button></div>
+  </div>
 </section>
 
-<!-- First run: three cards, then the permission primer. Replayable from Settings. -->
-<section class="scr sheetscr" id="welcome" aria-label="Welcome">
-  <button class="skip" id="introskip">Skip</button>
+<!-- ============ First run ============ -->
+<section class="scr sheetscr" id="s-welcome" aria-label="Welcome">
+  <button class="skip" data-act="intro-skip">Skip</button>
   <div class="panel intro" id="introcard"></div>
   <div class="dots" id="introdots" aria-hidden="true"></div>
-  <div class="navrow"><button class="btn ghost" id="introback" style="flex:0 0 30%">Back</button><button class="btn" id="intronext">Next</button></div>
+  <div class="navrow"><button class="btn ghost" id="introback" data-act="intro-back">Back</button><button class="btn" id="intronext" data-act="intro-next">Next</button></div>
 </section>
 
-<section class="scr sheetscr" id="primer" aria-label="Permissions">
+<section class="scr sheetscr" id="s-primer" aria-label="Permissions">
   <div class="panel intro">
     <div class="ic">◉</div>
     <h1 id="primertitle"></h1>
     <p id="primerintro"></p>
-    <div id="primeritems" style="display:flex;flex-direction:column;gap:14px"></div>
-    <div class="problem" id="primerproblem" role="alert" hidden><b id="problemtitle"></b><span id="problembody"></span></div>
+    <div id="primeritems" class="ritems"></div>
+    <div class="problem" role="alert" data-show="denied"><b id="problemtitle"></b><span id="problembody"></span></div>
     <p class="note" id="primernote"></p>
   </div>
-  <div class="navrow"><button class="btn ghost" id="primerlater" style="flex:0 0 36%">Not now</button><button class="btn" id="primergo">Continue</button></div>
+  <div class="navrow"><button class="btn ghost" id="primerlater" data-act="primer-later">Not now</button><button class="btn" id="primergo" data-act="primer-go">Continue</button></div>
 </section>
 
-<section class="scr" id="settings">
-  <div class="top"><button id="setback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ BACK</button><span class="pill panel mono">SETTINGS</span></div>
+<!-- ============ Settings: global, then the rooms ============ -->
+<section class="scr" id="s-settings">
+  <header class="top"><span class="pill panel mono">SETTINGS</span><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><span>▾</span></button></header>
   <div class="setbody">
     <div class="setgrp panel" id="dbgrow" hidden><h2>Debug HUD</h2><p>The dots menu with frame rate, camera tools and screen jumps. Only available because the page was opened with ?debug.</p>
-      <div class="seg" id="dbgseg"><button data-v="1">On</button><button data-v="0">Off</button></div></div>
-    <div class="setgrp panel"><h2>Keyframes per second</h2><p>The most frames a scan may send each second. Fewer is cheaper and slower; the scan also waits for you to turn and hold steady.</p>
-      <div class="seg" id="kfseg"></div></div>
+      <div class="seg" id="dbgseg"><button data-act="debug" data-v="1">On</button><button data-act="debug" data-v="0">Off</button></div></div>
     <div class="setgrp panel"><h2>Voice language</h2><p>For speaking replies and for the microphone button.</p><select id="langsel" aria-label="Voice language"></select></div>
-    <div class="setgrp panel"><h2>Your scans</h2><p>Each scan is stored on the computer running Reality OS. Deleting removes its frames, objects and photos.</p>
-      <div id="scanlist" aria-live="polite"></div>
-      <button class="dangerbtn" id="delall" hidden>Delete all scans</button></div>
-    <div class="setgrp panel"><h2>Intro</h2><p>Replay the three cards that explain how Reality OS works and what happens to your data.</p><button class="plainbtn" id="replayintro">Replay intro</button></div>
+    <div class="setgrp panel"><h2>Keyframes per second</h2><p>The most frames a scan may send each second. Fewer is cheaper and slower; the scan also waits for you to turn and hold steady.</p><div class="seg" id="kfseg"></div></div>
+    <div class="setgrp panel"><h2>Overlay detail</h2><p>How remembered objects are drawn over the camera: outlines and labels, or labels only (lighter on the phone).</p><div class="seg" id="detailseg"></div></div>
+    <div class="setgrp panel"><h2>Your rooms</h2><p>Rename a room or delete it. Deleting erases its scans, photos and objects.</p>
+      <div id="setrooms" aria-live="polite"><div class="skel" data-show="loading"></div></div>
+      <div class="statecard" data-show="error"><p id="seterr"></p><button class="plainbtn" data-act="retry">Try again</button></div></div>
+    <div class="setgrp panel"><h2>Intro</h2><p>Replay the three cards that explain how Reality OS works and what happens to your data.</p><button class="plainbtn" data-act="replay-intro">Replay intro</button></div>
+    <div class="setgrp panel"><h2>Delete all data</h2><p>Every room, scan, photo and object on the computer running Reality OS. This cannot be undone.</p><button class="dangerbtn" data-act="delete-all">Delete all data</button></div>
   </div>
 </section>
 
+<section class="scr" id="s-roomsettings">
+  <header class="top"><button class="pill panel" data-act="back">‹ BACK</button><span class="pill panel mono">ROOM SETTINGS</span></header>
+  <div class="setbody">
+    <div class="setgrp panel"><h2>Name</h2><input id="rsname" type="text" maxlength="60" autocomplete="off" aria-label="Room name"><div class="problem" role="alert" data-show="error"><span id="rserr"></span></div>
+      <button class="plainbtn" data-act="rename-room">Save name</button></div>
+    <div class="setgrp panel"><h2>Active room</h2><p id="rsactivetext"></p><button class="plainbtn" data-act="activate-this" id="rsact">Make this the active room</button></div>
+    <div class="setgrp panel"><h2>Delete this room</h2><p id="rsdeltext">Erases every scan, photo and object in it. This cannot be undone.</p><button class="dangerbtn" data-act="delete-room">Delete room</button></div>
+  </div>
+</section>
+
+<!-- ============ Explore (AR): the room's objects over the camera ============ -->
+<section class="scr" id="s-explore">
+  <header class="top"><button class="pill panel" data-act="back">‹ BACK</button><button class="tog on" id="artog" data-act="toggle-ar" aria-pressed="true" aria-label="Show remembered objects over the camera"><i></i>AR</button>
+    <button class="camstop" data-act="stop" aria-label="Stop the camera"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button></header>
+  <div class="sp"></div>
+  <div class="bot">
+    <div class="gt"><span class="pill panel" id="exroom">Room</span></div>
+    <div class="statecard panel" data-show="no-memory"><h2>Nothing to show yet</h2><p>This room has not been scanned, so there is nothing to draw over the camera.</p><button class="btn" data-act="rescan">Scan this room</button></div>
+    <p class="note center" data-show="default">Point the camera around: remembered objects appear where they were.</p>
+  </div>
+</section>
+
+<!-- ============ Room switcher: a sheet over any screen ============ -->
+<section class="scr sheetwrap" id="s-switcher" aria-label="Rooms">
+  <div class="scrim" data-act="close-switcher"></div>
+  <div class="sheet2 panel"><h2>Your rooms</h2>
+    <div id="swlist" data-show="default"></div>
+    <p class="dim" data-show="empty">No rooms yet.</p>
+    <button class="btn ghost" data-act="add-room">+ Add a room</button><button class="plainbtn" data-act="close-switcher">Close</button></div>
+</section>
+
+<nav id="nav" aria-label="Main"></nav>
 <div class="toast panel" id="toast" role="status"></div>
 <div class="cap panel" id="cap" role="status" aria-live="polite"><b>REALITY OS SAYS</b><span id="captext"></span></div>
 <div id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgtitle"><div class="box panel"><h2 id="dlgtitle"></h2><p id="dlgbody"></p><div class="navrow"><button id="dlgno">Cancel</button><button class="go" id="dlgyes">OK</button></div></div></div>
 <details id="dev"><summary>⋯</summary><div class="panel">
   <div class="info" id="arinfo">AR: –</div>
-  <button id="flipbtn">Flip cam</button><button id="streambtn">Stream</button><button id="savebtn">Save sample</button><button data-go="home">Home</button><button data-go="scan">Scan</button><button data-go="summary">Summary</button><button data-go="find">Find</button><button data-go="guide">Guide</button><button data-go="changes">Changes</button>
+  <button id="flipbtn">Flip cam</button><button id="streambtn">Stream</button><button id="savebtn">Save sample</button>
 </div></details>
 </div>
 <script type="module" src="js/app.js"></script>

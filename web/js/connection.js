@@ -60,12 +60,14 @@ export class StatusPoller {
 
 // One request with a time limit, folded into {ok, status, data, error, timedOut}: the page shows a state for each outcome
 // (server away, server error, too slow) instead of letting an exception or a spinner hang. Never throws.
-export async function fetchJson(url, { method = "GET", timeoutMs = 30000, fetchFn = (...a) => fetch(...a), setTimer = (f, ms) => setTimeout(f, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
+export async function fetchJson(url, { method = "GET", body = undefined, timeoutMs = 30000, fetchFn = (...a) => fetch(...a), setTimer = (f, ms) => setTimeout(f, ms), clearTimer = (t) => clearTimeout(t) } = {}) {
   const ctl = typeof AbortController !== "undefined" ? new AbortController() : null;
   let timedOut = false;
   const t = setTimer(() => { timedOut = true; ctl?.abort(); }, timeoutMs);
   try {
-    const res = await fetchFn(url, { method, signal: ctl?.signal });
+    const init = { method, signal: ctl?.signal };
+    if (body !== undefined) { init.body = JSON.stringify(body); init.headers = { "content-type": "application/json" }; }
+    const res = await fetchFn(url, init);
     let data = null, text = "";
     try { text = await res.text(); data = text ? JSON.parse(text) : null; } catch { /* not JSON */ }
     if (res.ok) return { ok: true, status: res.status, data };
