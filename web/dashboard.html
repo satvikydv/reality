@@ -18,22 +18,46 @@ header{display:flex;align-items:center;gap:22px}
 main{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(380px,1fr);gap:16px;min-height:0}
 .col{display:grid;gap:16px;min-height:0;min-width:0}
 .col>*{min-width:0}
-.left{grid-template-rows:minmax(0,1fr) auto}.right{grid-template-rows:auto minmax(0,1fr)}
+.left{grid-template-rows:minmax(0,1fr) 372px}.right{grid-template-rows:auto minmax(0,1fr)}
+*{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.22) transparent}
+::-webkit-scrollbar{width:8px;height:8px}::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:99px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:rgba(255,213,79,.55);background-clip:content-box}::-webkit-scrollbar-corner{background:transparent}
 .map{position:relative;padding:16px;min-height:0}
 #mapc{position:absolute;inset:16px;width:calc(100% - 32px);height:calc(100% - 32px)}
 .map .label{position:absolute;left:20px;top:18px;z-index:1}.map .big{position:absolute;right:22px;top:14px;font:700 34px var(--mono);color:var(--green);z-index:1}
-.hist{padding:14px 16px;display:flex;flex-direction:column;gap:12px;max-height:44vh}
+.hist{padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
 .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 select,button.small{font:500 13px var(--mono);color:var(--ink);background:rgba(255,255,255,.08);border:1px solid var(--line);border-radius:10px;padding:8px 10px;min-height:36px}
 button.small{cursor:pointer}button.small.go{background:var(--amber);color:#14110a;border-color:var(--amber);font-weight:700}
 #chsum{font:500 14px/1.4 var(--sans);color:var(--dim)}
-#cards{display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;padding-bottom:4px;min-width:0;max-width:100%}
-.card{flex:0 0 250px;padding:12px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid var(--line);display:flex;flex-direction:column;gap:8px}
+#cards{display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;padding-bottom:6px;min-width:0;max-width:100%;flex:1;min-height:0}
+.card{flex:0 0 250px;padding:12px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid var(--line);display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:border-color .15s,background .15s,transform .15s;overflow:hidden;text-align:left;color:inherit;font:inherit}
+.card:hover,.card:focus-visible{border-color:var(--amber);background:rgba(255,213,79,.07);transform:translateY(-2px);outline:none}
+.card .open{margin-top:auto;font:500 10px var(--mono);letter-spacing:.12em;color:var(--dim)}.card:hover .open{color:var(--amber)}
+.empty{margin:auto;color:var(--dim);font:400 14px var(--sans)}
+/* full view of one change */
+#viewer{position:fixed;inset:0;z-index:20;display:none;background:rgba(5,7,9,.88);backdrop-filter:blur(8px);padding:28px 36px;min-width:1100px}
+#viewer.on{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:18px;animation:fade .18s}
+@keyframes fade{from{opacity:0}}
+#viewer .vh{display:flex;align-items:center;gap:14px}
+#viewer .vt{font:600 22px var(--sans);display:flex;align-items:center;gap:12px;min-width:0}
+#viewer .vt i{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font:700 17px var(--mono);font-style:normal;color:#07090b;flex:none}
+#viewer .vn{margin-left:auto;font:500 13px var(--mono);color:var(--dim);letter-spacing:.08em}
+#viewer .nav{display:flex;gap:8px}
+#viewer .vb{display:grid;gap:18px;min-height:0;grid-template-columns:1fr 1fr}.vb.one{grid-template-columns:minmax(0,760px);justify-content:center}
+.vslot{display:flex;flex-direction:column;gap:8px;min-height:0;min-width:0}
+.vslot .label{display:block}
+.vslot .frame{position:relative;flex:1;min-height:0;border-radius:16px;overflow:hidden;border:1px solid var(--line);background:#111}
+.vslot canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+.vslot .none{position:absolute;inset:0;display:grid;place-items:center;color:var(--dim);font:400 14px var(--sans)}
+#viewer .vf{font:400 17px/1.5 var(--sans);max-width:980px}
+button.small:disabled{opacity:.35;cursor:default}
 .card h3{margin:0;font:600 13px var(--sans);display:flex;gap:8px;align-items:center}
 .card h3 i{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font:700 13px var(--mono);font-style:normal;color:#07090b}
-.card p{margin:0;font:400 12.5px/1.4 var(--sans);color:var(--ink);display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.card p{margin:0;font:400 12.5px/1.4 var(--sans);color:var(--ink);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:6px}.pair canvas{width:100%;aspect-ratio:4/3;border-radius:8px;background:#111;display:block}
-.pair.one{grid-template-columns:1fr}
+.pair.one>div{grid-column:1}
 .pair span{font:500 9px var(--mono);letter-spacing:.12em;color:var(--dim);display:block;margin-bottom:3px}
 .ag{padding:16px 18px;display:flex;flex-direction:column;gap:10px}
 .ag .head{display:flex;align-items:center;gap:10px}.ag .head i{width:9px;height:9px;border-radius:50%;background:#555}.ag.on .head i{background:var(--blue);box-shadow:0 0 10px var(--blue)}
@@ -65,7 +89,7 @@ button.small{cursor:pointer}button.small.go{background:var(--amber);color:#14110
     <div class="hist panel">
       <div class="bar"><span class="label">Compare scans</span>
         <select id="sa" title="before"></select><span class="label">→</span><select id="sb" title="after"></select>
-        <button class="small go" id="cmp">What changed?</button><span id="chsum"></span></div>
+        <button class="small go" id="cmp">What changed?</button><button class="small" id="clr" hidden>Clear</button><span id="chsum"></span></div>
       <div id="cards"></div>
     </div>
   </div>
@@ -81,6 +105,16 @@ button.small{cursor:pointer}button.small.go{background:var(--amber);color:#14110
     <div class="log panel"><span class="label">Event log</span><div id="log"></div></div>
   </div>
 </main>
+</div>
+<div id="viewer" role="dialog" aria-modal="true" aria-label="Change details">
+  <div class="vh">
+    <button class="small" id="vback">‹ Back</button>
+    <div class="vt"><i id="vi"></i><span id="vtitle"></span></div>
+    <span class="vn" id="vcount"></span>
+    <div class="nav"><button class="small" id="vprev" aria-label="Previous">‹</button><button class="small" id="vnext" aria-label="Next">›</button></div>
+  </div>
+  <div class="vb" id="vbody"></div>
+  <div class="vf" id="vtext"></div>
 </div>
 <script type="module" src="js/dashboard.js"></script>
 </body></html>

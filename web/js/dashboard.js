@@ -87,39 +87,79 @@ async function loadScans() {
 }
 
 const GROUPS = [['moved', '↔', 'var(--amber)', 'Moved'], ['removed', '−', 'var(--red)', 'Removed'], ['added', '+', 'var(--green)', 'Added']];
-function card(kind, e) {
+let shown = [], at = -1; // the changes of the last comparison, and which one the viewer shows
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+// [label, sighting] pairs of a change: moved has two photos, the others one
+const slots = (kind, e) => kind === 'moved' ? [['BEFORE', e.from.replay], ['AFTER', e.to.replay]] : [[kind === 'removed' ? 'BEFORE' : 'AFTER', e.replay]];
+
+function card(kind, e, i) {
   const [, icon, color, name] = GROUPS.find(g => g[0] === kind);
-  const c = document.createElement('div'); c.className = 'card';
-  const h = document.createElement('h3'), i = document.createElement('i');
-  i.textContent = icon; i.style.background = color; h.append(i, `${name}: ${e.label}`);
-  const p = document.createElement('p'); p.textContent = e.speech || ''; p.title = e.speech || '';
-  const pair = document.createElement('div'); pair.className = 'pair';
-  const slot = (label, rp) => {
-    const w = document.createElement('div'), s = document.createElement('span'), cv = document.createElement('canvas');
-    s.textContent = label; w.append(s, cv); pair.append(w);
+  const c = el('div', 'card'); c.tabIndex = 0; c.setAttribute('role', 'button'); c.setAttribute('aria-label', `${name}: ${e.label}, open details`);
+  const h = el('h3'), ic = el('i', null, icon); ic.style.background = color; h.append(ic, `${name}: ${e.label}`);
+  const pair = el('div', 'pair' + (kind === 'moved' ? '' : ' one'));
+  for (const [label, rp] of slots(kind, e)) {
+    const w = el('div'), cv = document.createElement('canvas'); w.append(el('span', null, label), cv); pair.append(w);
     if (rp) requestAnimationFrame(() => drawPhoto(cv, rp));
-  };
-  if (kind === 'moved') { slot('BEFORE', e.from.replay); slot('AFTER', e.to.replay); }
-  else if (kind === 'removed') { pair.classList.add('one'); slot('BEFORE', e.replay); }
-  else { pair.classList.add('one'); slot('AFTER', e.replay); }
-  c.append(h, pair, p);
+  }
+  c.append(h, pair, el('p', null, e.speech || ''), el('div', 'open', 'CLICK TO OPEN'));
+  c.onclick = () => openViewer(i);
+  c.onkeydown = ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); openViewer(i); } };
   return c;
 }
 
+/* ---------- full view of one change ---------- */
+function openViewer(i) {
+  if (!shown.length) return;
+  at = (i + shown.length) % shown.length;
+  const {kind, e} = shown[at], [, icon, color, name] = GROUPS.find(g => g[0] === kind);
+  $('vi').textContent = icon; $('vi').style.background = color; $('vtitle').textContent = `${name}: ${e.label}`;
+  $('vcount').textContent = `${at + 1} / ${shown.length}`; $('vtext').textContent = e.speech || '';
+  $('vprev').disabled = $('vnext').disabled = shown.length < 2;
+  const body = $('vbody'); body.className = 'vb' + (kind === 'moved' ? '' : ' one');
+  const frames = slots(kind, e).map(([label, rp]) => {
+    const s = el('div', 'vslot'), f = el('div', 'frame');
+    s.append(el('span', 'label', label), f);
+    if (rp) { const cv = document.createElement('canvas'); f.append(cv); s._draw = () => drawPhoto(cv, rp); }
+    else f.append(el('div', 'none', 'no photo for this sighting'));
+    return s;
+  });
+  body.replaceChildren(...frames);
+  $('viewer').classList.add('on');
+  requestAnimationFrame(() => frames.forEach(s => s._draw && s._draw()));
+  $('vback').focus();
+}
+function closeViewer() { $('viewer').classList.remove('on'); const c = $('cards').children[at]; if (c && c.focus) c.focus({preventScroll: true}); }
+$('vback').onclick = closeViewer;
+$('vprev').onclick = () => openViewer(at - 1);
+$('vnext').onclick = () => openViewer(at + 1);
+$('viewer').onclick = ev => { if (ev.target === $('viewer')) closeViewer(); };
+addEventListener('keydown', ev => {
+  if (!$('viewer').classList.contains('on')) return;
+  if (ev.key === 'Escape') closeViewer(); else if (ev.key === 'ArrowLeft') openViewer(at - 1); else if (ev.key === 'ArrowRight') openViewer(at + 1);
+});
+addEventListener('resize', () => { if ($('viewer').classList.contains('on')) openViewer(at); });
+
+function clearResults(msg) {
+  shown = []; at = -1; $('cards').replaceChildren(); $('clr').hidden = true;
+  $('chsum').textContent = msg || 'Pick two scans to see what moved, appeared or disappeared.';
+}
 async function compare() {
   const a = $('sa').value, b = $('sb').value;
-  if (!a || !b) { $('chsum').textContent = 'Needs two finished scans.'; return; }
+  if (!a || !b) { clearResults('Needs two finished scans.'); return; }
   $('chsum').textContent = 'comparing…';
   let r;
-  try { r = await (await fetch(`/api/changes?before=${a}&after=${b}`)).json(); } catch (e) { $('chsum').textContent = `failed: ${e.message}`; return; }
-  if (r.status !== 'ok') { $('chsum').textContent = r.message || r.detail || r.status; $('cards').replaceChildren(); return; }
+  try { r = await (await fetch(`/api/changes?before=${a}&after=${b}`)).json(); } catch (e) { clearResults(`failed: ${e.message}`); return; }
+  if (r.status !== 'ok') { clearResults(r.message || r.detail || r.status); return; }
   const unv = r.unverified.length ? ` · ${r.unverified.length} could not be checked (not scanned both times)` : '';
   $('chsum').textContent = `${r.moved.length} moved, ${r.removed.length} removed, ${r.added.length} added, ${r.unchanged_count} unchanged${unv}`;
-  $('cards').replaceChildren(...GROUPS.flatMap(([k]) => r[k].map(e => card(k, e))));
+  shown = GROUPS.flatMap(([k]) => r[k].map(e => ({kind: k, e})));
+  $('cards').replaceChildren(...(shown.length ? shown.map((x, i) => card(x.kind, x.e, i)) : [el('div', 'empty', 'Nothing changed between these two scans.')]));
+  $('clr').hidden = false;
   log(Date.now() / 1000, 'srv', `compared scan ${a} with ${b}: ${$('chsum').textContent}`);
 }
+$('clr').onclick = () => clearResults();
 $('cmp').onclick = compare;
-$('chsum').textContent = 'Pick two scans to see what moved, appeared or disappeared.';
+clearResults();
 
 /* ---------- render loop ---------- */
 function frame() {
