@@ -64,7 +64,9 @@ Get-Content data\server.err.log -Wait -Tail 20          # one line per scan fram
 .\.venv\Scripts\python.exe scripts\replay_scan.py --only 1301   # replay saved frames through the same WebSocket (no phone)
 ```
 
-Tests: `pytest tests` (server) and `node --test tests/js/keyframe.test.mjs` (auto-capture logic).
+Tests: `pytest tests` (server), `node --test tests/js/keyframe.test.mjs tests/js/guide.test.mjs` (auto-capture and guidance maths; the JS guidance is checked against the Python one).
+
+The phone UI (`web/index.html`, `web/css/theme.css`, `web/js/app.js`) also runs without the backend: open `/?demo` for mock data, or `/?demo&screen=summary|find|guide|changes|scan` to jump to a screen. It falls back to demo mode by itself when the server is not reachable.
 
 ## M0 scripts
 

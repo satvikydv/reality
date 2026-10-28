@@ -40,7 +40,7 @@ export function handleEvent(m){
 function renderSummary(m){
   // Real summaries carry frames {received, stored, ...} and coverage {covered_deg, gaps}; the demo data uses plain numbers.
   const frames=typeof m.frames==='object'?m.frames.stored:m.frames,cover=typeof m.coverage==='object'?m.coverage.covered_deg/360:m.coverage;
-  el('sumsheet').classList.remove('busy');el('sumtext').textContent=m.speech||'';
+  summary=m;el('sumsheet').classList.remove('busy');el('sumtext').textContent=m.speech||'';
   const c={};m.objects.forEach(o=>c[o.label]=(c[o.label]||0)+1);
   el('chips').innerHTML=Object.entries(c).map(([k,n])=>`<span class="chip"><em>${n}</em>${k}</span>`).join('');
   el('mf').textContent=frames;el('ms').textContent=Math.round(m.seconds);el('mc').textContent=Math.round((cover||0)*100)+'%';el('mu').textContent='$'+(m.cost_usd||0).toFixed(3);
@@ -48,7 +48,7 @@ function renderSummary(m){
 }
 const dirTxt=(y,p)=>{y=((y+540)%360)-180;return{yaw:Math.round(Math.abs(y))+'° '+(y<0?'L':'R'),pit:Math.round(Math.abs(p||0))+'° '+((p||0)>=0?'↑':'↓')}};
 function renderFind(m){
-  find=m;el('resulttext').textContent=m.speech;speak(m.speech);
+  find=m;el('resulttext').textContent=m.speech;el('resq').textContent='“'+(m.query||m.concept||'')+'”';speak(m.speech);
   const o=m.object||{},off=m.from_scan_start,d=dirTxt(off?off.dyaw:(o.yaw||0),off?off.dpitch:(o.pitch||0));el('dyaw').textContent=d.yaw;el('dpit').textContent=d.pit;
   el('rtag').textContent=((m.concept||'')+' · FRAME '+(m.replay?.frame_id??'–')).toUpperCase();
   el('guidebtn').style.display=m.found===false?'none':'';el('gobj').textContent=m.concept||'Object';
@@ -127,7 +127,7 @@ async function boot(){
 el('scanbtn').onclick=async()=>{buzz(20);if(demo)return demoScan();if(!el('v').srcObject)await startCam();orient.start().catch(()=>{});summary=null;shownSummary=null;ctl.start()};
 el('donebtn').onclick=()=>{if(demo)return demoDone();ctl.done()};
 const doFind=()=>{
-  const q=el('q').value.trim();if(!q&&!demo)return;el('resq').textContent='“'+(q||'charger')+'”';
+  const q=el('q').value.trim();if(!q&&!demo)return;
   if(demo)return demoFind(q);
   if(!sock.sendJson({type:'find',query:q}))toast('Not connected to the server');
 };
@@ -155,7 +155,11 @@ window.__scan=()=>ctl;window.__ui={cur,go};
 const MOCK_SUM={speech:'I found 14 objects: 3 laptops, 3 cables, 2 water bottles, a charger, a mug, keys and a phone.',coverage:.97,frames:42,seconds:31,cost_usd:.084,objects:[['laptop',-20,5],['laptop',35,0],['laptop',200,8],['cable',60,-25],['cable',-75,-30],['cable',150,-20],['bottle',95,-5],['bottle',250,0],['charger',-60,-10],['mug',120,2],['keys',300,-15],['phone',10,-12],['monitor',-5,20],['lamp',330,35]].map(([label,yaw,pitch])=>({label,yaw:(yaw+360)%360,pitch,n_obs:3}))};
 const MOCK_FIND={speech:'The charger was last seen about 60 degrees to the left of where the scan started, below the laptop.',concept:'charger',found:true,object:{label:'charger',yaw:300,pitch:-10},replay:{frame_id:14,box:[180,190,330,300],width:640,height:480}};
 let st=null,gt=null;
-function startDemo(){}
+function startDemo(){ // /?demo&screen=summary|find|guide|changes|scan jumps straight to a screen with mock data
+  const s=P.get('screen');if(!s)return;
+  if(s==='summary')renderSummary(MOCK_SUM);else if(s==='find')renderFind(MOCK_FIND);else if(s==='guide'){go('guide');demoGuide()}
+  else if(s==='changes'){renderChanges(MOCK_CHG);go('changes')}else if(s==='scan'){go('scan');demoScan(true)}
+}
 function demoScan(preview){
   clearInterval(st);go('scan');Object.assign(cur,{bins:Array(36).fill(false),frac:0,sent:0,tyaw:0,yaw:0});
   const hints=['Slow down','Hold steady','Keep turning','Gap 40° to the left','Almost there'];let n=0,y=0;
