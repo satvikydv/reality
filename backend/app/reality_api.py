@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 from collections import Counter
 
+from app import anchoring as A
 from app.changes import diff_scans
 from app.resolver import semantic_find
 from app.scan_service import ScanService, count_phrase, yaw_coverage
@@ -115,3 +116,16 @@ def what_changed(svc: ScanService, scan_a: int | None = None, scan_b: int | None
 def get_frame(svc: ScanService, frame_id: int) -> bytes | None:
     """The stored JPEG of a keyframe (it may show people); None if unknown."""
     return svc.wm.frame_jpeg(frame_id)
+
+
+def overlay(svc: ScanService, scan_id: int | None = None) -> dict:
+    """Everything the phone needs to draw a scan's objects over the live camera. Positions stay angular (no metric
+    distances exist). `age_s` is measured on the server clock; `hfov_deg` is the one FOV both sides must use."""
+    scan = _latest_scan(svc, scan_id)
+    base = {"hfov_deg": A.DEFAULT_HFOV_DEG, "fov_calibrated": A.FOV_CALIBRATED}
+    if scan is None:
+        return {**base, "status": "no_scans", "scan_id": None, "objects": []}
+    now = time.time()
+    objs = [{**{k: v for k, v in o.items() if k != "last_seen"}, "age_s": round(max(0.0, now - o["last_seen"]), 1)}
+            for o in svc.wm.overlay_objects(scan["id"])]
+    return {**base, "status": "ok", "scan_id": scan["id"], "objects": objs}

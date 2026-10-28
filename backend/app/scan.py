@@ -95,7 +95,8 @@ def merge_parts(dets: list[dict], overlap: float = 0.35) -> list[dict]:
         for g in hits:  # a new box can bridge two groups
             box = [min(box[0], g["box"][0]), min(box[1], g["box"][1]), max(box[2], g["box"][2]), max(box[3], g["box"][3])]
             groups.remove(g)
-        groups.append({**(hits[0] if hits else d), "box": box, "conf": max([d["conf"]] + [g["conf"] for g in hits])})
+        groups.append({**(hits[0] if hits else d), "box": box, "conf": max([d["conf"]] + [g["conf"] for g in hits]),
+                       "polygon": None if hits else d.get("polygon")})  # a merged box has no single mask
     return groups
 
 
@@ -207,7 +208,7 @@ class ScanPipeline:
                 if conf < self.min_conf:
                     rep.dropped_low_conf += 1
                     continue
-                dets.append({"label": name, "box": list(o.box), "conf": conf})
+                dets.append({"label": name, "box": list(o.box), "conf": conf, "polygon": o.polygon})
         if rep.errors:
             return rep  # incomplete look: do not record this direction as scanned
 

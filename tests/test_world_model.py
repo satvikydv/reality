@@ -204,3 +204,26 @@ def test_consolidate_merges_the_same_object_but_not_two_seen_together(wm):
     f = frame(wm, s2, 3.0, 100.0)  # two boxes in one view are two objects, however much they overlap
     wm.observe(f, [{"label": "mug", "box": [200, 300, 280, 380]}, {"label": "mug", "box": [220, 300, 300, 380]}])
     assert wm.consolidate(s2) == 0 and len(wm.list_objects(s2)) == 2
+
+
+def test_overlay_objects_carry_the_mask_and_the_pose_it_was_taken_at(wm):
+    s = wm.start_scan()
+    f = frame(wm, s, 1.0, 100.0, 5.0)
+    poly = [[200.0, 280.0], [280.0, 280.0], [280.0, 360.0], [200.0, 360.0]]
+    wm.observe(f, [{"label": "mug", "box": [200, 280, 280, 360], "polygon": poly}, {"label": "cup", "box": [20, 20, 80, 80]}])
+    mug, cup = wm.overlay_objects(s)
+    assert mug["mask"]["poly"] == poly and mug["mask"]["yaw"] == 100.0 and mug["mask"]["pitch"] == 5.0
+    assert mug["mask"]["width"] == W and mug["mask"]["height"] == H and mug["mask"]["hfov"] == wm.default_hfov_deg
+    assert cup["mask"] is None and len(cup["footprint"]) == 5  # no outline stored: the phone falls back to the footprint
+    assert mug["uncertainty_deg"] == 0.0 and mug["n_obs"] == 1
+
+
+def test_database_from_before_outlines_is_upgraded(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE observations (id INTEGER PRIMARY KEY, object_id INTEGER, frame_id INTEGER, ts REAL, box TEXT, conf REAL, yaw REAL, pitch REAL);")
+    con.close()
+    m = WorldModel(db)
+    assert "poly" in {r["name"] for r in m.db.execute("PRAGMA table_info(observations)")}
+    m.close()

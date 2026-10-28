@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from app import anchoring
 from app import reality_api as api
 from app.reasoner.base import Result
 from app.scan import ScanPipeline
@@ -122,3 +123,18 @@ def test_get_frame(tmp_path):
     run(scan(svc, [0]))
     fid = svc.wm.list_frames(svc.wm.list_scans()[0]["id"])[0]["id"]
     assert api.get_frame(svc, fid)[:2] == b"\xff\xd8" and api.get_frame(svc, 9999) is None
+
+
+def test_overlay_gives_the_phone_anchors_footprints_and_age(tmp_path):
+    svc = make_service(tmp_path)
+
+    async def go():
+        await scan(svc, [100, 120])
+        return api.overlay(svc)
+
+    r = asyncio.run(go())
+    assert r["status"] == "ok" and r["hfov_deg"] == anchoring.DEFAULT_HFOV_DEG and r["fov_calibrated"] in (True, False)
+    o = r["objects"][0]
+    assert {"id", "label", "yaw", "pitch", "uncertainty_deg", "age_s", "n_obs", "footprint", "mask"} <= set(o) and "last_seen" not in o
+    assert len(o["footprint"]) == 5 and o["age_s"] >= 0
+    assert api.overlay(make_service(tmp_path / "empty"))["status"] == "no_scans"

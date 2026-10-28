@@ -20,6 +20,37 @@ class SamObject:
     box: tuple[float, float, float, float] | None  # x1,y1,x2,y2 (half-open right/bottom), image px
     confidence: float | None
     mask_area_px: int | None
+    polygon: list[list[float]] | None = None  # simplified outline of the mask, image px of the sent image
+
+
+def raster_polygon(raster: np.ndarray, left: float, top: float, scale_x: float = 1.0, scale_y: float = 1.0,
+                   max_points: int = 32) -> list[list[float]] | None:
+    """Outline of the largest blob in a 0/1 mask, simplified to at most `max_points` vertices and placed in image
+    pixels (`left`, `top` is the mask's corner; scales map mask pixels to image pixels). None for an empty mask."""
+    import cv2
+
+    contours, _ = cv2.findContours((raster > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return None
+    c = max(contours, key=cv2.contourArea)
+    if cv2.contourArea(c) < 4:
+        return None
+    eps = 0.01 * cv2.arcLength(c, True)
+    approx = cv2.approxPolyDP(c, eps, True)
+    while len(approx) > max_points:
+        eps *= 1.4
+        approx = cv2.approxPolyDP(c, eps, True)
+    return [[round(left + (float(x) + 0.5) * scale_x, 1), round(top + (float(y) + 0.5) * scale_y, 1)] for [[x, y]] in approx]
+
+
+def mask_info(mask, bounds) -> tuple[int, list[list[float]] | None]:
+    """(area in mask pixels, outline in image pixels) of a parsed SAM mask placed at `bounds` in the sent image."""
+    from meta_sam_parser import decode_mask_to_raster
+
+    raster = np.frombuffer(decode_mask_to_raster(mask), dtype=np.uint8)
+    mw, mh = int(mask.width), int(mask.height)
+    poly = raster_polygon(raster.reshape(mh, mw), bounds.left, bounds.top, (bounds.right - bounds.left) / mw, (bounds.bottom - bounds.top) / mh)
+    return int(raster.sum()), poly
 
 
 @dataclass
@@ -44,7 +75,7 @@ def box_prompt(width: int, height: int, boxes: list[tuple[float, float, float, f
 async def sam_call(client, data_url: str, prompt: str) -> SamCall:
     """One sam-3.1 request (concept text or a box prompt). Streams and parses with meta-sam-parser.
     Never raises: failures come back as outcome "error" with the message in `error`."""
-    from meta_sam_parser import decode_mask_to_raster, image_segmentation_format, parse_responses_stream
+    from meta_sam_parser import image_segmentation_format, parse_responses_stream
 
     t0 = time.perf_counter()
     first = None
@@ -92,8 +123,8 @@ async def sam_call(client, data_url: str, prompt: str) -> SamCall:
             if o.box is None:
                 o.box = (b.left, b.top, b.right, b.bottom)
             try:
-                o.mask_area_px = int(np.frombuffer(decode_mask_to_raster(rec.mask), dtype=np.uint8).sum())
-            except Exception:  # noqa: BLE001
+                o.mask_area_px, o.polygon = mask_info(rec.mask, b)
+            except Exception:  # noqa: BLE001 - the box alone is still a usable detection
                 o.mask_area_px = None
     return SamCall(list(objs.values()), total, first, result.outcome.status, len(result.diagnostics))
 

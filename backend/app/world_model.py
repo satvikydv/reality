@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS objects (
 CREATE INDEX IF NOT EXISTS objects_scan_label ON objects(scan_id, label);
 CREATE TABLE IF NOT EXISTS observations (
   id INTEGER PRIMARY KEY, object_id INTEGER NOT NULL REFERENCES objects(id), frame_id INTEGER NOT NULL REFERENCES frames(id),
-  ts REAL NOT NULL, box TEXT NOT NULL, conf REAL NOT NULL, yaw REAL NOT NULL, pitch REAL NOT NULL);
+  ts REAL NOT NULL, box TEXT NOT NULL, conf REAL NOT NULL, yaw REAL NOT NULL, pitch REAL NOT NULL, poly TEXT);
 CREATE INDEX IF NOT EXISTS obs_object ON observations(object_id);
 """
 
@@ -105,6 +105,9 @@ class WorldModel:
         self.db = sqlite3.connect(str(db_path), check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        if "poly" not in {r["name"] for r in self.db.execute("PRAGMA table_info(observations)")}:  # database from before outlines
+            self.db.execute("ALTER TABLE observations ADD COLUMN poly TEXT")
+            self.db.commit()
         self.frames_dir = Path(frames_dir) if frames_dir else None
         self.merge_deg = merge_deg
         self.default_hfov_deg = default_hfov_deg
@@ -208,8 +211,9 @@ class WorldModel:
                     out.append({"object_id": None, "new": False, "yaw": yaw, "pitch": pitch, "skipped": "fragment"})
                     continue
                 claimed.add(oid)
-                self.db.execute("INSERT INTO observations (object_id, frame_id, ts, box, conf, yaw, pitch) VALUES (?,?,?,?,?,?,?)",
-                                (oid, frame_id, fr["ts"], json.dumps(box), conf, yaw, pitch))
+                poly = d.get("polygon")
+                self.db.execute("INSERT INTO observations (object_id, frame_id, ts, box, conf, yaw, pitch, poly) VALUES (?,?,?,?,?,?,?,?)",
+                                (oid, frame_id, fr["ts"], json.dumps(box), conf, yaw, pitch, json.dumps(poly) if poly else None))
                 out.append({"object_id": oid, "new": new, "yaw": yaw, "pitch": pitch})
             self.db.commit()
             return out
@@ -320,6 +324,25 @@ class WorldModel:
             return merged
 
     # ------------------------------------------------------------------ queries
+
+    def overlay_objects(self, scan_id: int | None = None) -> list[dict]:
+        """What the phone needs to draw a scan's objects over the live camera: the anchor, how sure it is, when it was
+        last seen, the footprint, and the latest sighting that kept a mask outline together with the pose it was taken at."""
+        with self.lock:
+            out = []
+            for o in self.list_objects(scan_id):
+                r = self.db.execute(
+                    "SELECT ob.poly, f.yaw, f.pitch, f.roll, f.screen_angle, f.width, f.height, f.hfov_deg FROM observations ob"
+                    " JOIN frames f ON f.id=ob.frame_id WHERE ob.object_id=? AND ob.poly IS NOT NULL ORDER BY ob.ts DESC, ob.id DESC LIMIT 1",
+                    (o["id"],)).fetchone()
+                sighting = None
+                if r:
+                    sighting = {"poly": json.loads(r["poly"]), "yaw": r["yaw"], "pitch": r["pitch"], "roll": A.image_roll(r["roll"], r["screen_angle"]),
+                                "width": r["width"], "height": r["height"], "hfov": r["hfov_deg"]}
+                out.append({"id": o["id"], "label": o["label"], "yaw": o["yaw"], "pitch": o["pitch"], "uncertainty_deg": o["spread_deg"],
+                            "n_obs": o["n_obs"], "confidence": o["conf_best"], "last_seen": o["last_seen"],
+                            "footprint": (o["state"] or {}).get("ext"), "mask": sighting})
+            return out
 
     @staticmethod
     def _obj(r: sqlite3.Row) -> dict:

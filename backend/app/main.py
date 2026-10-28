@@ -127,6 +127,12 @@ async def api_changes(before: int | None = None, after: int | None = None):
     return reality_api.what_changed(_service_or_503(), before, after)
 
 
+@app.get("/api/overlay")
+async def api_overlay(scan_id: int | None = None):
+    """Objects of a scan (default: the latest) with what the phone needs to draw them world-locked over the camera."""
+    return reality_api.overlay(_service_or_503(), scan_id)
+
+
 @app.get("/world/frame/{frame_id}.jpg")
 async def world_frame(frame_id: int):
     """A stored keyframe (replay for find results)."""

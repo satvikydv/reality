@@ -14,8 +14,13 @@ direction is all we can anchor to. Assumptions to check on the phone [VERIFY]:
 from __future__ import annotations
 
 import math
+import os
 
-DEFAULT_HFOV_DEG = 60.0  # horizontal field of view across the image width as sent [VERIFY: calibrate]
+# Horizontal field of view across the image width as sent. One value for the whole system: the server anchors
+# detections with it and the phone projects them back with it (served by /api/overlay). 60 is a placeholder
+# until the phone is calibrated (scripts/calibrate_fov.py prints the HFOV_DEG to set).
+DEFAULT_HFOV_DEG = float(os.environ.get("HFOV_DEG", "60"))
+FOV_CALIBRATED = "HFOV_DEG" in os.environ
 
 
 def wrap180(deg: float) -> float:
@@ -141,3 +146,65 @@ def extent_overlap(a, b) -> tuple[float, float]:
         return 0.0, 0.0
     inter, aa, ab = iy * ip, extent_area(a), extent_area(b)
     return (inter / min(aa, ab) if min(aa, ab) > 0 else 0.0), (inter / max(aa, ab) if max(aa, ab) > 0 else 0.0)
+
+
+def _matmul(a, b):
+    return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+
+def _basis_matrix(yaw_deg: float, pitch_deg: float, roll_deg: float):
+    """Columns are the image's (right, up, forward) in earth coordinates: earth = B @ camera."""
+    right, up, fwd = camera_basis(yaw_deg, pitch_deg, roll_deg)
+    return [[right[i], up[i], fwd[i]] for i in range(3)]
+
+
+def _k(width: int, height: int, hfov_deg: float):
+    """Intrinsics as a 3x3 acting on camera coordinates (x right, y up, z forward); image y points down, hence -f."""
+    f = focal_px(width, hfov_deg)
+    return [[f, 0.0, width / 2.0], [0.0, -f, height / 2.0], [0.0, 0.0, 1.0]]
+
+
+def _k_inv(width: int, height: int, hfov_deg: float):
+    f = focal_px(width, hfov_deg)
+    return [[1.0 / f, 0.0, -width / (2.0 * f)], [0.0, -1.0 / f, height / (2.0 * f)], [0.0, 0.0, 1.0]]
+
+
+def homography(cap: dict, cur: dict) -> list[list[float]]:
+    """H = K_cur R K_cap^-1: where a pixel of the capture image lands in the current view, for a camera that only
+    rotates (translation is unknown and ignored). `cap` and `cur` are {yaw, pitch, roll, width, height, hfov}."""
+    b_cap = _basis_matrix(cap["yaw"], cap["pitch"], cap.get("roll", 0.0))
+    b_cur = _basis_matrix(cur["yaw"], cur["pitch"], cur.get("roll", 0.0))
+    r = _matmul([[b_cur[j][i] for j in range(3)] for i in range(3)], b_cap)  # B_cur^T B_cap
+    return _matmul(_matmul(_k(cur["width"], cur["height"], cur["hfov"]), r), _k_inv(cap["width"], cap["height"], cap["hfov"]))
+
+
+def warp_points(h: list[list[float]], pts: list[tuple[float, float]]) -> list[tuple[float, float]] | None:
+    """Apply a homography to pixels. None if any point ends up behind the current camera (no honest outline then)."""
+    out = []
+    for u, v in pts:
+        x = h[0][0] * u + h[0][1] * v + h[0][2]
+        y = h[1][0] * u + h[1][1] * v + h[1][2]
+        w = h[2][0] * u + h[2][1] * v + h[2][2]
+        if w <= 1e-6:
+            return None
+        out.append((x / w, y / w))
+    return out
+
+
+def footprint_outline(ext, cur: dict, per_edge: int = 4) -> list[tuple[float, float]] | None:
+    """Outline of an object's angular footprint `ext` (yaw0, dyaw_lo, dyaw_hi, pitch_lo, pitch_hi) in the current view:
+    the rectangle's edges sampled `per_edge` times each, then projected. None if any sample is behind the camera."""
+    yaw0, lo, hi, plo, phi = ext
+    n = max(1, per_edge)
+    bottom = [(lo + (hi - lo) * i / n, plo) for i in range(n)]
+    right = [(hi, plo + (phi - plo) * i / n) for i in range(n)]
+    top = [(hi - (hi - lo) * i / n, phi) for i in range(n)]
+    left = [(lo, phi - (phi - plo) * i / n) for i in range(n)]
+    edge = bottom + right + top + left  # once around the rectangle, so the outline is a simple polygon
+    out = []
+    for dy, p in edge:
+        px = direction_to_pixel(yaw0 + dy, p, cur["width"], cur["height"], cur["yaw"], cur["pitch"], cur.get("roll", 0.0), cur["hfov"])
+        if px is None:
+            return None
+        out.append(px)
+    return out

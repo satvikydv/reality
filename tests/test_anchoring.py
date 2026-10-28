@@ -79,3 +79,42 @@ def test_box_anchor_uses_centre():
     y1, p1 = A.box_anchor((200, 300, 280, 340), W, H, 40, 5)
     y2, p2 = A.pixel_to_direction(240, 320, W, H, 40, 5)
     assert close(y1, y2) and abs(p1 - p2) < 1e-9
+
+
+CAP = {"yaw": 100.0, "pitch": -8.0, "roll": 4.0, "width": 540, "height": 960, "hfov": 60.0}
+
+
+def test_homography_moves_a_capture_pixel_to_where_its_direction_appears_now():
+    cur = {"yaw": 130.0, "pitch": 5.0, "roll": -6.0, "width": 1080, "height": 1920, "hfov": 60.0}
+    h = A.homography(CAP, cur)
+    for u, v in [(270, 480), (60, 200), (500, 900), (10, 950)]:
+        yaw, pitch = A.pixel_to_direction(u, v, CAP["width"], CAP["height"], CAP["yaw"], CAP["pitch"], CAP["roll"], CAP["hfov"])
+        want = A.direction_to_pixel(yaw, pitch, cur["width"], cur["height"], cur["yaw"], cur["pitch"], cur["roll"], cur["hfov"])
+        got = A.warp_points(h, [(u, v)])[0]
+        assert abs(got[0] - want[0]) < 1e-6 and abs(got[1] - want[1]) < 1e-6
+
+
+def test_homography_is_the_identity_for_the_same_pose_and_none_when_behind():
+    h = A.homography(CAP, CAP)
+    assert A.warp_points(h, [(123.0, 456.0)])[0] == pytest.approx((123.0, 456.0), abs=1e-6)
+    back = {**CAP, "yaw": 100.0 + 180.0}
+    assert A.warp_points(A.homography(CAP, back), [(270, 480)]) is None
+
+
+def test_footprint_outline_encloses_the_anchor():
+    ext = A.box_extent((100, 300, 300, 500), 540, 960, 100.0, -8.0, 0.0, 60.0)
+    cur = {"yaw": 100.0, "pitch": -8.0, "roll": 0.0, "width": 540, "height": 960, "hfov": 60.0}
+    ring = A.footprint_outline(ext, cur)
+    us, vs = [p[0] for p in ring], [p[1] for p in ring]
+    assert min(us) <= 100 and max(us) >= 300 and min(vs) <= 300 and max(vs) >= 500  # the angular bounding box encloses the pixel box
+    assert max(us) - min(us) < 240 and max(vs) - min(vs) < 240  # and only just
+    assert A.footprint_outline(ext, {**cur, "yaw": 280.0}) is None
+
+
+def test_footprint_outline_goes_once_around_so_it_is_a_simple_polygon():
+    ext = (100.0, -10.0, 10.0, -8.0, 8.0)
+    cur = {"yaw": 100.0, "pitch": 0.0, "roll": 0.0, "width": 540, "height": 960, "hfov": 60.0}
+    ring = A.footprint_outline(ext, cur, per_edge=4)
+    side = max(max(p[0] for p in ring) - min(p[0] for p in ring), max(p[1] for p in ring) - min(p[1] for p in ring))
+    steps = [math.dist(ring[i], ring[(i + 1) % len(ring)]) for i in range(len(ring))]
+    assert max(steps) < side / 3  # a zig-zag between opposite edges would jump about a full side

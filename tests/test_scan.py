@@ -146,3 +146,33 @@ def test_merge_parts_joins_boxes_of_one_thing_only():
     assert len(apart) == 2  # two mugs side by side stay two
     mixed = merge_parts([d("laptop", [0, 0, 300, 200]), d("cup", [100, 100, 150, 150])])
     assert {x["label"] for x in mixed} == {"laptop", "cup"}  # a cup in front of a laptop is not part of it
+
+
+def test_raster_polygon_outlines_the_blob_in_image_pixels():
+    from app.sam_client import raster_polygon
+    r = np.zeros((40, 60), np.uint8)
+    r[10:30, 20:50] = 1  # a 30 x 20 rectangle inside a 60 x 40 mask
+    poly = raster_polygon(r, left=100.0, top=200.0, scale_x=2.0, scale_y=2.0)
+    xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+    assert len(poly) <= 32 and 4 <= len(poly)
+    assert min(xs) == pytest.approx(100 + (20 + .5) * 2) and max(xs) == pytest.approx(100 + (49 + .5) * 2)
+    assert min(ys) == pytest.approx(200 + (10 + .5) * 2) and max(ys) == pytest.approx(200 + (29 + .5) * 2)
+    assert raster_polygon(np.zeros((5, 5), np.uint8), 0, 0) is None
+    ring = np.zeros((200, 200), np.uint8)
+    cv2.circle(ring, (100, 100), 80, 1, -1)
+    assert 8 <= len(raster_polygon(ring, 0, 0)) <= 32  # a circle is simplified, not stored as hundreds of points
+
+
+def test_mask_info_reads_a_real_encoded_mask():
+    from meta_sam_parser import SegmentationMask, SegmentationMaskBounds
+    from meta_sam_parser._mask_codec import _encode_raster
+    from app.sam_client import mask_info
+    r = np.zeros((30, 40), np.uint8)
+    r[5:25, 10:30] = 1
+    mask = SegmentationMask("one_bit", _encode_raster(r.flatten().tolist(), 40, 30), 40, 30)
+    area, poly = mask_info(mask, SegmentationMaskBounds(left=100, top=200, right=140, bottom=230))
+    assert area == 20 * 20
+    xs, ys = [p[0] for p in poly], [p[1] for p in poly]
+    assert min(xs) == pytest.approx(110.5) and max(xs) == pytest.approx(129.5) and min(ys) == pytest.approx(205.5) and max(ys) == pytest.approx(224.5)
+    stretched = mask_info(mask, SegmentationMaskBounds(left=0, top=0, right=80, bottom=60))[1]  # mask is half the size of its box
+    assert max(p[0] for p in stretched) == pytest.approx(2 * 29 + 1)

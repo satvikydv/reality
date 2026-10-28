@@ -46,3 +46,21 @@ def test_api_reports_503_when_the_service_cannot_start(monkeypatch):
     with TestClient(main.app) as c:
         r = c.get("/api/scans")
         assert r.status_code == 503 and "MODEL_API_KEY" in r.json()["detail"]
+
+
+def test_overlay_endpoint_serves_what_the_phone_draws(client):
+    empty = client.get("/api/overlay").json()
+    assert empty["status"] == "no_scans" and empty["objects"] == [] and empty["hfov_deg"] > 0
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(json.dumps({"type": "scan_start"}))
+        assert ws.receive_json()["type"] == "scan_started"
+        ws.send_bytes(frame_msg(1, 2, meta(40), jpeg()))
+        ws.send_text(json.dumps({"type": "scan_end"}))
+        while ws.receive_json()["type"] != "scan_summary":
+            pass
+    r = client.get("/api/overlay").json()
+    assert r["status"] == "ok" and r["fov_calibrated"] in (True, False)
+    o = r["objects"][0]
+    assert o["label"] and 0 <= o["yaw"] < 360 and o["age_s"] >= 0 and len(o["footprint"]) == 5
+    assert not any("distance" in k or k.endswith("_m") for k in o)  # angles only: no metric distances exist
+    assert client.get("/js/project.js").status_code == 200 and client.get("/js/ar.js").status_code == 200
