@@ -151,14 +151,32 @@ export function historyRow(s, { memory = false } = {}) {
 }
 
 // One change between two scans: before / after pictures, what happened in words (an angle, never a distance), confirm / dismiss.
+// How well the two scans lined up, in words: the reason nothing may be called moved when it is not good.
+export function alignWords(al) {
+  const q = al.quality || "failed";
+  if (q === "failed") return "The pictures of the two scans could not be matched, so nothing is called moved, new or removed.";
+  if (q === "weak") return `The scans lined up only roughly (${al.inliers} matching points from ${al.pairs} frame pair${al.pairs === 1 ? "" : "s"}), so nothing is called moved, new or removed.`;
+  const off = Math.abs(Math.round((al.offset_used_deg ?? al.offset_deg ?? 0) * 10) / 10);
+  return `${al.inliers} matching points from ${al.pairs} frame pairs. The second scan's start heading differs by ${off}° (±${al.spread_deg ?? 0}°). A move counts only beyond what ${al.viewpoint_cm ?? 15} cm of viewpoint change could explain.`;
+}
+
+export function alignCard(al) {
+  const q = al.quality || "failed", card = el("div", "grp panel align " + q), h = el("h2");
+  h.append(el("span", "ic", q === "good" ? "✓" : q === "weak" ? "~" : "!"), `Alignment: ${q}`);
+  card.append(h, el("p", "dim", alignWords(al)));
+  return card;
+}
+
 export function changeCard(kind, e) {
+  const two = kind === "moved" || kind === "possibly_moved";
   const card = el("div", "chgcard panel" + (e.review === "dismissed" ? " dismissed" : e.review === "confirmed" ? " confirmed" : ""), null, { "data-kind": kind });
-  const pics = el("div", "pair" + (kind === "moved" ? "" : " one"));
+  const pics = el("div", "pair" + (two ? "" : " one"));
   const slot = (label, rp) => { const s = el("div", "stripe"); if (rp) { const c = el("canvas"); c.dataset.replay = JSON.stringify(rp); s.append(c); } else s.append("—"); s.append(el("i", null, label)); return s; };
-  if (kind === "moved") pics.append(slot("BEFORE", e.from?.replay), slot("AFTER", e.to?.replay));
+  if (two) pics.append(slot("BEFORE", e.from?.replay), slot("AFTER", e.to?.replay));
   else pics.append(slot(kind === "removed" ? "BEFORE" : "AFTER", e.replay));
   const label = e.label || e.to?.label || "";
-  const words = kind === "moved" ? `The ${label} moved ${e.shift?.words || ""}.` : e.speech;
+  const words = kind === "moved" ? `The ${label} moved ${e.shift?.words || ""}.`
+    : kind === "possibly_moved" ? `The ${label} may have moved ${e.shift?.words || ""}. Standing in a slightly different spot could explain that (it allows ${e.tolerance_deg}° for this object).` : e.speech;
   const acts = el("div", "hacts");
   for (const [state, text] of [["confirmed", "Confirm"], ["dismissed", "Dismiss"]])
     acts.append(el("button", "mini", text, { "data-act": "review", "data-key": e.key, "data-state": e.review === state ? "" : state, "aria-pressed": String(e.review === state) }));

@@ -33,6 +33,7 @@ select,button.small{font:600 13px var(--sans);color:var(--ink);background:var(--
 select{font-family:var(--mono);font-weight:500;padding:0 12px}select option{color:#000}
 button.small{cursor:pointer}button.small.go{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
 #chsum{font:500 14px/1.4 var(--sans);color:var(--dim)}
+#chalign{font:500 12px/1.4 var(--mono);color:var(--dim)}#chalign.al-good{color:var(--green)}#chalign.al-weak{color:var(--amber)}#chalign.al-failed{color:var(--red)}
 #cards{display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;padding-bottom:6px;min-width:0;max-width:100%;flex:1;min-height:0}
 .card{flex:0 0 250px;padding:12px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid var(--line);display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:border-color .15s,background .15s,transform .15s;overflow:hidden;text-align:left;color:inherit;font:inherit}
 .card:hover,.card:focus-visible{border-color:var(--accent);background:var(--accent-fill);transform:translateY(-2px);outline:none}
@@ -94,6 +95,7 @@ button.small:disabled{opacity:.35;cursor:default}
       <div class="bar"><span class="label">Compare scans</span>
         <select id="sa" title="before"></select><span class="label">→</span><select id="sb" title="after"></select>
         <button class="small go" id="cmp">What changed?</button><button class="small" id="clr" hidden>Clear</button><span id="chsum"></span></div>
+      <div id="chalign" role="status"></div>
       <div id="cards"></div>
     </div>
   </div>

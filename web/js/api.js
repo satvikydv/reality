@@ -27,6 +27,7 @@ export function makeApi(call = fetchJson) {
     search: (text, roomId) => get(`/api/search${q({ q: text, room_id: roomId })}`, 10000),
     guide: (objectId, roomId) => send("POST", "/api/guide", { object_id: objectId, room_id: roomId }),
     overlay: (roomId, scanId) => get(`/api/overlay${q({ room_id: roomId, scan_id: scanId })}`, 10000),
+    reference: (roomId) => get(`/api/rooms/${roomId}/reference`, 10000),
     notes: (roomId) => get(`/api/rooms/${roomId}/notes`),
     addNote: (roomId, body) => send("POST", `/api/rooms/${roomId}/notes`, body),
     noteDone: (id, done) => send("PATCH", `/api/notes/${id}`, { done }),

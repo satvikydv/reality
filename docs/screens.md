@@ -117,11 +117,13 @@ Live scan, with the camera on. A checklist first (light reading from the camera,
 
 | State | Shows |
 |---|---|
-| `ready` | the pre-scan checklist, Cancel, Start scanning |
+| `ready` | the pre-scan checklist, Cancel, Start scanning. When the room already has a saved scan (a rescan): that scan's first keyframe as a faded outline (30%) over the camera and a line saying how to line up ("Turn left 8 degrees, move slightly right.", "Lined up. Start scanning."); Start reads "Start anyway" until lined up and is never disabled |
 | `live` | hint, compass and percentage, stats, Cancel, Done |
 
 - Data: the room being scanned, light level, coverage bins and pitch bands, current direction and field of view, coaching hint, frame and object counts.
-- API: `WS /ws scan_start{room_id} / scan_end / scan_cancel`.
+- API: `WS /ws scan_start{room_id} / scan_end / scan_cancel`, `GET /api/rooms/{id}/reference`, `WS /ws live frame (flag 4) answered with align_hint`.
+
+How the lining up works: the phone sends a small live frame about twice a second; the server matches it with the first scan's keyframe (SIFT, RANSAC) and answers `align_hint {ok, within, words, turn_deg, tilt_deg, roll_deg, move, parallax_deg, inliers}`. Turn, tilt and roll come from the recovered rotation; "move slightly left / right / forward / back" from the direction of the recovered translation (its size is unknown, so only a direction is given). Within means turn, tilt and roll are each under 4 degrees and the remaining parallax is under 1.5 degrees. If the live view shares nothing with the keyframe the line says to point at the faded outline.
 
 ### `summary`
 
@@ -198,11 +200,11 @@ Guided search, camera on. An arrow toward the stored direction with a cone for h
 
 ### `changes`
 
-What changed in one room: a Before and an After picker over the room's saved scans (default: the latest against its baseline, else the one before), then moved / new / removed with before and after pictures and an angular shift ("moved 40° to the right"), a "Not checked" list for directions only one scan looked at, and Confirm / Dismiss per change. Scans of different rooms are never compared.
+What changed in one room: a Before and an After picker over the room's saved scans (default: the latest against its baseline, else the one before), an **alignment** card (how well the two scans lined up from their pictures: good, weak or failed, with the matches and the start-heading difference), then moved / possibly moved / new / removed with before and after pictures and an angular shift ("moved 40° to the right"), a "Not checked" list for directions only one scan looked at, and Confirm / Dismiss per change. Scans of different rooms are never compared.
 
 | State | Shows |
 |---|---|
-| `default` | pickers, the summary sentence, grouped change cards, Not checked |
+| `default` | pickers, the summary sentence, the alignment card, grouped change cards (Moved, Possibly moved, New, Removed), Can't compare |
 | `loading` | comparing |
 | `need-two` | the room has fewer than two saved scans; Scan this room |
 | `error` | what failed, Try again |

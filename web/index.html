@@ -8,6 +8,7 @@
 <body data-screen="home">
 <video id="v" playsinline muted autoplay></video><div id="bg"><i></i></div>
 <div id="hud">
+<img id="ghost" alt="" hidden>
 <canvas id="ar"></canvas>
 
 <!-- Every screen is a section with id "s-<screen>" (see js/screens.js). Inside, data-show="state ..." parts appear only in
@@ -54,6 +55,7 @@
   <div class="bot">
     <div class="check panel" id="checklist" data-show="ready">
       <h2>Before you scan</h2>
+      <div class="chk" id="chkalign" role="status" aria-live="polite" hidden><i>·</i><span id="aligntext">Hold the phone where you first stood and point at the faded outline.</span></div>
       <div class="chk" id="chklight" role="status"><i>·</i><span id="lighttext">Checking the light…</span></div>
       <button class="chk" id="chkpeople" data-act="toggle-people" aria-pressed="false"><i></i><span>The room is empty: no people in the room or in frame</span></button>
       <div class="chk ok"><i>✓</i><span>Stand in the middle of the room, hold the phone upright</span></div>

@@ -13,7 +13,7 @@ import {explainNotFound,ago} from './explain.js';
 import {SCREENS,NAV,ids,sectionId,isCamera,navTab,hasState,applyState} from './screens.js';
 import {createStore,INITIAL,roomById,activeRoom,roomLabel,freeNameChips} from './store.js';
 import {makeApi,describeFailure} from './api.js';
-import {el as mk,paintThumbs,thumb,roomCard,roomChip,switcherRow,summaryTiles,groupTile,historyRow,changeCard,findGroup,since,labelRow,instanceRow,sightingCard,noteRow,thenRow,whenText} from './views.js';
+import {el as mk,paintThumbs,thumb,roomCard,roomChip,switcherRow,summaryTiles,groupTile,historyRow,changeCard,findGroup,since,labelRow,instanceRow,sightingCard,noteRow,thenRow,whenText,alignCard} from './views.js';
 import {fixture} from './fixtures.js';
 const $=id=>document.getElementById(id),P=new URLSearchParams(location.search);
 const body=document.body;let demo=P.has('demo'),scrn='home';
@@ -50,6 +50,7 @@ function go(id,{back=false}={}){
   for(const b of $('nav').children)b.dataset.nav===tab?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current');
   if(was!==id&&isCamera(was)&&!isCamera(id))stopCamera('left the '+was+' screen'); // the camera is on only while a camera screen is showing
   if(was==='guide'&&id!=='guide')stopGuide();
+  if(was==='scan'&&id!=='scan')stopAlign();
   if(was==='explore'&&id!=='explore')clearOverlayAnswers();
   if(was==='summary'&&id!=='summary')stopProc();
   if(id==='result')rt=0;
@@ -253,16 +254,43 @@ function sampleLight(){const v=$('v');if(!v.videoWidth)return null;const x=lc.ge
 function startLight(){clearInterval(lightT);
   const tick=()=>{const lv=lightVerdict(demo?120:sampleLight()),r=$('chklight');txt('lighttext',lv.text);r.className='chk'+(lv.ok===true?' ok':lv.ok===false?' bad':'');r.firstChild.textContent=lv.ok===true?'✓':lv.ok===false?'!':'·'};
   tick();lightT=setInterval(tick,1000)}
-RENDER.scan=(state,d={})=>{txt('scanroom',d.room?.name||roomLabel(S(),S().scan?.roomId));setState('scan',state)};
+RENDER.scan=(state,d={})=>{txt('scanroom',d.room?.name||roomLabel(S(),S().scan?.roomId));setState('scan',state);if(state==='ready'&&d.align)applyAlign(d.align)};
+
+/* Re-photography assist: before a rescan, the room's first keyframe is laid over the camera as a faded outline (30%), the server compares
+   the live view with it about twice a second and says how to line up. Start is never blocked: it reads "Start anyway" until lined up. */
+let alignT=null,probing=false,probeT=null,refInfo=null;
+function applyAlign(h){ // h: an align_hint from the server, or a demo fixture
+  const row=$('chkalign');if(h.no_reference){row.hidden=true;return}
+  row.hidden=false;
+  const dom=[[h.turn_deg,'←','→'],[h.tilt_deg,'↓','↑'],[h.roll_deg,'↺','↻']].filter(x=>x[0]!=null).sort((a,b)=>Math.abs(b[0])-Math.abs(a[0]))[0];
+  row.firstChild.textContent=h.within?'✓':!h.ok?'·':(dom&&Math.abs(dom[0])>4?dom[dom[0]>0?2:1]:'↔');
+  row.className='chk'+(h.within?' ok':h.ok?' bad':'');
+  txt('aligntext',h.words||'Hold the phone where you first stood and point at the faded outline.');
+  const b=$('startbtn');b.textContent=h.within?'Start scanning':'Start anyway';b.classList.toggle('ghost',!h.within)}
+async function startAlign(){
+  stopAlign();if(demo)return;const roomId=S().scan?.roomId;if(roomId==null)return;
+  const r=await api.reference(roomId);if(!ready||scrn!=='scan'||!r.ok||r.data.status!=='ok')return;
+  refInfo=r.data;$('ghost').src=r.data.outline_url;$('ghost').hidden=false;
+  const row=$('chkalign');row.hidden=false;row.className='chk';row.firstChild.textContent='·';
+  alignT=setInterval(probeTick,500)}
+function stopAlign(){
+  clearInterval(alignT);clearTimeout(probeT);alignT=null;probing=false;refInfo=null;$('ghost').hidden=true;$('chkalign').hidden=true;
+  const b=$('startbtn');b.textContent='Start scanning';b.classList.remove('ghost')}
+async function probeTick(){
+  if(!ready||scrn!=='scan'||probing||!refInfo||!sock||!sock.ready||sock.backlog>262144)return;
+  probing=true;clearTimeout(probeT);probeT=setTimeout(()=>{probing=false},3000);
+  try{const b=await cam.grabJpeg($('v'),480,.7);if(!b||!ready){probing=false;return}await sock.send(b,{probe:true,meta:{room_id:refInfo.room.id}})}catch{probing=false}}
+function onAlignHint(r){clearTimeout(probeT);probing=false;if(ready&&refInfo)applyAlign(r)}
 async function openScan(){
   summary=null;shownSummary=null;ready=true;$('chkpeople').setAttribute('aria-pressed','false');txt('lighttext','Checking the light…');
-  RENDER.scan('ready');if(!await useCamera('scan'))return;startLight()}
+  RENDER.scan('ready');if(!await useCamera('scan'))return;startLight();startAlign()}
 function startScan(){
+  stopAlign();
   if(demo){ready=false;return demoScan()}
   if(!session.active)return toast('The camera is not running yet');
   ctl.policy.minIntervalMs=prefs.minIntervalMs();ready=false;clearInterval(lightT);ctl.start(S().scan.roomId)}
 async function cancelScan(){
-  if(ready){ready=false;stopCamera('cancelled');return openHome()} // nothing was started: just close the camera
+  if(ready){ready=false;stopAlign();stopCamera('cancelled');return openHome()} // nothing was started: just close the camera
   const yes=await confirmDlg({title:'Discard this scan?',body:'Everything captured so far is deleted. You can scan again right away.',yes:'Discard',no:'Keep scanning',items:[plural(ctl?.st.sent||0,'photo')+' from this scan',plural(ctl?.st.objects||0,'object')]});
   if(!yes)return;
   if(demo){clearInterval(st);return openHome()}
@@ -543,12 +571,13 @@ RENDER.changes=(state,d={})=>{
   txt('chgpill',room?room.name.toUpperCase():'WHAT CHANGED');
   if(state==='default'||state==='nothing-changed'){
     const c=d.data;fillPicker(c);
-    const kids=[mk('div','grp panel sumline',c.summary)];
-    for(const[k,icon,color,name]of[['moved','↔','var(--accent)','Moved'],['removed','−','var(--red)','Removed'],['added','+','var(--green)','New']]){
-      if(!c[k].length)continue;const g=mk('div','grp panel'),h=mk('h2'),ic=mk('span','ic',icon);ic.style.background=color;h.append(ic,name,mk('span','n',c[k].length));g.append(h);
+    const kids=[mk('div','grp panel sumline',c.summary),alignCard(c.alignment||{})];
+    for(const[k,icon,color,name]of[['moved','↔','var(--accent)','Moved'],['possibly_moved','≈','var(--amber)','Possibly moved'],['removed','−','var(--red)','Removed'],['added','+','var(--green)','New']]){
+      if(!(c[k]||[]).length)continue;const g=mk('div','grp panel'),h=mk('h2'),ic=mk('span','ic',icon);ic.style.background=color;h.append(ic,name,mk('span','n',c[k].length));g.append(h);
       for(const e of c[k])g.append(changeCard(k,e));kids.push(g)}
-    if(c.unverified.length){const g=mk('div','grp panel unv'),h=mk('h2'),ic=mk('span','ic','?');h.append(ic,'Not checked',mk('span','n',c.unverified.length));g.append(h);
-      for(const x of c.unverified)g.append(mk('p','dim',`${x.label}: ${x.reason}`));kids.push(g)}
+    const cant=c.cant_compare||c.unverified||[];
+    if(cant.length){const g=mk('div','grp panel unv'),h=mk('h2'),ic=mk('span','ic','?');h.append(ic,'Can’t compare',mk('span','n',cant.length));g.append(h);
+      for(const x of cant)g.append(mk('p','dim',`${x.label}: ${x.reason}`));kids.push(g)}
     $('chg').replaceChildren(...kids);paintThumbs($('chg'));$('chg')._data=c}
   else if(state==='loading'||state==='slow'){txt('chgloadtitle',state==='slow'?'Still comparing…':'Comparing your scans…');txt('chgloadtext',d.message||'This usually takes a second.')}
   else if(state==='need-two')chgNote(state,'Nothing to compare yet',d.message||'Comparing needs two saved scans of the same room. Scan it, move or add something, then scan it again.',{label:'Scan this room',run:()=>openWizard({roomId:chgRoom})});
@@ -572,7 +601,7 @@ async function openChanges(roomId=null,{before,after}={}){
 async function reviewChange(key,state){ // confirm or dismiss one change (an empty state clears the mark)
   const c=$('chg')._data;if(!c)return;
   if(!demo){const r=await api.review(chgRoom,c.scan_before,c.scan_after,key,state||null);if(!r.ok)return toast(describeFailure(r,'save that').text)}
-  for(const k of['moved','removed','added'])for(const e of c[k])if(e.key===key)e.review=state||null;
+  for(const k of['moved','possibly_moved','removed','added'])for(const e of c[k]||[])if(e.key===key)e.review=state||null;
   RENDER.changes('default',{room:roomById(S(),chgRoom),data:c})}
 
 /* Objects review (the simple phone version of the dashboard inspector): labels, then instances, then sightings */
@@ -817,7 +846,7 @@ let dragging=false,px=0,py=0;const ppd=()=>innerWidth/60; // drag to look around
 addEventListener('pointerdown',e=>{if(!demo||!isCamera(scrn)||e.target.closest('button,input,summary,details,select'))return;dragging=true;px=e.clientX;py=e.clientY});
 addEventListener('pointermove',e=>{if(!dragging||scrn==='scan')return;cur.tyaw=(cur.tyaw-(e.clientX-px)/ppd()+360)%360;cur.tpitch=Math.max(-70,Math.min(70,cur.tpitch+(e.clientY-py)/ppd()));px=e.clientX;py=e.clientY});
 addEventListener('pointerup',()=>dragging=false);
-window.__scan=()=>ctl;window.__ui={cur,go,world,prefs,store,say:speak,screen:()=>scrn,session:()=>session,show:(id,state)=>showFixture(id,state),RENDER};
+window.__scan=()=>ctl;window.__ui={cur,go,world,prefs,store,align:applyAlign,say:speak,screen:()=>scrn,session:()=>session,show:(id,state)=>showFixture(id,state),RENDER};
 
 /* ---------- boot ---------- */
 // Opening the page only builds the screens and starts the server check. The camera, the motion sensors and the microphone
@@ -831,6 +860,7 @@ async function boot(){
     session=new CameraSession({video:$('v'),startCamera:c.startCamera,orient,onState:onCamState,onHidden,onEnded:onCamEnded});
     sock=new w.FrameSocket(r=>{
       if(r.type==='find_result'){if(!findPending)return;findDone();return onFindReply(r)}
+      if(r.type==='align_hint')return onAlignHint(r);
       if(r.type==='guide_request')return handleEvent(r);
       if(r.type==='error'&&r.where==='find')return findFailed(r.message);
       if(r.type)return ctl.onEvent(r)},onSockState);

@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from app import main, status
+from synthetic_world import GOOD
 from test_scan_service import frame_msg, jpeg, make_service, meta
 from test_status import FakeClient
 
@@ -597,6 +598,8 @@ def test_the_summary_groups_many_kinds_with_a_tappable_others_tile(site, clean):
 def test_changes_compare_two_scans_of_one_room_with_an_angle_and_confirm(site, clean):
     rid = site.room("Living Room", active=True, label="mug", yaw=0, ts=100)
     site.scan_in(rid, "mug", yaw=60, ts=200)
+    first, second = sorted(s["id"] for s in site.svc_.wm.room_scans(rid))
+    site.svc_.wm.set_alignment(first, second, GOOD)                 # alignment from pictures has its own tests; this one is about the screen
     other = site.room("Desk", label="mug", yaw=0, ts=150)
     p = booted(site)
     p.tap("#nav [data-nav=changes]")
@@ -982,6 +985,8 @@ def test_ask_the_room_draws_only_the_objects_the_answer_names(site, clean):
 def test_rewind_shows_what_an_earlier_scan_had_as_ghosts_and_clears(site, clean):
     rid = site.room("Study", active=True, label="mug", ts=100.0)
     site.scan_in(rid, "lamp", 0.0, 200.0)                              # the mug is gone, a lamp is there now
+    first, second = sorted(s["id"] for s in site.svc_.wm.room_scans(rid))
+    site.svc_.wm.set_alignment(first, second, GOOD)
     p = booted(site)
     p.tap(f"#hrooms [data-id='{rid}']")
     p.wait("document.getElementById('s-room').dataset.state==='default'")
@@ -1015,3 +1020,56 @@ def test_caregiver_sharing_is_off_until_the_person_turns_it_on_in_settings(site,
     p.tap("#careseg [data-v='0']")
     p.wait("document.querySelector('#careseg [data-v=\"0\"]').getAttribute('aria-pressed')==='true'")
     assert care.consent(site.svc_)["on"] is False
+
+
+# ------------------------------------------------------------------------------------------------ lining up a rescan, and the alignment on Changes
+
+def test_a_rescan_shows_the_first_scans_outline_and_start_is_never_blocked(site, clean):
+    from synthetic_world import add_scan, make_panorama
+    rid = site.svc_.wm.create_room("Study", active=True)["id"]
+    add_scan(site.svc_.wm, rid, make_panorama(), [0, 40, 80], ts=1.0)
+    p = booted(site)
+    p.tap("#nav [data-nav=scan]")
+    p.tap("#wzgo")
+    p.wait("document.body.dataset.screen==='scan'")
+    p.wait("!document.getElementById('ghost').hidden", what="the first scan's outline")
+    assert f"/api/rooms/{rid}/reference.png" in p.eval("document.getElementById('ghost').getAttribute('src')")
+    assert p.eval("getComputedStyle(document.getElementById('ghost')).opacity") == "0.3"
+    assert p.eval("document.getElementById('chkalign').hidden") is False
+    p.eval("window.__ui.align({ok:true,within:false,inliers:80,words:'Turn left 8 degrees, move slightly right.',turn_deg:-8,tilt_deg:1,roll_deg:0,move:'right',parallax_deg:2.4})")
+    assert "Turn left 8 degrees" in p.text("#aligntext") and p.text("#startbtn") == "Start anyway" and p.eval("document.getElementById('startbtn').disabled") is False
+    p.eval("window.__ui.align({ok:true,within:true,inliers:120,words:'Lined up. Start scanning.',turn_deg:1,tilt_deg:0,roll_deg:0,move:null,parallax_deg:0.4})")
+    assert p.text("#startbtn") == "Start scanning" and p.eval("document.getElementById('startbtn').classList.contains('ghost')") is False and p.errors == []
+
+
+def test_the_first_scan_of_a_room_has_nothing_to_line_up_with(site, clean):
+    site.svc_.wm.create_room("Fresh", active=True)
+    p = booted(site)
+    p.tap("#nav [data-nav=scan]")
+    p.tap("#wzgo")
+    p.wait("document.body.dataset.screen==='scan'")
+    p.settle(1.0)
+    assert p.eval("document.getElementById('ghost').hidden") is True and p.eval("document.getElementById('chkalign').hidden") is True
+    assert p.text("#startbtn") == "Start scanning"
+
+
+def test_changes_shows_the_alignment_and_keeps_possibly_moved_and_cant_compare_apart(site, clean):
+    p = site.page(READY).open("/?demo&screen=changes&state=default")
+    p.wait("document.getElementById('s-changes').dataset.state==='default'")
+    p.settle(0.5)
+    assert p.eval("document.querySelector('#chg .align.good h2')?.textContent") == "✓Alignment: good" and "214 matching points" in p.text("#chg .align")
+    heads = p.eval("[...document.querySelectorAll('#chg h2')].map(h=>h.textContent)")
+    assert any(h.startswith("↔Moved") for h in heads) and any(h.startswith("≈Possibly moved") for h in heads) and any(h.startswith("?Can’t compare") for h in heads)
+    assert p.eval("document.querySelectorAll('#chg .chgcard[data-kind=possibly_moved]').length") == 1
+    card = p.text("#chg .chgcard[data-kind=possibly_moved]")
+    assert "may have moved" in card and " m " not in card and "meter" not in card
+
+
+def test_a_weak_alignment_is_explained_and_no_move_is_shown(site, clean):
+    p = site.page(READY).open("/?demo&screen=changes&state=default")
+    p.wait("document.getElementById('s-changes').dataset.state==='default'")
+    p.eval("(()=>{const c=window.__ui.RENDER;const d=JSON.parse(JSON.stringify(document.getElementById('chg')._data));"
+           "d.alignment={quality:'weak',inliers:30,pairs:1,spread_deg:4};d.moved=[];d.possibly_moved=[];d.removed=[];d.added=[];d.summary='The two scans could not be lined up reliably, so I cannot say what moved.';"
+           "c.changes('default',{room:{id:1,name:'Living Room'},data:d})})()")
+    assert p.eval("!!document.querySelector('#chg .align.weak')") and "nothing is called moved" in p.text("#chg .align")
+    assert p.eval("[...document.querySelectorAll('#chg h2')].some(h=>/Moved|Removed|New/.test(h.textContent))") is False

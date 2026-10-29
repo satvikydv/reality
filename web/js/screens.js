@@ -22,7 +22,7 @@ export const SCREENS = {
     data: ["existing rooms (to rescan)", "name suggestions", "whether to make the room active"], api: ["POST /api/rooms", "PATCH /api/rooms/{id}"] },
   scan: { title: "Live scan", nav: null, top: null, camera: true, states: ["ready", "live"],
     data: ["room being scanned", "light reading", "coverage bins, pitch bands, view direction and cone", "frames, objects, coaching hint"],
-    api: ["WS /ws scan_start{room_id} / scan_end / scan_cancel"] },
+    api: ["WS /ws scan_start{room_id} / scan_end / scan_cancel", "GET /api/rooms/{id}/reference", "WS /ws live frame (flag 4) answered with align_hint"] },
   summary: { title: "Scan summary", nav: null, top: null, camera: false, states: ["processing", "stalled", "review", "empty"],
     data: ["progress while frames are read", "objects grouped by kind with thumbnails", "frames, seconds, coverage, cost"],
     api: ["WS scan_summary", "POST /api/rooms/{id}/scans/{scan}/save", "POST /api/rooms/{id}/scans/{scan}/discard", "GET /api/status"] },

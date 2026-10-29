@@ -45,11 +45,13 @@ const NOTSCANNED = () => ({ type: "find_result", query: "my keys", concept: "key
 
 const CHANGES = () => ({ status: "ok", room: ref(R(1)), scan_before: 2, scan_after: 3,
   scans: [{ id: 3, started_at: t(7200), baseline: false }, { id: 2, started_at: t(90000), baseline: true }, { id: 1, started_at: t(200000), baseline: false }],
-  summary: "The mug moved. A water bottle is new. 1 object could not be checked because that part of the room was not scanned both times.",
-  moved: [{ label: "mug", key: "moved:10:11", review: null, shift: { yaw_deg: 40, pitch_deg: 0, words: "40° to the right" }, from: { replay: SHOT }, to: { replay: SHOT }, speech: "The mug moved." }],
+  summary: "The mug moved. The charger may have moved. A water bottle is new. 1 object could not be compared.",
+  alignment: { quality: "good", method: "pose prior", offset_deg: 37.2, offset_used_deg: 37.2, offset_source: "images", inliers: 214, pairs: 6, spread_deg: 0.4, viewpoint_cm: 15, parallax_deg: 1.1 },
+  moved: [{ label: "mug", key: "moved:10:11", review: null, shift: { yaw_deg: 40, pitch_deg: 0, words: "40° to the right" }, from: { replay: SHOT }, to: { replay: SHOT }, speech: "The mug moved.", tolerance_deg: 8.2 }],
+  possibly_moved: [{ label: "charger", key: "possibly_moved:15:16", review: null, shift: { yaw_deg: 12, pitch_deg: 0, words: "12° to the right" }, from: { replay: SHOT }, to: { replay: SHOT }, speech: "The charger may have moved.", tolerance_deg: 8.2 }],
   removed: [{ label: "keys", key: "removed:12", review: "confirmed", replay: SHOT, speech: "The keys are gone; they were 150 degrees right, near the door." }],
   added: [{ label: "bottle", key: "added:13", review: "dismissed", replay: SHOT, speech: "A bottle is new, 40 degrees right, on the desk." }],
-  unverified: [{ label: "phone", key: "unverified:14", reason: "that direction was not rescanned" }], unchanged_count: 10 });
+  cant_compare: [{ label: "phone", key: "cant_compare:14", was: "removed?", reason: "that direction was not rescanned" }], unchanged_count: 10 });
 
 const settingsRooms = () => rooms();
 
@@ -87,7 +89,7 @@ export const FIXTURES = {
     rescan: () => ({ rooms: rooms(), activeId: 1, selectedId: 1, name: "" }),
     error: () => ({ rooms: rooms(), activeId: 1, selectedId: null, name: "Desk", message: "There is already a room called Desk." }),
   },
-  scan: { ready: () => ({ room: R(1) }), live: () => ({ room: R(1) }) },
+  scan: { ready: () => ({ room: R(1), align: { ok: true, within: false, inliers: 84, words: "Turn left 8 degrees, move slightly right.", turn_deg: -8, tilt_deg: 1.2, roll_deg: 0.5, move: "right", parallax_deg: 2.4 } }), live: () => ({ room: R(1) }) },
   summary: {
     processing: () => ({ room: ref(R(1)), progress: { fraction: 0.6, text: "Reading frames: 18 of 30", level: "ok" } }),
     stalled: () => ({ room: ref(R(1)), progress: { fraction: 0.7, text: "No answer from the server for a while.", level: "stalled" } }),
