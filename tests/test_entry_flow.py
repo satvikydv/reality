@@ -759,7 +759,7 @@ def test_every_screen_opens_in_every_demo_state_without_errors_or_media(site, si
         p = site.page().open(f"/?demo&screen={sid}&state={st}")
         p.settle(0.5)
         assert p.eval(f"document.getElementById('s-{sid}').dataset.state") == st, (sid, st)
-        if sid not in ("switcher", "quick"):  # sheets open over the screen below
+        if sid not in ("switcher", "quick", "note", "ask", "history"):  # sheets open over the screen below
             assert p.screen() == sid, (sid, st)
         assert p.eval(f"document.getElementById('s-{sid}').classList.contains('on')") is True, (sid, st)
         assert p.media() == [] and p.errors == [], (sid, st, p.errors)
@@ -922,3 +922,96 @@ def test_quick_ask_is_a_bottom_sheet_not_a_row_of_chips(site, clean):
     p.tap("#quicklist .chip")
     p.wait("document.body.dataset.screen==='result'", what="the result of the quick ask")
     assert p.eval("document.getElementById('s-quick').classList.contains('on')") is False
+
+
+# ------------------------------------------------------------------------------------------------ notes, ask the room, rewind, caregiver sharing
+
+def explore_room(site, name="Study", label="mug"):
+    rid = site.room(name, active=True, label=label)
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("[data-act=explore-room]")
+    p.wait("document.body.classList.contains('live')")
+    return rid, p
+
+
+def test_a_note_is_left_listed_seen_from_another_page_and_marked_done(site, clean):
+    rid, p = explore_room(site)
+    p.tap("#s-explore [data-act=open-note]")
+    p.wait("document.getElementById('s-note').classList.contains('on')")
+    assert p.eval("document.getElementById('s-note').dataset.state") == "empty" and "direction you are facing" in p.text("#noteat") or "mug" in p.text("#noteat")
+    p.eval("document.getElementById('notetext').value='check the stove'")
+    p.tap("#notesave")
+    p.wait("document.querySelectorAll('#notelist .nrow').length===1", what="the note in the list")
+    note = site.svc_.wm.list_notes(rid)[0]
+    assert note["text"] == "check the stove" and note["author"] == "phone"
+    q = site.page(READY).open("/")                                   # a second phone, or the same one later
+    q.wait(HOME_LOADED)
+    q.tap(f"#hrooms [data-id='{rid}']")
+    q.wait("document.getElementById('s-room').dataset.state==='default'")
+    q.tap("[data-act=explore-room]")
+    q.wait("window.__ui.world.notes.some(n=>n.text==='check the stove')", what="the note on the other page")
+    q.tap("#s-explore [data-act=open-note]")                          # the other page lists it too, and marks it done
+    q.wait("document.querySelectorAll('#notelist .nrow').length===1")
+    q.tap("#notelist [data-act=note-done]")
+    q.wait("document.querySelectorAll('#notelist .nrow').length===0")
+    assert site.svc_.wm.list_notes(rid) == [] and q.errors == []
+
+
+def test_ask_the_room_draws_only_the_objects_the_answer_names(site, clean):
+    from test_room_features import Asker, Broken
+    rid, p = explore_room(site, label="mug")
+    oid = site.svc_.wm.list_objects(site.svc_.wm.latest_scan_id(rid))[0]["id"]
+    site.svc_.reasoner = Asker({"answer": "The mug is the only thing here.", "matches": [{"id": oid, "reason": "it is the only object"}]})
+    p.tap("#s-explore [data-act=open-ask]")
+    p.eval("document.getElementById('askq').value='what is here?'")
+    p.tap("#askgo")
+    p.wait("document.getElementById('askbar').classList.contains('on')", what="the answer bar")
+    assert "only thing here" in p.text("#askbartext") and p.eval("window.__ui.world.asked.size") == 1
+    assert p.eval("document.getElementById('s-ask').classList.contains('on')") is False
+    p.tap("#askbar [data-act=clear-ask]")
+    assert p.eval("window.__ui.world.asked.size") == 0 and p.eval("document.getElementById('askbar').classList.contains('on')") is False
+    site.svc_.reasoner = Broken()
+    p.tap("#s-explore [data-act=open-ask]")
+    p.tap("#s-ask [data-act=ask-example]")
+    p.wait("document.getElementById('s-ask').dataset.state==='error'", what="the error state")
+    assert p.text("#askrmsg") and p.eval("document.getElementById('s-ask').classList.contains('on')") is True and p.errors == []
+
+
+def test_rewind_shows_what_an_earlier_scan_had_as_ghosts_and_clears(site, clean):
+    rid = site.room("Study", active=True, label="mug", ts=100.0)
+    site.scan_in(rid, "lamp", 0.0, 200.0)                              # the mug is gone, a lamp is there now
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("[data-act=explore-room]")
+    p.wait("document.body.classList.contains('live')")
+    p.tap("#s-explore [data-act=open-history]")
+    p.wait("document.getElementById('s-history').dataset.state==='default'")
+    assert p.eval("document.querySelectorAll('#histlist [data-act=pick-then]').length") == 1
+    p.tap("#histlist [data-act=pick-then]")
+    p.wait("window.__ui.world.ghosts.length===1", what="the ghost")
+    assert p.eval("window.__ui.world.ghosts[0].label") == "mug" and p.eval("document.getElementById('thenbar').classList.contains('on')") is True
+    p.tap("#thenbar [data-act=clear-then]")
+    assert p.eval("window.__ui.world.ghosts.length") == 0 and p.errors == []
+
+
+def test_rewind_with_a_single_saved_scan_says_there_is_nothing_earlier(site, clean):
+    rid, p = explore_room(site)
+    p.tap("#s-explore [data-act=open-history]")
+    p.wait("document.getElementById('s-history').dataset.state==='empty'")
+
+
+def test_caregiver_sharing_is_off_until_the_person_turns_it_on_in_settings(site, clean):
+    from app import care
+    p = booted(site)
+    p.tap("#nav [data-nav=settings]")
+    p.wait("document.getElementById('s-settings').dataset.state==='default'")
+    assert p.eval("document.querySelector('#careseg [data-v=\"0\"]').getAttribute('aria-pressed')") == "true" and care.consent(site.svc_)["on"] is False
+    p.tap("#careseg [data-v='1']")
+    p.wait("document.querySelector('#careseg [data-v=\"1\"]').getAttribute('aria-pressed')==='true'")
+    assert care.consent(site.svc_)["on"] is True
+    p.tap("#careseg [data-v='0']")
+    p.wait("document.querySelector('#careseg [data-v=\"0\"]').getAttribute('aria-pressed')==='true'")
+    assert care.consent(site.svc_)["on"] is False

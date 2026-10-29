@@ -30,6 +30,10 @@ const scans = () => [
   { id: 1, status: "saved", baseline: 0, started_at: t(200000), ended_at: t(199960), n_objects: 9, n_frames: 30, room_id: 1 },
 ];
 
+const NOTES = () => [
+  { id: 2, text: "Milk expires Friday", author: "Maya", yaw: 35, pitch: -5, label: "fridge", created_at: t(3600), done_at: null },
+  { id: 1, text: "Call the plumber about the tap", author: "phone", yaw: 200, pitch: 0, label: null, created_at: t(90000), done_at: null }];
+
 const FOUND = () => ({ type: "find_result", query: "my charger", concept: "charger", found: true, room_id: 1, room_name: "Living Room", active: true,
   speech: "The charger was last seen about 60 degrees to the left of where the scan started, below the laptop.",
   object: { id: 9, label: "charger", yaw: 300, pitch: -10, n_obs: 3, conf_best: 0.9, age_s: 120, uncertainty_deg: 8, fov_error_deg: 2.5 },
@@ -136,6 +140,12 @@ export const FIXTURES = {
     error: () => ({ message: "The server answered with an error (500)." }),
   },
   sightings: { default: () => ({ detail: detailData() }), loading: () => ({}), error: () => ({ message: "The server answered with an error (500)." }) },
+  note: { default: () => ({ notes: NOTES(), at: { label: "laptop", yaw: 35, pitch: 0 } }), empty: () => ({ notes: [], at: { label: null, yaw: 0, pitch: 0 } }) },
+  ask: { idle: () => ({}), busy: () => ({}), error: () => ({ message: "The model could not answer. Try again in a moment." }) },
+  history: {
+    default: () => ({ scans: scans().filter((s) => s.status === "saved").slice(1) }), empty: () => ({ scans: [] }), loading: () => ({}),
+    error: () => ({ message: "The server answered with an error (500)." }),
+  },
   quick: { default: () => ({ labels: ["charger", "laptop", "keys", "mug", "water bottle"] }), empty: () => ({ labels: [] }) },
 };
 

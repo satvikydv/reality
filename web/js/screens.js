@@ -59,6 +59,13 @@ export const SCREENS = {
     api: ["GET /api/objects/{id}", "POST /api/sightings/{id}/detach", "DELETE /api/objects/{id}"] },
   quick: { title: "Quick ask", nav: null, top: null, camera: false, sheet: true, states: ["default", "empty"],
     data: ["what the room contains, as tap-to-ask names"], api: ["WS find{query, room_id | all_rooms}"] },
+  note: { title: "Notes", nav: null, top: null, camera: false, sheet: true, states: ["default", "empty"],
+    data: ["where the note will be left (the object under the reticle, or the direction faced)", "the room's open notes: text, author, when, the object it is on"],
+    api: ["GET /api/rooms/{id}/notes", "POST /api/rooms/{id}/notes", "PATCH /api/notes/{id}", "DELETE /api/notes/{id}"] },
+  ask: { title: "Ask the room", nav: null, top: null, camera: false, sheet: true, states: ["idle", "busy", "error"],
+    data: ["a question typed or spoken", "example questions", "the answer and the objects it names (shown over the camera)"], api: ["POST /api/rooms/{id}/ask"] },
+  history: { title: "Rewind", nav: null, top: null, camera: false, sheet: true, states: ["default", "empty", "loading", "error"],
+    data: ["the room's earlier saved scans", "what was there then and is gone or moved now (ghosts over the camera)"], api: ["GET /api/rooms/{id}/scans", "GET /api/rooms/{id}/rewind?scan="] },
   switcher: { title: "Room switcher", nav: null, top: null, camera: false, sheet: true, states: ["default", "empty"],
     data: ["rooms with the active one marked"], api: ["GET /api/rooms", "PATCH /api/rooms/{id}"] },
 };

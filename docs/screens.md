@@ -216,7 +216,7 @@ What changed in one room: a Before and an After picker over the room's saved sca
 
 ### `settings`
 
-Global settings: voice language, keyframes per second (1, 2, 3), overlay detail (Calm, Normal or Debug, see below), Your rooms (Edit opens Room settings), Replay intro, Delete all data (confirms), and the debug HUD switch (only with `?debug` in the URL).
+Global settings: voice language, keyframes per second (1, 2, 3), overlay detail (Calm, Normal or Debug, see below), caregiver sharing (off by default; when on, the caregiver view on the laptop dashboard shows where watched things were last seen, `GET /api/care`, `POST /api/care/consent`), Your rooms (Edit opens Room settings), Replay intro, Delete all data (confirms), and the debug HUD switch (only with `?debug` in the URL).
 
 | State | Shows |
 |---|---|
@@ -245,10 +245,12 @@ Explore (AR), opened from Room details: the room's remembered objects drawn over
 
 | State | Shows |
 |---|---|
-| `default` | the room name, a hint, the AR toggle |
+| `default` | the room name, the AR toggle, Note / Ask / Rewind, a hint; bars for the answer being shown and for the earlier scan being shown, each with Clear |
 | `no-memory` | the room has not been scanned: nothing to draw; Scan this room |
 
-- Data: the room's overlay objects (direction, outline, age, uncertainty).
+Over the camera, besides the room's objects: the room's **notes** (an amber dot with the text, where they were left), the objects an **answer** names (outlined and labelled with a reason; everything else is hidden while an answer is shown; an arrow points to one that is off screen), and the **ghosts** of a **rewind** (dashed rings with "was here" for what an earlier scan had and the room's memory does not).
+
+- Data: the room's overlay objects (direction, outline, age, uncertainty) and its open notes.
 - API: `GET /api/overlay?room_id=`.
 
 ### `labels`
@@ -304,6 +306,45 @@ Quick ask: a bottom sheet over Find listing what the room contains as tap-to-ask
 
 - Data: what the room contains.
 - API: `WS find{query, room_id | all_rooms}`.
+
+### `note`
+
+Notes: a bottom sheet over Explore. You leave a message in the room at the place you are looking: the object under the reticle (the note then stays on it) or the direction you face. Typed or spoken. The sheet also lists the room's open notes with Done and Delete. Notes belong to one room; they are shown over the camera, in that room, to everyone who uses it.
+
+| State | Shows |
+|---|---|
+| `default` | where the note will be left, the text field with the microphone and a save button, the room's notes |
+| `empty` | the same, with "No notes in this room yet" |
+
+- Data: the target of the note, the room's open notes.
+- API: `GET /api/rooms/{id}/notes`, `POST /api/rooms/{id}/notes`, `PATCH /api/notes/{id}`, `DELETE /api/notes/{id}`.
+
+### `ask`
+
+Ask the room: a bottom sheet over Explore. A question in plain words ("What is charging?", "When did something last move?"), typed or spoken. The answer is read aloud, shown in a bar, and the objects it names are drawn over the camera with a reason each. It reasons over the names and directions the room remembers and what changed between its saved scans; photos are never sent.
+
+| State | Shows |
+|---|---|
+| `idle` | the field with the microphone, example questions |
+| `busy` | "Thinking about this room…" |
+| `error` | why it failed, and the examples to try again |
+
+- Data: the question, the answer, the matching objects with reasons.
+- API: `POST /api/rooms/{id}/ask`.
+
+### `history`
+
+Rewind: a bottom sheet over Explore listing the room's earlier saved scans. Choosing one shows, over the camera, what was there then and is gone or moved now (ghosts), aligned into today's directions. Directions the current scan never looked at are shown as "was here?", not as gone.
+
+| State | Shows |
+|---|---|
+| `default` | the earlier saved scans, newest first, with objects and frames |
+| `empty` | "Nothing earlier to rewind to" (only one saved scan) |
+| `loading` | skeleton rows |
+| `error` | why the scans could not be loaded, and Try again |
+
+- Data: the room's saved scans; the ghosts of the chosen one.
+- API: `GET /api/rooms/{id}/scans`, `GET /api/rooms/{id}/rewind?scan=`.
 
 ### `switcher`
 

@@ -13,7 +13,7 @@ import {explainNotFound,ago} from './explain.js';
 import {SCREENS,NAV,ids,sectionId,isCamera,navTab,hasState,applyState} from './screens.js';
 import {createStore,INITIAL,roomById,activeRoom,roomLabel,freeNameChips} from './store.js';
 import {makeApi,describeFailure} from './api.js';
-import {el as mk,paintThumbs,thumb,roomCard,roomChip,switcherRow,summaryTiles,groupTile,historyRow,changeCard,findGroup,since,labelRow,instanceRow,sightingCard} from './views.js';
+import {el as mk,paintThumbs,thumb,roomCard,roomChip,switcherRow,summaryTiles,groupTile,historyRow,changeCard,findGroup,since,labelRow,instanceRow,sightingCard,noteRow,thenRow,whenText} from './views.js';
 import {fixture} from './fixtures.js';
 const $=id=>document.getElementById(id),P=new URLSearchParams(location.search);
 const body=document.body;let demo=P.has('demo'),scrn='home';
@@ -27,7 +27,7 @@ const world=new WorldLayer({intervalMs:2000});
 let arOn=prefs.get('ar');
 const buzz=ms=>{try{navigator.vibrate&&navigator.vibrate(ms)}catch{}};
 // Every spoken reply is also shown as text. Screens that already print the reply do not need the bar.
-const SELF_CAPTIONED=new Set(['result','summary','changes','guide']);let capT=null;
+const SELF_CAPTIONED=new Set(['result','summary','changes','guide','explore']);let capT=null;
 function caption(t){const c=$('cap');if(!t||SELF_CAPTIONED.has(scrn)){c.style.display='none';return}$('captext').textContent=t;c.style.display='block';clearTimeout(capT);capT=setTimeout(()=>c.style.display='none',9000)}
 const speak=t=>{caption(t);try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang=prefs.voiceLang();u.rate=1;speechSynthesis.speak(u)}catch{}};
 const toast=(m,ms=3500)=>{const e=$('toast');e.textContent=m;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)};
@@ -50,6 +50,7 @@ function go(id,{back=false}={}){
   for(const b of $('nav').children)b.dataset.nav===tab?b.setAttribute('aria-current','page'):b.removeAttribute('aria-current');
   if(was!==id&&isCamera(was)&&!isCamera(id))stopCamera('left the '+was+' screen'); // the camera is on only while a camera screen is showing
   if(was==='guide'&&id!=='guide')stopGuide();
+  if(was==='explore'&&id!=='explore')clearOverlayAnswers();
   if(was==='summary'&&id!=='summary')stopProc();
   if(id==='result')rt=0;
   syncWorld();renderSwitchers();requestAnimationFrame(measure)}
@@ -71,7 +72,8 @@ const ICON={home:'<path d="M3 11l9-8 9 8M5 10v10h14V10"/>',find:'<circle cx="11"
 $('nav').replaceChildren(...NAV.map(([id,label])=>{const b=mk('button',null,null,{'data-act':'nav','data-nav':id});b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[id]}</svg>`;b.append(mk('span',null,label));return b}));
 function renderSwitchers(){const a=activeRoom(S());for(const b of document.querySelectorAll('.roomsw')){b.classList.toggle('none',!a);b.querySelector('.rn').textContent=a?a.name:'No room'}}
 function openSwitcher(){const rs=S().rooms;$('swlist').replaceChildren(...rs.map(switcherRow));setState('switcher',rs.length?'default':'empty');section('switcher').classList.add('on')}
-function closeSwitcher(){section('switcher').classList.remove('on');section('quick').classList.remove('on')} // both sheets
+const SHEETS=['switcher','quick','note','ask','history'];
+function closeSwitcher(){for(const s of SHEETS)section(s).classList.remove('on')} // every sheet
 async function setActive(id){ // the user's explicit choice: the default room for Find, Explore and the Reality API
   if(demo){store.set({activeId:id,rooms:S().rooms.map(r=>({...r,active:r.id===id}))});return true}
   const r=await api.patchRoom(id,{active:true});
@@ -403,11 +405,12 @@ async function openGroupResult(roomId){ // a result from another room: opening i
     if(!await setActive(roomId))return}
   RENDER.result(null,{...g,type:'find_result',query:lastQ,concept:g.object?.label})}
 // Voice is optional. If it cannot work, say so and leave the text box ready.
-function startMic(){
-  const R=window.SpeechRecognition||window.webkitSpeechRecognition,m=$('mic'),typeInstead=t=>{toast(t);$('q').focus()};
+const startMic=()=>dictate($('q'),$('mic'),()=>doFind());
+function dictate(input,m,done){
+  const R=window.SpeechRecognition||window.webkitSpeechRecognition,typeInstead=t=>{toast(t);input.focus()};
   if(!R)return typeInstead('Voice input is not available in this browser. Type your question instead.');
   const r=new R();r.lang=prefs.voiceLang();
-  r.onresult=e=>{$('q').value=e.results[0][0].transcript;doFind()};
+  r.onresult=e=>{input.value=e.results[0][0].transcript;if(done)done()};
   r.onerror=e=>typeInstead(e.error==='not-allowed'||e.error==='service-not-allowed'?'Microphone access is blocked. Type your question instead.':e.error==='no-speech'?'I did not hear anything. Try again, or type it.':'Voice input failed. Type your question instead.');
   r.onend=()=>m.classList.remove('on');
   try{r.start();m.classList.add('on');toast('Listening…')}catch{typeInstead('Voice input could not start. Type your question instead.')}}
@@ -468,8 +471,65 @@ RENDER.guide=(state,d={})=>{if(d.result)find=d.result;txt('gobj',find?.concept||
 /* Explore (AR): the room's remembered objects over the camera */
 RENDER.explore=(state,d={})=>{txt('exroom',d.room?.name||roomLabel(S(),S().viewRoomId));setState('explore',state)};
 function openExplore(roomId){
-  store.set({viewRoomId:roomId});const r=roomById(S(),roomId);
+  clearOverlayAnswers();store.set({viewRoomId:roomId});const r=roomById(S(),roomId);
   RENDER.explore(r?.scan_id?'default':'no-memory',{room:r});go('explore');if(r?.scan_id)wantCamera('explore')}
+
+/* Notes, Ask the room and Rewind: three sheets over Explore. The overlay then shows the room's notes, the objects an answer names, and the ghosts of an earlier scan. */
+const exRoom=()=>S().viewRoomId;
+const DEMO={notes:[{id:1,text:'Milk expires Friday',author:'Maya',yaw:20,pitch:-5,label:'laptop',created_at:Date.now()/1000-3600}],nextNote:2};
+let pendingNote=null;
+function noteTarget(){ // the object under the reticle (so the note stays on it), else the direction faced
+  const p=pose()||{yaw:cur.yaw,pitch:cur.pitch};let best=null,bd=12;
+  for(const o of world.objects){const d=Math.hypot(nd(o.yaw-p.yaw),o.pitch-p.pitch);if(d<bd){bd=d;best=o}}
+  return best?{yaw:best.yaw,pitch:best.pitch,label:best.label}:{yaw:p.yaw,pitch:p.pitch,label:null}}
+RENDER.note=(state,d={})=>{
+  const notes=d.notes||[];if(d.at)pendingNote=d.at;setState('note',notes.length?'default':'empty');
+  txt('noteat',pendingNote?.label?`It will stay on the ${pendingNote.label}.`:'It will stay in the direction you are facing.');
+  $('notelist').replaceChildren(...notes.map(noteRow))};
+async function loadNotes(){const r=demo?{ok:true,data:{notes:DEMO.notes}}:await api.notes(exRoom());return r.ok?r.data.notes:[]}
+async function openNote(){
+  if(exRoom()==null)return;pendingNote=noteTarget();RENDER.note('default',{notes:await loadNotes(),at:pendingNote});section('note').classList.add('on');$('notetext').value=''}
+async function saveNote(){
+  const text=$('notetext').value.trim();if(!text||!pendingNote)return;
+  if(demo){DEMO.notes.unshift({id:DEMO.nextNote++,text,author:'You',...pendingNote,created_at:Date.now()/1000});world.notes=DEMO.notes}
+  else{const r=await api.addNote(exRoom(),{text,yaw:pendingNote.yaw,pitch:pendingNote.pitch,label:pendingNote.label,author:'phone'});
+    if(!r.ok)return toast(describeFailure(r,'leave the note').text);world.refresh()}
+  $('notetext').value='';toast('Note left. Anyone in this room will see it there.');RENDER.note('default',{notes:await loadNotes()})}
+async function noteAct(kind,id){
+  if(demo){DEMO.notes=DEMO.notes.filter(n=>n.id!==id);world.notes=DEMO.notes}
+  else{const r=kind==='delete'?await api.deleteNote(id):await api.noteDone(id,true);if(!r.ok)return toast(describeFailure(r,'change the note').text);world.refresh()}
+  RENDER.note('default',{notes:await loadNotes()})}
+
+RENDER.ask=(state,d={})=>{setState('ask',state);txt('askrmsg',state==='busy'?'Thinking about this room…':(d.message||''));$('askrspin').style.display=state==='busy'?'':'none'};
+function openAsk(){if(exRoom()==null)return;RENDER.ask('idle');section('ask').classList.add('on');$('askq').value=''}
+function demoAsk(){const m=world.objects.filter(o=>/laptop|cable|charger|phone/.test(o.label)).slice(0,3);
+  return{status:'ok',answer:'These are probably plugged in or charging (demo).',matches:m.map(o=>({object_id:o.id,label:o.label,reason:'a cable or charger is near it'}))}}
+async function askGo(q){
+  q=(q||$('askq').value).trim();if(!q)return;$('askq').value=q;RENDER.ask('busy');
+  const r=demo?{ok:true,data:demoAsk()}:await api.ask(exRoom(),q);
+  if(!r.ok)return RENDER.ask('error',{message:describeFailure(r,'answer that').text});
+  const d=r.data;if(d.status!=='ok')return RENDER.ask('error',{message:d.message||d.answer||'There was no answer.'});
+  closeSwitcher();world.setAsk(d.matches);txt('askbartext',d.answer);$('askbar').classList.add('on');speak(d.answer)}
+function clearAsk(){world.setAsk([]);$('askbar').classList.remove('on')}
+
+RENDER.history=(state,d={})=>{setState('history',state);if(state==='error')txt('histerr',d.message||'');if(state==='default')$('histlist').replaceChildren(...d.scans.map(thenRow))};
+async function openHistory(){
+  if(exRoom()==null)return;section('history').classList.add('on');RENDER.history('loading');
+  const r=demo?{ok:true,data:{scans:fixture('room','default').scans}}:await api.roomScans(exRoom());
+  if(!r.ok)return RENDER.history('error',{message:describeFailure(r,'load the scans').text});
+  const earlier=r.data.scans.filter(s=>s.status==='saved').slice(1); // newest first: the first saved scan is the room's memory, the rest is history
+  RENDER.history(earlier.length?'default':'empty',{scans:earlier})}
+function demoRewind(){const o=world.objects.filter(x=>x.label==='mug'||x.label==='keys').slice(0,2);
+  return{status:'ok',then:{id:2,started_at:Date.now()/1000-90000},summary:'The mug and the keys were there then.',ghosts:o.map((x,i)=>({label:x.label,yaw:x.yaw,pitch:x.pitch,kind:'gone',unsure:i===1}))}}
+async function pickThen(id){
+  closeSwitcher();const r=demo?{ok:true,data:demoRewind()}:await api.rewind(exRoom(),id);
+  if(!r.ok)return toast(describeFailure(r,'rewind this room').text);
+  const d=r.data;if(d.status!=='ok')return toast(d.message||'Cannot rewind to that scan.');
+  world.setGhosts(d.ghosts,d.then.started_at);txt('thenbartext',`Then, ${whenText(d.then.started_at)}: ${d.summary}`);$('thenbar').classList.add('on');speak(d.summary)}
+function clearThen(){world.setGhosts([]);$('thenbar').classList.remove('on')}
+function clearOverlayAnswers(){clearAsk();clearThen()}
+$('notetext').onkeydown=e=>e.key==='Enter'&&saveNote();
+$('askq').onkeydown=e=>e.key==='Enter'&&askGo();
 
 /* What changed: one room, two of its saved scans */
 let chgRoom=null,chgRun=null;
@@ -598,10 +658,17 @@ function settingsSegs(){
 RENDER.settings=(state,d={})=>{
   $('dbgrow').hidden=!P.has('debug');applyDebug();settingsSegs();
   const s=$('langsel');if(!s.children.length)for(const[v,l]of LANGS){const o=mk('option',null,l);o.value=v;s.append(o)}s.value=prefs.get('lang');
-  setState('settings',state);if(state==='error')txt('seterr',d.message||'');
+  setState('settings',state);if(state==='error')txt('seterr',d.message||'');syncCare();
   const rooms=S().rooms,box=$('setrooms');
   if(state==='default')box.replaceChildren(...(rooms.length?rooms.map(r=>{const row=mk('div','srow'),t=mk('div');t.append(r.name+(r.active?' · active':''),mk('small',null,roomStatsLine(r)));
     const b=mk('button','mini','Edit',{'data-act':'open-room-settings','data-id':r.id,'aria-label':'Settings for '+r.name});row.append(t,b);return row}):[mk('p','dim','No rooms yet.')]))};
+// Caregiver sharing: off until the person turns it on; the caregiver's view on the dashboard shows nothing before that
+function careSeg(on){for(const b of $('careseg').children)b.setAttribute('aria-pressed',String((b.dataset.v==='1')===on))}
+async function syncCare(){if(demo)return;const r=await api.care();if(r.ok)careSeg(r.data.consent.on)}
+async function setCare(on){
+  if(demo){careSeg(on);return toast('Caregiver sharing '+(on?'on (demo)':'off'))}
+  const r=await api.setCare(on);if(!r.ok)return toast(describeFailure(r,'change that').text);
+  careSeg(r.data.on);toast(on?'Caregiver sharing is on. They can see where things were last seen.':'Caregiver sharing is off.')}
 async function openSettings(){
   go('settings');RENDER.settings(S().roomsLoaded?'default':'loading');
   const r=await loadRooms();if(scrn!=='settings')return;
@@ -693,6 +760,9 @@ const ACT={
   'replay-intro':()=>openIntro(true),'delete-all':deleteAll,'open-room-settings':b=>openRoomSettings(+b.dataset.id),'rename-room':renameRoom,'delete-room':deleteRoom,
   'inspect-scan':b=>openLabels(+(b.dataset.scan||summary?.scan_id)||null),'open-label':b=>openInstances(b.dataset.label),'open-instance':b=>openSightings(+b.dataset.id),
   'pick-instance':b=>{const id=+b.dataset.id;insp.picked.has(id)?insp.picked.delete(id):insp.picked.add(id);RENDER.instances('default',{})},
+  'open-note':openNote,'save-note':saveNote,'mic-note':()=>dictate($('notetext'),$('notemic')),'note-done':b=>noteAct('done',+b.dataset.id),'note-delete':b=>noteAct('delete',+b.dataset.id),
+  'open-ask':openAsk,'ask-go':()=>askGo(),'ask-example':b=>askGo(b.dataset.q),'mic-ask':()=>dictate($('askq'),$('askmic'),()=>askGo()),'clear-ask':clearAsk,
+  'open-history':openHistory,'history-retry':openHistory,'pick-then':b=>pickThen(+b.dataset.scan),'clear-then':clearThen,care:b=>setCare(b.dataset.v==='1'),
   'merge-picked':mergePicked,'not-object':notObjectHere,'unmark-object':b=>restoreLabel(b.dataset.label),'delete-object':deleteObjectHere,'detach-sighting':b=>detachHere(+b.dataset.id),
   debug:b=>{prefs.set('debug',b.dataset.v==='1');applyDebug()},
 };
@@ -732,7 +802,7 @@ function frame(now){
   cur.pulse=Math.max(0,cur.pulse-dt*2.5);cur.shutter+=dt/.5;
   if(isCamera(scrn)){
     const ar=$('ar'),tg=guideTarget(),sc=scrn==='scan',t0=performance.now(),objs=world.objects;
-    const s={mode:scrn==='explore'?'home':scrn,now,yaw:cur.yaw,pitch:cur.pitch,roll:cur.roll,view:{...viewSize(),hfov:world.hfov},world:objs,showWorld:arOn&&!camAlarm,detail:prefs.get('detail'),
+    const s={mode:scrn==='explore'?'home':scrn,now,yaw:cur.yaw,pitch:cur.pitch,roll:cur.roll,view:{...viewSize(),hfov:world.hfov},world:objs,notes:world.notes,asked:world.asked,ghosts:world.ghosts,showWorld:arOn&&!camAlarm,detail:prefs.get('detail'),
       bins:sc?cur.bins:null,gapBins:sc&&cur.gap?new Set(Array.from({length:cur.gap.len},(_,i)=>(cur.gap.start+i)%36)):null,gap:sc?cur.gap:null,
       markers:scrn==='guide'?(tg?[{yaw:tg.yaw,hl:true}]:[]):objs,target:tg,found,label:tg?.label,pulse:cur.pulse,shutter:cur.shutter,tapeY:M.tapeY,top:M.top,bot:M.bot};
     drawAR(ar,s);arStats=s.stats;drawMs+=((performance.now()-t0)-drawMs)*.1}
@@ -779,7 +849,7 @@ function demoWorld(){ // what the overlay shows in demo mode; /?demo&screen=expl
   const all=[['laptop',-20,5],['laptop',35,0],['laptop',200,8],['cable',60,-25],['cable',-75,-30],['cable',150,-20],['bottle',95,-5],['bottle',250,0],['charger',-60,-10],['mug',120,2],['keys',300,-15],['phone',10,-12],['monitor',-5,20],['lamp',330,35],['wall',20,0],['ceiling',90,70]];
   const kinds=['laptop','cable','bottle','mug','keys','phone','book','pen','lamp','plant','remote','wall'],want=+P.get('objects')||0;
   for(let k=all.length;k<want;k++)all.push([kinds[k%kinds.length],(k*47)%360-180,((k*29)%50)-25]);
-  world.apply({hfov_deg:P.has('fov')?+P.get('fov'):60,fov_calibrated:false,scan_id:3,objects:all.map(([label,yaw,pitch],i)=>({id:i+1,label,yaw:(yaw+360)%360,pitch,uncertainty_deg:i===5?30:i%4,n_obs:3,confidence:i%6===4?.35:i<16?.9:.5+((i*13)%50)/100,
+  world.apply({hfov_deg:P.has('fov')?+P.get('fov'):60,fov_calibrated:false,scan_id:3,notes:DEMO.notes,objects:all.map(([label,yaw,pitch],i)=>({id:i+1,label,yaw:(yaw+360)%360,pitch,uncertainty_deg:i===5?30:i%4,n_obs:3,confidence:i%6===4?.35:i<16?.9:.5+((i*13)%50)/100,
     age_s:i<14?[5,5,20,400,900,5,60,5,5,5,5,5,5,5][i]:(i*37)%900,footprint:[(yaw+360)%360,-7,7,pitch-6,pitch+6],mask:i%2?null:{poly:blob(60+(i%7)*3,46),yaw:(yaw+360)%360,pitch,roll:0,width:540,height:960,hfov:60}}))})}
 function showFixture(id,state){
   state=state&&hasState(id,state)?state:SCREENS[id].states[0];const d=fixture(id,state)||{};demoBase();
@@ -791,6 +861,7 @@ function showFixture(id,state){
     case'switcher':go('home');RENDER.home('default',fixture('home','default'));if(state==='empty')store.set({rooms:[]});openSwitcher();break;
     case'guide':find=d.result;go('guide');RENDER.guide(state,d);if(state==='default')startGuide();break;
     case'explore':RENDER.explore(state,d);go('explore');break;
+    case'note':case'ask':case'history':RENDER.explore('default',fixture('explore','default'));go('explore');RENDER[id](state,d);section(id).classList.add('on');break;
     case'labels':go('labels');RENDER.labels(state,d);break;
     case'instances':go('instances');RENDER.instances(state,d);break;
     case'sightings':go('sightings');RENDER.sightings(state,d);break;

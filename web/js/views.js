@@ -109,6 +109,26 @@ export function sightingCard(s, canDetach) {
   return card;
 }
 
+// A note left in the room: its text, who left it, when, what it is on; Done and Delete.
+export function noteRow(n) {
+  const row = el("div", "nrow"), t = el("div", "nt");
+  t.append(el("b", null, n.text), el("small", null, [n.author, n.label && `on ${n.label}`, since(n.created_at)].filter(Boolean).join(" · ")));
+  const acts = el("div", "hacts");
+  acts.append(el("button", "mini", "Done", { "data-act": "note-done", "data-id": n.id }), el("button", "mini danger", "Delete", { "data-act": "note-delete", "data-id": n.id }));
+  row.append(t, acts);
+  return row;
+}
+
+export const whenText = (ts) => new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+
+// An earlier saved scan to rewind to.
+export function thenRow(s) {
+  const b = el("button", "srow2", null, { "data-act": "pick-then", "data-scan": s.id }), t = el("div");
+  t.append(el("b", null, whenText(s.started_at)), el("small", null, `${s.n_objects} objects · ${s.n_frames} frames${s.baseline ? " · baseline" : ""}`));
+  b.append(el("i", "radio"), t);
+  return b;
+}
+
 export function historyRow(s, { memory = false } = {}) {
   const row = el("div", "hrow" + (s.status === "draft" ? " draft" : ""));
   const t = el("div", "ht");
