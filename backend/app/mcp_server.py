@@ -6,7 +6,7 @@ that launch their own subprocess:
 
     cd backend && python -m app.mcp_server
 
-All tools except `guide_user_to` are read-only; the logic lives in app.reality_api.
+All tools except `guide_user_to` and `leave_note` are read-only; the logic lives in app.reality_api.
 """
 from __future__ import annotations
 
@@ -31,7 +31,9 @@ Answers say how far to trust them. status "found" gives the object, when it was 
 that disagree plus the camera field-of-view error. Treat a direction as a cone of that half-angle, not a line.
 status "not_seen" means it is not in memory, NOT that it is absent from the room: check the coverage in the reply before
 telling anyone it is gone. Use what_changed to compare two scans; objects in directions only one scan covered come back
-as "unverified" instead of added or removed."""
+as "unverified" instead of added or removed. ask_room answers a plain-language question about one room (what is charging, what
+is fragile, when something left) and names the objects it is about; it reasons over names, directions and what changed between saved
+scans, never photos. leave_note puts a message in a room at a direction, which the person then sees over their camera."""
 
 
 def build_server(get_service: Callable[[], ScanService], allow_frames: bool | None = None) -> MCPServer:
@@ -82,6 +84,24 @@ def build_server(get_service: Callable[[], ScanService], allow_frames: bool | No
         """What a room's scan found (default: its latest saved scan): counts per kind of object, how many degrees of the
         room it covered and where the gaps are."""
         return await traced("scan_summary", {"scan_id": scan_id, "room": room}, lambda svc: api.scan_summary(svc, scan_id, room))
+
+    @server.tool()
+    async def ask_room(question: str, room: str | None = None) -> dict[str, Any]:
+        """Ask a question about ONE room in plain words ("what is charging?", "when did the mug leave?"). Returns an `answer` and the
+        `matches`: remembered objects it is about, each with its id, direction and a reason. Reasons over object names, directions and what
+        changed between the room's saved scans; it never sees photos. Directions are not distances: "near" means angularly close."""
+        return await traced("ask_room", {"question": question, "room": room}, lambda svc: api.ask_room(svc, question, room))
+
+    @server.tool()
+    async def list_notes(room: str | None = None) -> dict[str, Any]:
+        """The open notes people left in a room, each with its text, author, direction and the label of the object it was left on."""
+        return await traced("list_notes", {"room": room}, lambda svc: api.list_notes(svc, room))
+
+    @server.tool()
+    async def leave_note(text: str, yaw: float, pitch: float, room: str | None = None, label: str | None = None) -> dict[str, Any]:
+        """Leave a note (up to 280 characters) in a room at a compass direction (yaw clockwise from north, pitch up positive), for example at
+        the direction of an object returned by where_is. It shows over the person's camera. The author is recorded as "agent". Side effect."""
+        return await traced("leave_note", {"text": text, "yaw": yaw, "pitch": pitch, "room": room, "label": label}, lambda svc: api.leave_note(svc, text, yaw, pitch, room, label))
 
     @server.tool()
     async def what_changed(scan_before: int | None = None, scan_after: int | None = None, room: str | None = None) -> dict[str, Any]:

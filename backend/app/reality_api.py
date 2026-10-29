@@ -177,6 +177,34 @@ def _annotate(d: dict, reviews: dict[str, str]) -> None:
             e["review"] = reviews.get(e["key"])
 
 
+async def ask_room(svc: ScanService, question: str, room=None) -> dict:
+    """A question about one room, answered from its memory (and what changed between its saved scans), with the objects it is about."""
+    from app import ask as ask_mod
+    rm, err = resolve_room(svc, room)
+    if err:
+        return err
+    sid = svc.wm.latest_scan_id(rm["id"])
+    return await ask_mod.ask_room(svc, svc.reasoner, question, rm, svc.wm.get_scan(sid) if sid is not None else None)
+
+
+def list_notes(svc: ScanService, room=None, include_done: bool = False) -> dict:
+    rm, err = resolve_room(svc, room)
+    if err:
+        return err
+    return {"status": "ok", "room": _room_ref(rm), "notes": svc.wm.list_notes(rm["id"], include_done)}
+
+
+def leave_note(svc: ScanService, text: str, yaw: float, pitch: float, room=None, label: str | None = None, author: str = "agent") -> dict:
+    """Leave a note in a room, anchored to a direction. The person sees it over the camera, where it was left."""
+    rm, err = resolve_room(svc, room)
+    if err:
+        return err
+    try:
+        return {"status": "ok", "room": _room_ref(rm), "note": svc.wm.add_note(rm["id"], text, yaw, pitch, label, author)}
+    except ValueError as e:
+        return {"status": "bad_request", "message": str(e)}
+
+
 def what_changed(svc: ScanService, scan_a: int | None = None, scan_b: int | None = None, room=None) -> dict:
     """Compare two scans of ONE room: default the room's latest saved scan against its baseline (else the scan before it).
     Scans of different rooms are never compared (status wrong_room)."""
@@ -235,14 +263,14 @@ def overlay(svc: ScanService, scan_id: int | None = None, room=None) -> dict:
             "calibration": {k: cal.get(k) for k in ("width", "height", "zoom")} if cal.get("width") else None}
     rm, err = resolve_room(svc, room)
     if err:
-        return {**base, "status": err["status"], "message": err["message"], "scan_id": None, "room": None, "objects": []}
+        return {**base, "status": err["status"], "message": err["message"], "scan_id": None, "room": None, "objects": [], "notes": []}
     scan, err = _memory(svc, rm, scan_id)
     if err:
-        return {**base, "status": err["status"], "message": err["message"], "scan_id": None, "room": _room_ref(rm), "objects": []}
+        return {**base, "status": err["status"], "message": err["message"], "scan_id": None, "room": _room_ref(rm), "objects": [], "notes": svc.wm.list_notes(rm["id"])}
     now = time.time()
     objs = [{**{k: v for k, v in o.items() if k != "last_seen"}, "age_s": round(max(0.0, now - o["last_seen"]), 1)}
             for o in svc.wm.overlay_objects(scan["id"])]
-    return {**base, "status": "ok", "room": _room_ref(rm), "scan_id": scan["id"], "objects": objs}
+    return {**base, "status": "ok", "room": _room_ref(rm), "scan_id": scan["id"], "objects": objs, "notes": svc.wm.list_notes(rm["id"])}
 
 
 def _thumb(svc: ScanService, o: dict, room: dict) -> dict:

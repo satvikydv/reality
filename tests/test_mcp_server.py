@@ -26,7 +26,7 @@ def test_tools_are_listed_with_descriptions(tmp_path):
             return {t.name: t for t in (await c.list_tools()).tools}
 
     tools = run(go())
-    assert set(tools) == {"list_rooms", "where_is", "list_objects", "scan_summary", "what_changed", "guide_user_to", "get_frame"}
+    assert set(tools) == {"list_rooms", "where_is", "list_objects", "scan_summary", "what_changed", "guide_user_to", "get_frame", "ask_room", "list_notes", "leave_note"}
     assert all("room" in tools[t].input_schema["properties"] for t in tools if t not in ("list_rooms", "get_frame"))  # every tool can name a room
     assert "plain-language" not in tools["where_is"].description and "compass direction" in tools["where_is"].description
     assert tools["where_is"].input_schema["required"] == ["query"]
