@@ -10,7 +10,7 @@ const COMMON = {
   centralityFloor: 0.15,     // an object at the very edge of the screen still scores this share of its centre value
   recencyHalfLifeS: 3600,    // seen this long ago: the recency factor halves
   recencyFloor: 0.3,         // ... but never below this
-  chip: { height: 26, charWidth: 7.6, padX: 12, gap: 6, maxShifts: 6 },  // label size estimate and how far a label may move to avoid another
+  chip: { height: 30, charWidth: 7.8, padX: 12, gap: 6, maxShifts: 6 },  // label size estimate and how far a label may move to avoid another
   reticleRadiusPx: 90,       // the object nearest the screen centre within this gets the one outline
   outline: { simplifyPx: 3, smoothIterations: 1 },  // mask outlines are reduced to corners within this many pixels, then rounded
 };

@@ -14,10 +14,13 @@ const ease=t=>1-Math.pow(1-Math.min(1,Math.max(0,t)),3);
 
 function brackets(x,px,py,sz,col,lw=2){const h=sz/2,L=Math.min(14,sz/3);x.strokeStyle=col;x.lineWidth=lw;x.lineCap='round';
   [[-1,-1],[1,-1],[-1,1],[1,1]].forEach(([dx,dy])=>{x.beginPath();x.moveTo(px+dx*h,py+dy*(h-L));x.lineTo(px+dx*h,py+dy*h);x.lineTo(px+dx*(h-L),py+dy*h);x.stroke()})}
-function chip(x,t,sub,cx,y,col){x.font=`600 12px ${SANS}`;const a=x.measureText(t).width;x.font=`500 11px ${MONO}`;const b=sub?x.measureText(sub).width+8:0,W=a+b+20;
-  rr(x,cx-W/2,y,W,24,12);x.fillStyle='rgba(8,10,12,.72)';x.fill();x.lineWidth=1;x.strokeStyle=col;x.globalAlpha*=.7;x.stroke();x.globalAlpha/=.7;
-  x.textBaseline='middle';x.textAlign='left';x.font=`600 12px ${SANS}`;x.fillStyle=col===A?A:'#f2f4f3';x.fillText(t,cx-W/2+10,y+12.5);
-  if(sub){x.font=`500 11px ${MONO}`;x.fillStyle='rgba(242,244,243,.65)';x.fillText(sub,cx-W/2+10+a+8,y+12.5)}}
+// Label chip (visual system): 30px tall, dark glass, a hairline, and for the target an accent outline with an 8px dot.
+const CHIP_H=30;
+function chip(x,t,sub,cx,y,col){const tg=col===A,dot=tg?16:0;x.font=`600 13px ${SANS}`;const a=x.measureText(t).width;x.font=`500 11px ${MONO}`;const b=sub?x.measureText(sub).width+8:0,W=a+b+24+dot;
+  rr(x,cx-W/2,y,W,CHIP_H,CHIP_H/2);x.fillStyle='rgba(7,9,11,.82)';x.fill();x.lineWidth=1;x.strokeStyle=tg?'rgba(138,164,255,.48)':'rgba(255,255,255,.24)';x.stroke();
+  const L=cx-W/2+12;if(tg){x.fillStyle=A;x.beginPath();x.arc(L+4,y+CHIP_H/2,4,0,7);x.fill()}
+  x.textBaseline='middle';x.textAlign='left';x.font=`600 13px ${SANS}`;x.fillStyle='#f2f4f3';x.fillText(t,L+dot,y+CHIP_H/2+.5);
+  if(sub){x.font=`500 11px ${MONO}`;x.fillStyle='rgba(242,244,243,.68)';x.fillText(sub,L+dot+a+8,y+CHIP_H/2+.5)}}
 // Arrow at the screen edge toward something that is out of view; dx, dy are degrees right and up of the view centre.
 function edge(x,w,s,dx,dy,col,label,deg,t){const vx=dx*s.ppd,vy=-dy*s.ppd,hw=w/2-28,hh=vy>0?s.h-s.bot-s.cy:s.cy-s.top,
   f=Math.min(hw/(Math.abs(vx)||1e-6),hh/(Math.abs(vy)||1e-6)),px=w/2+vx*f,py=s.cy+vy*f,a=Math.atan2(vy,vx),p=(Math.sin(t*5)+1)/2;
@@ -26,8 +29,8 @@ function edge(x,w,s,dx,dy,col,label,deg,t){const vx=dx*s.ppd,vy=-dy*s.ppd,hw=w/2
   x.globalAlpha=1;chip(x,label,Math.round(deg)+'°',Math.min(w-62,Math.max(62,px-Math.cos(a)*62)),py-12-Math.sin(a)*22,col)}
 
 function tape(x,w,s){const y=s.tapeY,H=40,pt=5,half=w/2/pt+2;
-  rr(x,10,y,w-20,H,12);x.fillStyle='rgba(8,10,12,.58)';x.fill();x.lineWidth=1;x.strokeStyle='rgba(255,255,255,.16)';x.stroke();
-  x.save();rr(x,11,y,w-22,H,12);x.clip();
+  rr(x,10,y,w-20,H,16);x.fillStyle='rgba(9,11,13,.68)';x.fill();x.lineWidth=1;x.strokeStyle='rgba(255,255,255,.14)';x.stroke();
+  x.save();rr(x,11,y,w-22,H,16);x.clip();
   for(let d=Math.floor((s.yaw-half)/5)*5;d<=s.yaw+half;d+=5){const n=((d%360)+360)%360,px=w/2+(d-s.yaw)*pt,maj=n%30===0,mid=n%10===0;
     if(s.bins&&mid){const i=n/10,gp=s.gapBins&&s.gapBins.has(i);x.fillStyle=s.bins[i]?G:gp?rgba(A,.7):'rgba(255,255,255,.12)';x.fillRect(px,y+H-5,pt*10-1,3)}
     x.strokeStyle=n===0?A:`rgba(255,255,255,${maj?.85:mid?.45:.2})`;x.lineWidth=1;x.beginPath();x.moveTo(px,y+7);x.lineTo(px,y+7+(maj?12:mid?7:4));x.stroke();
@@ -35,8 +38,8 @@ function tape(x,w,s){const y=s.tapeY,H=40,pt=5,half=w/2/pt+2;
   (s.markers||[]).forEach(o=>{const dx=nd(o.yaw-s.yaw);if(Math.abs(dx)*pt>w/2-18)return;const px=w/2+dx*pt;x.fillStyle=o.hl?A:'rgba(255,255,255,.9)';x.beginPath();x.moveTo(px,y+3);x.lineTo(px+4,y+7);x.lineTo(px,y+11);x.lineTo(px-4,y+7);x.fill()});
   x.restore();
   x.strokeStyle=A;x.lineWidth=2;x.beginPath();x.moveTo(w/2,y-3);x.lineTo(w/2,y+H+3);x.stroke();
-  const yy=String(Math.round(((s.yaw%360)+360)%360)).padStart(3,'0')+'°';rr(x,w/2-30,y+H+6,60,22,11);x.fillStyle='rgba(8,10,12,.72)';x.fill();
-  x.fillStyle=A;x.font=`700 12px ${MONO}`;x.textAlign='center';x.textBaseline='middle';x.fillText(yy,w/2,y+H+17.5)}
+  const yy=String(Math.round(((s.yaw%360)+360)%360)).padStart(3,'0')+'°';rr(x,w/2-32,y+H+6,64,26,13);x.fillStyle='rgba(7,9,11,.82)';x.fill();x.strokeStyle='rgba(138,164,255,.48)';x.lineWidth=1;x.stroke();
+  x.fillStyle=A;x.font=`700 12px ${MONO}`;x.textAlign='center';x.textBaseline='middle';x.fillText(yy,w/2,y+H+19.5)}
 
 function ladder(x,w,s){const lx=w-14,ppd=s.ppd;
   for(let p=-60;p<=60;p+=10){const py=s.cy-(p-s.pitch)*ppd,d=Math.abs(py-s.cy);if(d>120)continue;const al=1-d/130;

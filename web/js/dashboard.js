@@ -86,7 +86,7 @@ async function loadScans() {
   }
 }
 
-const GROUPS = [['moved', '↔', 'var(--amber)', 'Moved'], ['removed', '−', 'var(--red)', 'Removed'], ['added', '+', 'var(--green)', 'Added']];
+const GROUPS = [['moved', '↔', 'var(--accent)', 'Moved'], ['removed', '−', 'var(--red)', 'Removed'], ['added', '+', 'var(--green)', 'Added']];
 let shown = [], at = -1; // the changes of the last comparison, and which one the viewer shows
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 // [label, sighting] pairs of a change: moved has two photos, the others one
