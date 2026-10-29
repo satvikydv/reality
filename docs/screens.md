@@ -24,10 +24,10 @@ Rules of the markup:
 - A part of a screen that appears only in some states carries `data-show="state state ..."`. The script sets the section's `data-state` and hides the other parts. The state names are exactly the ones listed below.
 - Every tap is `data-act="<action>"` (plus `data-id`, `data-room`, `data-scan`, `data-label`... for what it acts on). There are no other event hooks.
 - Model-written text (object names, answers) is inserted as text, never as markup.
-- The bottom bar is `<nav id="nav">`, built from `NAV` in `screens.js`; it shows on screens whose registry entry has a tab. The camera screens, the wizard, the review, the intro and the primer have no bar.
+- The bottom bar is `<nav id="nav">`, built from `NAV` in `screens.js` (Rooms, Find, Scan, Changes, Settings; Scan is the one raised accent control); it shows on screens whose registry entry has a tab. The camera screens, the wizard, the review, the intro and the primer have no bar.
 - The room switcher is a sheet (`#s-switcher`) over any screen; the pill that opens it (`.roomsw`) sits in the top bar of Home, Room, Find, Changes and Settings.
 
-Design tokens (names only, values are in `theme.css`): `--bg --ink --dim --line --panel --accent --amber --green --red`, fills `--fill-1 --fill-2 --fill-3`, `--danger-fill --danger-line --warn-line --on-accent --scrim`, radii `--r-pill --r-btn --r-card --r-ctl --r-sm --r-xs`, spacing `--pad --gap --gap-lg`, type `--sans --mono --fs-xs --fs-sm --fs-md --fs-lg --fs-xl`, sizes `--tap` (48px minimum tap target) `--btn-h --nav-h`.
+Design tokens (names only, values are in `theme.css`, the visual system): surfaces `--bg --surface --card --card-2`, fills `--fill-1 --fill-2 --fill-3`, `--panel --panel-solid --scrim`, text `--ink --dim --faint`, lines `--line --line-strong`, the one accent `--accent --accent-ink --accent-fill --accent-line` (blue on the phone, amber on the laptop via `data-theme="laptop"`), status `--green --red --amber` each with `-fill` and `-line`, type `--t-label ... --t-num-xl` (Sora for words, JetBrains Mono for numbers and labels), radii `--r-xs --r-sm --r-md --r-lg --r-xl --r-pill`, space `--s-1 ... --s-7`, sizes `--tap --tap-min --btn-h --field-h --bar-h --top-h`, motion `--ease --ease-inout --dur-1 --dur-2 --dur-3 --dur-ring`. Names from before the visual system (`--on-accent --danger-fill --r-btn --r-card --r-ctl --fs-* --nav-h --pad --gap`) are kept and map onto the new values.
 
 Previewing a state without a server or a phone: `/?demo&screen=<id>&state=<state>`, for example `/?demo&screen=find&state=all-results`. The same render code runs as in the real app, fed from `fixtures.js`. `/?demo` alone opens Home.
 
@@ -295,7 +295,7 @@ Objects review, step 3: one instance and every sighting that made it: the stored
 
 ### `quick`
 
-Quick ask: a bottom sheet over Find listing what the room contains as tap-to-ask names (it replaces a row of chips on the Find screen). Choosing one runs the search.
+Quick ask: a bottom sheet over Find listing what the room contains as tap-to-ask questions ("Where is my keys?" rows with a chevron; it replaces a row of chips on the Find screen). Choosing one runs the search.
 
 | State | Shows |
 |---|---|
@@ -327,7 +327,7 @@ One setting, three modes, all thresholds in `web/js/overlay-config.js`; the choi
 
 ## Dialogs, toasts and captions (not screens)
 
-- Confirm dialog (`#dlg`): used before discarding a scan, deleting a scan, a room or all data, and before switching room to open a result in another room. Title, one or two sentences, a safe button and the confirming button.
+- Confirm dialog (`#dlg`): used before discarding a scan, deleting a scan, a room or all data, and before switching room to open a result in another room. Title, one or two sentences, for the destructive ones a list (`#dlgitems`) of what is erased with counts (scans, objects, photos), a safe button and the confirming button (the only solid red).
 - Toast (`#toast`): short confirmations and errors.
 - Caption bar (`#cap`): every spoken reply is also shown as text (screens that already print the reply do not need it).
 - Camera indicator: on every camera screen a "Camera on · STOP" pill is always visible; Stop turns the camera off.

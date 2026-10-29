@@ -160,3 +160,12 @@ On the Realme RMX2001 the "relative" sensor is not gyro-only: both sources gave 
 - **All thresholds are in one file** (`overlay-config.js`); the three modes share the label-size and scoring constants.
 - **Quick ask is a bottom sheet in every mode**, not only in Calm: the Find screen no longer has a row of chips.
 - **Measured honestly.** On the three stored scans the label reduction comes from the label limit, grouping, off-screen objects and collision avoidance; the confidence and background filters hide nothing there because the scans contain neither. See `docs/measurements.md`.
+
+## 2026-10-29: the visual system
+
+- **Tokens first, then CSS.** `web/css/theme.css` holds every value (colour, type, radius, space, tap size, motion); `app.css` (phone) and `inspector.css` (laptop) only use tokens. Names from before the visual system are kept as aliases onto the new values, so nothing that used them broke. The laptop dashboard sets `data-theme="laptop"` for its amber accent, the phone keeps blue.
+- **Markup and behaviour.** `data-show` and `data-act` are unchanged on every element. Added only: classes, glyph and tone attributes on state cards (`data-g`, `data-tone`), icons in the back and room-switcher buttons, a coverage card on the not-found result, and a list of what is erased in the confirm dialog.
+- **Behaviour changes from the design, decided with the owner.** The Find field sits at the top under the scope control; the home tab is called Rooms; Quick ask lists example questions with chevrons; the AR toggle is hidden on the guide screen (the element stays, `setAr` drives it); destructive dialogs list counts of scans, objects and photos; the camera pill (Camera on / STOP) shows on every camera screen, in demo previews too.
+- **Not built, on purpose.** The design's progress card shows a made-up 45%; the Find busy state uses an indeterminate bar instead (no invented number). New slow and stalled timers were declined: Find already goes slow after 8 seconds, Home after 6 and the summary shows stalled by itself.
+- **Backend needed nothing.** Not-found answers already carry the last scan's coverage (`checked.covered_deg`) and objects carry `uncertainty_deg` for the guide cone.
+- **The camera overlay chips follow the design:** 30px dark glass with a hairline; the target has an accent outline and an 8px dot. The thresholds did not change except the chip height used to keep labels apart (26 to 30).

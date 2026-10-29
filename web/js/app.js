@@ -175,6 +175,7 @@ function onSockState(s){
 
 /* ---------- screens: RENDER[screen](state,data) shows a state of a screen. Loaders fetch the data, demo mode uses fixtures. ---------- */
 const RENDER={};
+const plural=(n,w)=>`${n} ${w}${n===1?'':'s'}`;
 const roomStatsLine=r=>r.scan_id?`${r.n_objects} objects · ${r.coverage_pct}% covered · ${since(r.last_scanned)}`:'Not scanned yet';
 
 /* Home: rooms, recent objects, search */
@@ -260,7 +261,7 @@ function startScan(){
   ctl.policy.minIntervalMs=prefs.minIntervalMs();ready=false;clearInterval(lightT);ctl.start(S().scan.roomId)}
 async function cancelScan(){
   if(ready){ready=false;stopCamera('cancelled');return openHome()} // nothing was started: just close the camera
-  const yes=await confirmDlg({title:'Discard this scan?',body:'Everything captured so far is deleted. You can scan again right away.',yes:'Discard',no:'Keep scanning'});
+  const yes=await confirmDlg({title:'Discard this scan?',body:'Everything captured so far is deleted. You can scan again right away.',yes:'Discard',no:'Keep scanning',items:[plural(ctl?.st.sent||0,'photo')+' from this scan',plural(ctl?.st.objects||0,'object')]});
   if(!yes)return;
   if(demo){clearInterval(st);return openHome()}
   if(ctl.phase==='scanning'||ctl.phase==='starting')ctl.cancel();else openHome()}
@@ -301,7 +302,7 @@ async function saveReview(){
   await loadRooms();toast(`Saved. ${m.room_name||'The room'} now remembers this scan.`);openRoom(m.room_id)}
 async function discardReview(){
   const m=summary;if(!m)return;
-  if(!await confirmDlg({title:'Discard this scan?',body:'It is deleted and the room keeps its current memory.',yes:'Discard',no:'Keep it'}))return;
+  if(!await confirmDlg({title:'Discard this scan?',body:'It is deleted and the room keeps its current memory.',yes:'Discard',no:'Keep it',items:summary?[plural(summary.objects.length,'object'),plural(typeof summary.frames==='object'?summary.frames.stored:summary.frames||0,'photo')]:[]}))return;
   if(!demo){const r=await api.discardScan(m.room_id,m.scan_id);if(!r.ok)return toast(describeFailure(r,'discard the scan').text);await loadRooms()}
   toast('Scan discarded');openHome()}
 // "Check the server": the scan may have finished while its summary never arrived (the link dropped). Ask what it stored.
@@ -374,7 +375,7 @@ async function openFind({roomId=null,scope=null}={}){
   const r=findRoom();
   if(r?.scan_id&&!demo){const d=await api.room(r.id);if(d.ok&&scrn==='find')fillQuick(Object.keys(d.data.labels).slice(0,12))}}
 // Quick ask: what the room contains, as tap-to-ask names in a bottom sheet over Find (not a row of chips on the screen)
-function fillQuick(labels){$('quicklist').replaceChildren(...labels.map(l=>mk('button','chip',l,{'data-act':'find-chip','data-label':l})));setState('quick',labels.length?'default':'empty')}
+function fillQuick(labels){$('quicklist').replaceChildren(...labels.map(l=>mk('button','chip qrow',`Where is my ${l}?`,{'data-act':'find-chip','data-label':l})));setState('quick',labels.length?'default':'empty')}
 function findDone(){findPending=false;findTimers.forEach(clearTimeout);findTimers=[]}
 function doFind(label,all=null){
   const q=(typeof label==='string'?label:$('q').value).trim();if(!q&&!demo)return;
@@ -418,6 +419,7 @@ RENDER.result=(state,m)=>{
   setState('result',state);
   txt('resulttext',m.speech);txt('resq','“'+(m.query||m.concept||'')+'”');txt('resroom',m.room_name||roomLabel(S(),m.room_id));
   if(nf){const x=explainNotFound(m);txt('nftitle',x.title);
+    const pct=Math.max(0,Math.min(100,Math.round((m.checked?.covered_deg||0)/3.6)));$('nfpct').innerHTML=pct+'<i>%</i>';$('nfbar').style.width=pct+'%';$('nfcov').hidden=!m.checked?.scans;
     txt('nftext',m.checked?.scans===0&&m.room_name?`${m.room_name} has no saved scan, so there is nothing to search. Scan it first.`:x.text.replace('your last scan',m.room_name?m.room_name+'’s last scan':'your last scan'));
     world.highlight(null);img=null;rt=0;go('result');speak(m.speech);buzz(25);return}
   const o=m.object||{},off=m.from_scan_start,dd=dirTxt(off?off.dyaw:(o.yaw||0),off?off.dpitch:(o.pitch||0));txt('dyaw',dd.yaw);txt('dpit',dd.pit);
@@ -471,7 +473,8 @@ function openExplore(roomId){
 
 /* What changed: one room, two of its saved scans */
 let chgRoom=null,chgRun=null;
-function chgNote(state,title,text,act){setState('changes',state);txt('chgtitle',title);txt('chgtext',text);const b=$('chgact');b.hidden=!act;if(act){b.textContent=act.label;chgRun=act.run}}
+const CHG_GLYPH={'need-two':'○','no-room':'○',offline:'OFF',error:'!'};
+function chgNote(state,title,text,act){setState('changes',state);$('chgtitle').parentElement.dataset.g=CHG_GLYPH[state]||'!';$('chgtitle').parentElement.dataset.tone=state==='error'?'error':'';txt('chgtitle',title);txt('chgtext',text);const b=$('chgact');b.hidden=!act;if(act){b.textContent=act.label;chgRun=act.run}}
 function fillPicker(d){
   const label=s=>`${new Date(s.started_at*1000).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})}${s.baseline?' · baseline':''}`;
   for(const[id,val]of[['chbefore',d.scan_before],['chafter',d.scan_after]]){const sel=$(id);sel.replaceChildren(...d.scans.map(s=>{const o=new Option(label(s),s.id);return o}));sel.value=String(val)}}
@@ -605,7 +608,7 @@ async function openSettings(){
   if(r.ok)RENDER.settings('default');else RENDER.settings('error',{message:describeFailure(r,'load your rooms').text})}
 async function deleteAll(){
   const n=S().rooms.length;
-  if(!await confirmDlg({title:'Delete all data?',body:`${n?`All ${n} room${n===1?'':'s'}, every scan, photo and object`:'Every scan, photo and object'} on the computer running Reality OS will be erased. This cannot be undone.`,yes:'Delete everything',no:'Keep my data'}))return;
+  if(!await confirmDlg({title:'Delete all data?',body:`${n?`All ${n} room${n===1?'':'s'}, every scan, photo and object`:'Every scan, photo and object'} on the computer running Reality OS will be erased. This cannot be undone.`,yes:'Delete everything',no:'Keep my data',items:[plural(n,'room'),plural(S().rooms.reduce((a,r)=>a+r.n_scans+(r.n_drafts||0),0),'scan'),plural(S().rooms.reduce((a,r)=>a+r.n_objects,0),'object'),'every photo']}))return;
   if(!demo){const r=await api.deleteAll();if(!r.ok)return toast(describeFailure(r,'delete the data').text);store.set({rooms:[],recent:[],activeId:null,scan:null})}
   toast('All data deleted');openHome()}
 RENDER.roomsettings=(state,d={})=>{
@@ -623,11 +626,11 @@ async function renameRoom(){
 async function deleteRoom(){
   const r=roomById(S(),S().viewRoomId);if(!r)return;
   const n=r.n_scans+(r.n_drafts||0);
-  if(!await confirmDlg({title:`Delete ${r.name}?`,body:`This erases ${n} scan${n===1?'':'s'}, ${r.n_objects} remembered object${r.n_objects===1?'':'s'} and every photo in ${r.name}. Other rooms are not touched. This cannot be undone.`,yes:'Delete room',no:'Keep it'}))return;
+  if(!await confirmDlg({title:`Delete ${r.name}?`,body:`This erases ${n} scan${n===1?'':'s'}, ${r.n_objects} remembered object${r.n_objects===1?'':'s'} and every photo in ${r.name}. Other rooms are not touched. This cannot be undone.`,yes:'Delete room',no:'Keep it',items:[plural(n,'scan'),plural(r.n_objects,'object'),'every photo in '+r.name]}))return;
   if(!demo){const x=await api.deleteRoom(r.id);if(!x.ok)return toast(describeFailure(x,'delete the room').text);await loadRooms()}
   toast(`${r.name} deleted`);openHome()}
-function confirmDlg({title,body,yes='OK',no='Cancel'}){
-  return new Promise(res=>{txt('dlgtitle',title);txt('dlgbody',body);txt('dlgyes',yes);txt('dlgno',no);
+function confirmDlg({title,body,yes='OK',no='Cancel',items=[]}){ // items: what is erased, with counts, listed above the buttons
+  return new Promise(res=>{txt('dlgtitle',title);txt('dlgbody',body);txt('dlgyes',yes);txt('dlgno',no);const ul=$('dlgitems');ul.replaceChildren(...items.map(t=>mk('li',null,t)));ul.hidden=!items.length;
     const d=$('dlg');d.classList.add('on');const done=v=>{d.classList.remove('on');$('dlgyes').onclick=$('dlgno').onclick=null;res(v)};
     $('dlgyes').onclick=()=>done(true);$('dlgno').onclick=()=>done(false)})}
 

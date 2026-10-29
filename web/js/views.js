@@ -37,6 +37,7 @@ export function roomCard(r) {
   else meta.append(el("span", null, "Not scanned yet"));
   if (r.n_drafts) meta.append(el("span", "warn", "unsaved scan"));
   b.append(head, meta);
+  if (r.scan_id) { const bar = el("div", "bar"), fill = el("i"); fill.style.width = `${Math.max(0, Math.min(100, r.coverage_pct))}%`; bar.append(fill); b.append(bar); } // style set by the DOM, never from text
   return b;
 }
 
@@ -114,8 +115,8 @@ export function historyRow(s, { memory = false } = {}) {
   const when = new Date(s.started_at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
   const badges = el("span", "badges");
   if (s.status === "draft") badges.append(el("span", "badge warn", "UNSAVED"));
-  if (memory) badges.append(el("span", "badge", "MEMORY"));
-  if (s.baseline) badges.append(el("span", "badge", "BASELINE"));
+  if (memory) badges.append(el("span", "badge memory", "MEMORY"));
+  if (s.baseline) badges.append(el("span", "badge baseline", "BASELINE"));
   t.append(el("b", null, when), badges, el("small", null, `${s.n_objects} objects · ${s.n_frames} frames`));
   const acts = el("div", "hacts");
   const a = (label, act, cls) => acts.append(el("button", cls || "mini", label, { "data-act": act, "data-scan": s.id }));

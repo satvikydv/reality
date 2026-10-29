@@ -8,7 +8,7 @@
 //   states  every state the screen can be in; each has a demo fixture in fixtures.js and a section in docs/screens.md
 //   data    what the screen shows;  api  where that comes from
 
-export const NAV = [["home", "Home"], ["find", "Find"], ["scan", "Scan"], ["changes", "Changes"], ["settings", "Settings"]];
+export const NAV = [["home", "Rooms"], ["find", "Find"], ["scan", "Scan"], ["changes", "Changes"], ["settings", "Settings"]];
 
 export const SCREENS = {
   welcome: { title: "Intro", nav: null, top: null, camera: false, states: ["default"],

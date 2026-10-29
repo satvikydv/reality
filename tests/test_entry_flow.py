@@ -285,7 +285,7 @@ def test_home_lists_rooms_and_the_bottom_bar_has_five_tabs(site, clean):
     site.room("Wardrobe")
     p = booted(site)
     p.wait("document.querySelectorAll('#hrooms .rcard').length===2")
-    assert p.eval("[...document.querySelectorAll('#nav button')].map(b=>b.textContent)") == ["Home", "Find", "Scan", "Changes", "Settings"]
+    assert p.eval("[...document.querySelectorAll('#nav button')].map(b=>b.textContent)") == ["Rooms", "Find", "Scan", "Changes", "Settings"]
     assert p.eval("document.querySelector('#nav [aria-current=page]').dataset.nav") == "home"
     cards = p.eval("[...document.querySelectorAll('#hrooms .rcard')].map(c=>c.textContent)")
     assert any("Living Room" in c and "ACTIVE" in c and "1 object" in c for c in cards) and any("Wardrobe" in c and "Not scanned yet" in c for c in cards)
@@ -640,6 +640,7 @@ def test_room_settings_rename_conflict_and_delete_with_warning(site, clean):
     assert "Erases 1 scan" in p.text("#rsdeltext") and "1 remembered object" in p.text("#rsdeltext")
     p.tap("[data-act=delete-room]")
     assert "cannot be undone" in p.text("#dlgbody") and "Other rooms are not touched" in p.text("#dlgbody")
+    assert p.eval("[...document.querySelectorAll('#dlgitems li')].map(l=>l.textContent)") == ["1 scan", "1 object", "every photo in Study"]
     p.tap("#dlgno")
     assert site.svc_.wm.get_room(b) is not None
     p.tap("[data-act=delete-room]")
@@ -671,6 +672,7 @@ def test_delete_all_data_from_settings(site, clean):
     p.tap("#nav [data-nav=settings]")
     p.tap("[data-act=delete-all]")
     assert "All 2 rooms" in p.text("#dlgbody")
+    assert p.eval("[...document.querySelectorAll('#dlgitems li')].map(l=>l.textContent).slice(0,3)") == ["2 rooms", "2 scans", "2 objects"]
     p.tap("#dlgno")
     assert len(site.svc_.wm.list_rooms()) == 2
     p.tap("[data-act=delete-all]")
