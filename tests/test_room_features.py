@@ -6,7 +6,11 @@ import pytest
 from app.reasoner.base import Result, ReasonerError
 from app import care
 from test_inspector import frame, see
+from synthetic_world import add_scan as pano_scan, make_panorama
 from test_scan_service import client, make_service  # noqa: F401  (client is a fixture)
+
+PANO = make_panorama()
+YAWS = list(range(0, 360, 40))
 
 DAY = 86400
 
@@ -113,9 +117,9 @@ def test_ask_sends_labels_only_never_an_image(client):
 def test_ask_knows_what_changed_since_earlier_saved_scans(client):
     wm, svc = client.svc.wm, client.svc
     rid = wm.create_room("Study")["id"]
-    old = scan_with(wm, rid, [("mug", 0), ("laptop", 40), ("plant", 80)], 100.0)
-    scan_with(wm, rid, [("laptop", 40), ("plant", 80), ("mug", 0)], 200.0)         # same room, mug still there: nothing gone
-    new = scan_with(wm, rid, [("laptop", 40), ("plant", 80), ("lamp", 0)], 300.0)  # the mug left: that direction was rescanned and a lamp is there now
+    old = pano_scan(wm, rid, PANO, YAWS, ts=100.0, objects=[("mug", 0.0, 0.0), ("laptop", 40.0, 0.0), ("plant", 80.0, 0.0)])
+    pano_scan(wm, rid, PANO, YAWS, ts=1000.0, true_jitter=(5.0, 0.0), objects=[("laptop", 40.0, 0.0), ("plant", 80.0, 0.0), ("mug", 0.0, 0.0)])
+    new = pano_scan(wm, rid, PANO, YAWS, ts=2000.0, true_jitter=(9.0, 1.0), objects=[("laptop", 40.0, 0.0), ("plant", 80.0, 0.0), ("lamp", 0.0, 0.0)])   # the mug left
     svc.reasoner = Asker({"answer": "It left between the second and third scans.", "matches": []})
     d = client.post(f"/api/rooms/{rid}/ask", json={"question": "when did my mug leave?"}).json()
     sent = svc.reasoner.seen[0][1]["content"]
@@ -151,21 +155,29 @@ def test_an_object_name_cannot_instruct_the_model_the_digest_marks_it_as_data(cl
 def test_rewind_shows_what_was_there_and_is_gone_as_ghosts_in_todays_directions(client):
     wm = client.svc.wm
     rid = wm.create_room("Study")["id"]
-    old = scan_with(wm, rid, [("mug", 0), ("laptop", 40), ("plant", 80)], 100.0)
-    new = scan_with(wm, rid, [("laptop", 40), ("plant", 80), ("lamp", 0)], 200.0)          # mug replaced by a lamp
+    old = pano_scan(wm, rid, PANO, YAWS, ts=100.0, objects=[("mug", 80.0, 0.0), ("laptop", 200.0, 0.0)])
+    new = pano_scan(wm, rid, PANO, YAWS, ts=500.0, true_jitter=(9.0, 1.0), objects=[("lamp", 80.0, 0.0), ("laptop", 200.0, 0.0)])          # the mug was replaced by a lamp
     d = client.get(f"/api/rooms/{rid}/rewind?scan={old}").json()
-    assert d["status"] == "ok" and d["then"]["id"] == old and d["now"]["id"] == new
+    assert d["status"] == "ok" and d["then"]["id"] == old and d["now"]["id"] == new and d["alignment"]["quality"] == "good"
     assert [(g["label"], g["kind"], g["unsure"]) for g in d["ghosts"]] == [("mug", "gone", False)]
-    assert abs(d["ghosts"][0]["yaw"] - 0) < 2 and "mug" in d["summary"]
+    assert abs(d["ghosts"][0]["yaw"] - 80) < 3 and "mug" in d["summary"]
 
 
 def test_rewind_says_unsure_for_directions_the_current_scan_never_looked_at(client):
     wm = client.svc.wm
     rid = wm.create_room("Study")["id"]
-    old = scan_with(wm, rid, [("mug", 200), ("laptop", 40)], 100.0)
-    scan_with(wm, rid, [("laptop", 40)], 200.0)                                           # never turned to 200 degrees
+    old = pano_scan(wm, rid, PANO, YAWS, ts=100.0, objects=[("mug", 240.0, 0.0), ("laptop", 40.0, 0.0)])
+    pano_scan(wm, rid, PANO, [0, 40, 80, 120], ts=500.0, true_jitter=(9.0, 1.0), objects=[("laptop", 40.0, 0.0)])      # never turned toward 240 degrees
     d = client.get(f"/api/rooms/{rid}/rewind?scan={old}").json()
-    assert [(g["label"], g["unsure"]) for g in d["ghosts"]] == [("mug", True)]
+    assert d["alignment"]["quality"] == "good" and [(g["label"], g["unsure"]) for g in d["ghosts"]] == [("mug", True)]
+
+
+def test_rewind_draws_nothing_when_the_two_scans_cannot_be_lined_up(client):
+    wm = client.svc.wm
+    rid, _ = room_with(wm, "Study", [("mug", 0)], 100.0)                      # pictures that are not images: no alignment is possible
+    old = scan_with(wm, rid, [("mug", 0)], 10.0)
+    d = client.get(f"/api/rooms/{rid}/rewind?scan={old}").json()
+    assert d["status"] == "ok" and d["ghosts"] == [] and d["alignment"]["quality"] == "failed" and "cannot say what moved" in d["summary"]
 
 
 def test_rewind_refuses_the_current_scan_other_rooms_drafts_and_unknown_scans(client):

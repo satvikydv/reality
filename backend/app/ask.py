@@ -9,11 +9,12 @@ Positions are directions, so "near" and "next to" mean angularly close from wher
 """
 from __future__ import annotations
 
+import asyncio
 import time
 
 from pydantic import BaseModel, ConfigDict
 
-from app.changes import diff_scans
+from app.changes import compare_scans
 from app.reasoner.base import Reasoner, ReasonerError
 
 MAX_QUESTION = 300
@@ -67,10 +68,11 @@ def digest(svc, room: dict, scan: dict, now: float | None = None) -> str:
                      f" | {_ago(max(0.0, now - o['last_seen']))}" + (f" | near: {near}" if near else ""))
     earlier = [s for s in wm.room_scans(room["id"]) if s["status"] == "saved" and s["id"] != scan["id"] and s["started_at"] < scan["started_at"]]
     for s in earlier[:HISTORY_SCANS]:
-        d = diff_scans(wm, s["id"], scan["id"])
+        d = compare_scans(wm, s["id"], scan["id"])
         rows = [f"gone: {e['label']}, it was {e['where']}" for e in d["removed"]] + [f"new: {e['label']}, {e['where']}" for e in d["added"]] \
             + [f"moved: {m['label']}, was {m['from']['where']}, now {m['to']['where']}" for m in d["moved"]] \
-            + [f"not checkable: {u['label']} ({u['reason']})" for u in d["unverified"]]
+            + [f"possibly moved: {m['label']}, was {m['from']['where']}, now {m['to']['where']}" for m in d["possibly_moved"]] \
+            + [f"not comparable: {u['label']} ({u['reason']})" for u in d["cant_compare"]]
         lines.append(f"since scan #{s['id']} ({_when(s['started_at'])}): " + ("; ".join(rows[:HISTORY_LINES]) if rows else "nothing changed"))
     return "\n".join(lines)
 
@@ -100,7 +102,7 @@ async def ask_room(svc, reasoner: Reasoner, question: str, room: dict, scan: dic
     objs = svc.wm.list_objects(scan["id"])
     if not objs:
         return {**base, "status": "ok", "scan_id": scan["id"], "answer": f"No objects were found in {room['name']}'s last scan.", "matches": []}
-    text = f"<room>\n{digest(svc, room, scan)}\n</room>\nQuestion: {q}"
+    text = f"<room>\n{await asyncio.to_thread(digest, svc, room, scan)}\n</room>\nQuestion: {q}"
     try:
         r = await reasoner.respond([{"role": "system", "content": SYSTEM}, {"role": "user", "content": text}], schema=SCHEMA, effort="low", max_output_tokens=2000)
         answer, matches = clean_answer(Answer.model_validate(r.parsed), {o["id"]: o for o in objs})

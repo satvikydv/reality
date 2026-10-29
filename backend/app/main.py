@@ -156,7 +156,7 @@ async def api_changes(before: int | None = None, after: int | None = None, room_
         if a and b and a["room_id"] != b["room_id"]:
             raise HTTPException(400, "those scans are from different rooms; scans of different rooms cannot be compared")
         room_id = a["room_id"] if a else None
-    return _changes_for(svc, before, after, room_id)
+    return await asyncio.to_thread(_changes_for, svc, before, after, room_id)
 
 
 def _changes_for(svc, before, after, room_id):
@@ -337,7 +337,7 @@ async def api_ask(room_id: int, body: AskIn):
 @app.get("/api/rooms/{room_id}/rewind")
 async def api_rewind(room_id: int, scan: int):
     """What an earlier saved scan had that the room's memory does not, as ghosts in today's directions."""
-    return _http_for(rewind_mod.rewind(_svc(), _room_or_404(room_id), scan))
+    return _http_for(await asyncio.to_thread(rewind_mod.rewind, _svc(), _room_or_404(room_id), scan))
 
 
 @app.get("/api/care")
@@ -438,7 +438,7 @@ async def api_delete_room_scan(room_id: int, scan_id: int):
 async def api_room_changes(room_id: int, before: int | None = None, after: int | None = None):
     """What changed between two saved scans of this room. Scans of another room are a 400."""
     _room_or_404(room_id)
-    return _changes_for(_svc(), before, after, room_id)
+    return await asyncio.to_thread(_changes_for, _svc(), before, after, room_id)
 
 
 @app.post("/api/rooms/{room_id}/changes/review")

@@ -10,6 +10,7 @@ All tools except `guide_user_to` and `leave_note` are read-only; the logic lives
 """
 from __future__ import annotations
 
+import asyncio
 import inspect
 import os
 import time
@@ -107,9 +108,12 @@ def build_server(get_service: Callable[[], ScanService], allow_frames: bool | No
     async def what_changed(scan_before: int | None = None, scan_after: int | None = None, room: str | None = None) -> dict[str, Any]:
         """Compare two saved scans of ONE room (default: its latest against its baseline, else the one before). Returns objects
         added, removed and moved (with the angular shift), plus `unverified` objects in directions that only one scan looked at.
-        Scans of different rooms are refused (status wrong_room)."""
+        Scans of different rooms are refused (status wrong_room). The two scans are first lined up from their pictures (`alignment`:
+        quality good, weak or failed, with the offset and the matches behind it) and each pair of objects is judged against how far a change
+        of viewpoint alone could move it: `moved`, `possibly_moved` (within that doubt), `removed`, `added`, and `cant_compare` for what the
+        alignment or the coverage cannot support. Nothing is called moved, removed or added when the alignment is weak or failed."""
         return await traced("what_changed", {"scan_before": scan_before, "scan_after": scan_after, "room": room},
-                            lambda svc: api.what_changed(svc, scan_before, scan_after, room))
+                            lambda svc: asyncio.to_thread(api.what_changed, svc, scan_before, scan_after, room))
 
     @server.tool()
     async def guide_user_to(query: str, room: str | None = None) -> dict[str, Any]:

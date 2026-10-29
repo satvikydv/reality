@@ -6,7 +6,7 @@ current scan never looked at are not reported as gone but as "unsure": absence t
 """
 from __future__ import annotations
 
-from app.changes import diff_scans
+from app.changes import compare_scans
 
 
 def rewind(svc, room: dict, scan_id: int) -> dict:
@@ -26,15 +26,18 @@ def rewind(svc, room: dict, scan_id: int) -> dict:
         return {**base, "status": "current", "message": "That is the room's current memory. Pick an earlier scan.", "ghosts": []}
     if then["started_at"] > wm.get_scan(now_id)["started_at"]:
         return {**base, "status": "bad_request", "message": "That scan is newer than the room's memory."}
-    d = diff_scans(wm, scan_id, now_id)
+    d = compare_scans(wm, scan_id, now_id)
     when = then["started_at"]
     ghosts = []
+    if d["alignment"]["quality"] != "good":  # nothing can be placed reliably: say so instead of drawing rings in the wrong places
+        return {**base, "status": "ok", "then": {"id": then["id"], "started_at": when}, "now": {"id": now_id}, "alignment": d["alignment"], "ghosts": [],
+                "summary": d["speech"]}
     for e in d["removed"]:
         ghosts.append({"label": e["label"], "yaw": round(e["anchor"]["yaw"], 1), "pitch": round(e["anchor"]["pitch"], 1), "kind": "gone", "unsure": False, "text": e["speech"]})
-    for m in d["moved"]:
-        ghosts.append({"label": m["label"], "yaw": round(m["from"]["anchor"]["yaw"], 1), "pitch": round(m["from"]["anchor"]["pitch"], 1), "kind": "moved", "unsure": False,
-                       "text": m["speech"]})
-    for u in d["unverified"]:
+    for m in d["moved"] + d["possibly_moved"]:
+        ghosts.append({"label": m["label"], "yaw": round(m["from"]["anchor"]["yaw"], 1), "pitch": round(m["from"]["anchor"]["pitch"], 1), "kind": "moved",
+                       "unsure": m in d["possibly_moved"], "text": m["speech"]})
+    for u in d["cant_compare"]:
         if u.get("was") == "removed?":
             ghosts.append({"label": u["label"], "yaw": round(u["anchor"]["yaw"], 1), "pitch": round(u["anchor"]["pitch"], 1), "kind": "gone", "unsure": True,
                            "text": f"The {u['label']} was there then; that direction was not rescanned, so it may still be."})

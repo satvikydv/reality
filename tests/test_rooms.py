@@ -9,6 +9,7 @@ import pytest
 from app import main, reality_api as api
 from app.mcp_server import build_server
 from app.world_model import RoomNameError, WorldModel
+from synthetic_world import GOOD
 from test_scan_service import client, frame_msg, jpeg, make_service, meta, save_drafts  # noqa: F401  (client is a fixture)
 
 W, H = 480, 640
@@ -278,6 +279,7 @@ def test_changes_within_a_room_report_the_move_as_an_angle_and_can_be_reviewed(c
     wm = client.svc.wm
     a = wm.create_room("A")["id"]
     s1, s2 = add_scan(wm, a, yaw=0, ts=1), add_scan(wm, a, yaw=60, ts=10)
+    wm.set_alignment(s1, s2, GOOD)
     r = client.get(f"/api/rooms/{a}/changes").json()
     assert r["status"] == "ok" and r["room"]["id"] == a and (r["scan_before"], r["scan_after"]) == (s1, s2)
     mv = r["moved"][0]

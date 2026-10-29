@@ -15,7 +15,11 @@ identical objects is invisible; appearance is not compared.
 """
 from __future__ import annotations
 
+import math
+
+from app import align as align_mod
 from app import anchoring as A
+from app import scale
 from app.world_model import WorldModel, describe_offset, label_match_score, plural
 
 MOVE_DEG = 15.0
@@ -131,3 +135,128 @@ def diff_scans(wm: WorldModel, scan_a: int, scan_b: int, yaw_offset: float | Non
         parts.append(f"{len(unverified)} object{'s' if len(unverified) != 1 else ''} could not be checked because that part of the room was not scanned both times.")
     return {"scan_a": scan_a, "scan_b": scan_b, "alignment": alignment, "added": added, "removed": removed, "moved": moved,
             "unchanged": unchanged, "unverified": unverified, "speech": " ".join(parts)}
+
+
+# ================================================================================================================ parallax-aware comparison
+
+def alignment_for(wm: WorldModel, scan_a: int, scan_b: int, refresh: bool = False) -> dict:
+    """How scan B's frame differs from scan A's, from the images (app.align). Computed once for a pair of finished scans and kept."""
+    if not refresh:
+        cached = wm.get_alignment(scan_a, scan_b)
+        if cached is not None:
+            return cached
+    res = align_mod.align_scans(wm, scan_a, scan_b)
+    sa, sb = wm.get_scan(scan_a), wm.get_scan(scan_b)
+    if sa and sb and sa["ended_at"] and sb["ended_at"]:
+        wm.set_alignment(scan_a, scan_b, res)
+    return res
+
+
+def _unreliable(al: dict) -> str:
+    if al["quality"] == "failed":
+        return "the two scans could not be lined up from their pictures, so this cannot be called a move"
+    return "the two scans only lined up roughly, so this cannot be called a move"
+
+
+def compare_scans(wm: WorldModel, scan_a: int, scan_b: int, align: dict | None = None, viewpoint_cm: float | None = None,
+                  max_spoken: int = 6) -> dict:
+    """Compare scan `scan_b` (now) against `scan_a` (before), allowing for the viewpoint having moved.
+
+    The offset between the scans' frames comes from the images (`alignment_for`; `align` overrides it). Each pair of same-label objects is
+    classified by how far apart they are after the offset, against how far a viewpoint error of `viewpoint_cm` (default 15) alone could
+    move that object in the picture (app.scale: nearer objects shift more): unchanged, possibly moved (up to twice that, or that plus the
+    uncertainty of the distance, the anchors and the alignment) and moved (beyond). Unmatched objects are new or removed only when the other
+    scan looked at that direction. When the alignment is weak or failed nothing is called moved, new or removed: it is "can't compare".
+    """
+    vp = scale.VIEWPOINT_CM if viewpoint_cm is None else viewpoint_cm
+    objs_a, objs_b = wm.list_objects(scan_a), wm.list_objects(scan_b)
+    frames_a, frames_b = wm.list_frames(scan_a), wm.list_frames(scan_b)
+    al = dict(align if align is not None else alignment_for(wm, scan_a, scan_b))
+    confident = al["quality"] == "good"
+    if al["quality"] in ("good", "weak"):
+        off, source = al["offset_deg"], "images"
+    else:  # no usable pictures: the objects' own directions can still suggest an offset, but never enough to call anything moved
+        est = estimate_yaw_offset(objs_a, objs_b)
+        off, source = (est["offset_deg"], "landmarks") if est["confident"] else (0.0, "none")
+    al.update(offset_used_deg=round(off, 2), offset_source=source, viewpoint_cm=vp)
+    spread = al.get("spread_deg") or 0.0
+
+    pairs = sorted(((A.angular_distance(a["yaw"] + off, a["pitch"], b["yaw"], b["pitch"]), a, b)
+                    for a in objs_a for b in objs_b if label_match_score(a["label"], b["label"]) > 0), key=lambda t: t[0])
+    used_a, used_b, matched = set(), set(), []
+    for sep, a, b in pairs:
+        if a["id"] not in used_a and b["id"] not in used_b:
+            used_a.add(a["id"])
+            used_b.add(b["id"])
+            matched.append((sep, a, b))
+
+    start_b = wm.scan_start_pose(scan_b)
+
+    def place(o: dict, shift: float) -> dict:
+        yaw = (o["yaw"] + shift) % 360.0
+        where = describe_offset(A.wrap180(yaw - start_b["yaw"]), o["pitch"]) if start_b else "at an unknown direction"
+        nbrs = wm.neighbors(o["id"])
+        rel = f", {nbrs[0]['relation']} the {nbrs[0]['label']}" if nbrs else ""
+        return {"object_id": o["id"], "label": o["label"], "anchor": {"yaw": yaw, "pitch": o["pitch"]}, "where": where + rel, "replay": wm.replay(o["id"])}
+
+    def distance(o: dict) -> dict:
+        size, src = scale.size_for(wm, o["label"])
+        return scale.distance_estimate(wm, o, size, src) or {"distance_cm": 150.0, "lo_cm": 75.0, "hi_cm": 300.0, "rel_err": 0.5, "size_cm": size, "size_source": "unknown"}
+
+    moved, possibly, unchanged, cant = [], [], 0, []
+    for sep, a, b in matched:
+        ea, eb = distance(a), distance(b)
+        est = min(ea, eb, key=lambda e: e["distance_cm"])                  # the nearer estimate: nearer things shift more
+        across = scale.across_share(al.get("translation"), a["yaw"], a["pitch"])
+        tol, band = scale.band_deg(est, vp, across)
+        anchor_unc = 0.5 * math.hypot(a.get("uncertainty_deg") or a["spread_deg"], b.get("uncertainty_deg") or b["spread_deg"])
+        margin = math.hypot(band, spread, anchor_unc)
+        upper = max(2.0 * tol, tol + margin)
+        info = {"sep_deg": round(sep, 1), "tolerance_deg": round(tol, 1), "uncertainty_deg": round(margin, 1), "distance_cm": est["distance_cm"],
+                "distance_lo_cm": est["lo_cm"], "distance_hi_cm": est["hi_cm"], "size_source": est["size_source"]}
+        if sep <= tol:
+            unchanged += 1
+            continue
+        before, after = place(a, off), place(b, 0.0)
+        if not confident:
+            cant.append({**before, "was": "moved?", "to": after, "reason": _unreliable(al), **info})
+        elif sep <= upper:
+            possibly.append({"label": b["label"], "from": before, "to": after, **info,
+                             "speech": f"The {b['label']} may have moved: it was {before['where']}, now {after['where']}, but that is within what a different spot could explain."})
+        else:
+            moved.append({"label": b["label"], "from": before, "to": after, **info,
+                          "speech": f"The {b['label']} moved: it was {before['where']}, now {after['where']}."})
+
+    removed, added = [], []
+    for a in objs_a:
+        if a["id"] in used_a:
+            continue
+        e = place(a, off)
+        if not confident:
+            cant.append({**e, "was": "removed?", "reason": _unreliable(al)})
+        elif _covered(frames_b, e["anchor"]["yaw"], e["anchor"]["pitch"], 0.0):
+            removed.append({**e, "speech": f"The {a['label']} is gone; it was {e['where']}."})
+        else:
+            cant.append({**e, "was": "removed?", "reason": "that direction was not rescanned"})
+    for b in objs_b:
+        if b["id"] in used_b:
+            continue
+        e = place(b, 0.0)
+        if not confident:
+            cant.append({**e, "was": "added?", "reason": _unreliable(al)})
+        elif _covered(frames_a, e["anchor"]["yaw"], e["anchor"]["pitch"], off):
+            added.append({**e, "speech": f"A {b['label']} is new, {e['where']}."})
+        else:
+            cant.append({**e, "was": "added?", "reason": "that direction was not in the earlier scan"})
+
+    parts = [x["speech"] for x in moved] + [x["speech"] for x in possibly] + _grouped(removed, "{n} {things} are gone.") + _grouped(added, "{n} {things} are new.")
+    if len(parts) > max_spoken:
+        parts = parts[:max_spoken] + [f"And {len(parts) - max_spoken} more change{'s' if len(parts) - max_spoken != 1 else ''}."]
+    if not confident:
+        parts = ["The two scans could not be lined up reliably" + (" from their pictures" if al["quality"] == "failed" else "") + ", so I cannot say what moved."]
+    elif not parts:
+        parts = ["Nothing changed."]
+    if cant:
+        parts.append(f"{len(cant)} object{'s' if len(cant) != 1 else ''} could not be compared.")
+    return {"scan_a": scan_a, "scan_b": scan_b, "alignment": al, "added": added, "removed": removed, "moved": moved, "possibly_moved": possibly,
+            "cant_compare": cant, "unverified": cant, "unchanged": unchanged, "speech": " ".join(parts)}

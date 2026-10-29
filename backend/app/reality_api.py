@@ -12,7 +12,7 @@ import time
 from collections import Counter
 
 from app import anchoring as A
-from app.changes import diff_scans
+from app.changes import compare_scans
 from app.resolver import semantic_find
 from app.coverage import coverage
 from app.scan_service import ScanService, count_phrase
@@ -166,13 +166,14 @@ def _shift(a: dict, b: dict) -> dict:
 
 def _annotate(d: dict, reviews: dict[str, str]) -> None:
     """Give every change a stable key, the angular shift for moves, and the user's confirm / dismiss mark."""
-    for e in d["moved"]:
-        e["key"] = f"moved:{e['from']['object_id']}:{e['to']['object_id']}"
-        e["shift"] = _shift(e["from"]["anchor"], e["to"]["anchor"])
-    for kind in ("removed", "added", "unverified"):
+    for kind in ("moved", "possibly_moved"):
+        for e in d[kind]:
+            e["key"] = f"{kind}:{e['from']['object_id']}:{e['to']['object_id']}"
+            e["shift"] = _shift(e["from"]["anchor"], e["to"]["anchor"])
+    for kind in ("removed", "added", "cant_compare"):
         for e in d[kind]:
             e["key"] = f"{kind}:{e['object_id']}"
-    for kind in ("moved", "removed", "added"):
+    for kind in ("moved", "possibly_moved", "removed", "added"):
         for e in d[kind]:
             e["review"] = reviews.get(e["key"])
 
@@ -226,9 +227,11 @@ def what_changed(svc: ScanService, scan_a: int | None = None, scan_b: int | None
             return {"status": "wrong_room", "room": _room_ref(rm), "message": f"Scan {sid} is from {s['room_name']}, not {rm['name']}. Scans of different rooms cannot be compared."}
         if s["status"] != "saved":
             return {"status": "not_saved", "room": _room_ref(rm), "message": f"Scan {sid} has not been saved."}
-    d = diff_scans(svc.wm, scan_a, scan_b)
-    out = {"status": "ok", "room": _room_ref(rm), "scan_before": scan_a, "scan_after": scan_b, "summary": d["speech"], "alignment": d["alignment"],
-           "added": _clean(d["added"]), "removed": _clean(d["removed"]), "moved": _clean(d["moved"]), "unverified": _clean(d["unverified"]),
+    d = compare_scans(svc.wm, scan_a, scan_b)
+    cant = _clean(d["cant_compare"])
+    out = {"status": "ok", "room": _room_ref(rm), "scan_before": scan_a, "scan_after": scan_b, "summary": d["speech"], "alignment": _clean(d["alignment"]),
+           "added": _clean(d["added"]), "removed": _clean(d["removed"]), "moved": _clean(d["moved"]), "possibly_moved": _clean(d["possibly_moved"]),
+           "cant_compare": cant, "unverified": cant,   # the same list: "unverified" is the older name of "cant_compare"
            "unchanged_count": d["unchanged"], "scans": [{"id": s["id"], "started_at": s["started_at"], "baseline": bool(s["baseline"])} for s in saved]}
     _annotate(out, svc.wm.reviews(rm["id"], scan_a, scan_b))
     return out

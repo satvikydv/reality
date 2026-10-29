@@ -11,6 +11,10 @@ from app import anchoring as A
 
 PANO_W, PANO_H = 2880, 1440
 
+# an alignment result as app.align gives it for two scans that line up well (the same room, no shift); seed it with wm.set_alignment(a, b, GOOD)
+GOOD = {"method": "pose prior", "quality": "good", "offset_deg": 0.0, "pitch_offset_deg": 0.0, "roll_offset_deg": 0.0, "inliers": 500, "pairs": 6,
+        "spread_deg": 0.3, "translation": None, "parallax_deg": 0.2, "reason": None, "frames_a": 6, "frames_b": 6, "pairs_tried": 12}
+
 
 def make_panorama(seed=1, shapes=900):
     rng = np.random.default_rng(seed)

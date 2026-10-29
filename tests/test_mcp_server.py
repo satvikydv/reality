@@ -5,6 +5,7 @@ from mcp import Client
 
 from app.mcp_server import build_server
 from test_reality_api import scan
+from synthetic_world import GOOD
 from test_scan_service import make_service
 
 
@@ -61,8 +62,9 @@ def test_what_changed_through_mcp(tmp_path):
     svc = make_service(tmp_path)
 
     async def go():
-        await scan(svc, [0])
-        await scan(svc, [90])
+        a = await scan(svc, [0])
+        b = await scan(svc, [90])
+        svc.wm.set_alignment(a, b, GOOD)
         async with Client(build_server(lambda: svc)) as c:
             return await call(c, "what_changed")
 
