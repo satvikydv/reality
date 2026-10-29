@@ -194,7 +194,7 @@ Yaw-offset error ____ ; false-move rate ____ ; true-move recall ____ ; possibly 
 | start heading +90 | good | 18065 | 0.0° | – | – | 0 |
 | two objects moved | good | 17056 | 0.0° | mug, book | – | 0 |
 
-Yaw-offset error mean 0.0°, max 0.0° (a rotation-only render, so this is the floor); false moves 0 of 16 objects; true-move recall 1.0 (2 of 2). The 20 cm step is simulated at 20 cm while the default tolerance assumes 15 cm, so all four objects land in "possibly moved": the doubt band is doing its job, and a real step of 15 cm or less is absorbed.
+Yaw-offset error mean 0.0°, max 0.0° (a rotation-only render, so this is the floor); false moves 0 of 16 objects; true-move recall 1.0 (2 of 2). The live guidance takes about 70 ms per camera frame on this laptop's CPU (a 480x640 frame against a stored 720x960 keyframe; the keyframe's features, 43 ms, are computed once per room), so 2 frames a second leaves most of the time free. The 20 cm step is simulated at 20 cm while the default tolerance assumes 15 cm, so all four objects land in "possibly moved": the doubt band is doing its job, and a real step of 15 cm or less is absorbed.
 
 ## Results
 
