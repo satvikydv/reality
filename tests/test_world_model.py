@@ -110,13 +110,15 @@ def test_where_is_speech_replay_and_scan_start(wm):
     assert wm.where_is("scissors") is None
 
 
-def test_where_is_falls_back_to_earlier_scan(wm):
+def test_where_is_only_looks_in_the_latest_saved_scan(wm):
+    """A room's memory is its latest saved scan: an older scan is kept for what-changed but never answers a question."""
     s1 = wm.start_scan(ts=1.0)
     wm.observe(frame(wm, s1, 1.0, 0.0), [{"label": "scissors", "box": centre_box()}])
     s2 = wm.start_scan(ts=2.0)
     wm.observe(frame(wm, s2, 2.0, 0.0), [{"label": "mug", "box": centre_box()}])
-    r = wm.where_is("scissors")
-    assert r["scan_id"] == s1 and not r["is_latest_scan"] and "earlier scan" in r["speech"]
+    assert wm.where_is("scissors") is None
+    assert wm.where_is("mug")["scan_id"] == s2 and wm.where_is("mug")["is_latest_scan"]
+    assert wm.where_is("scissors", scan_id=s1)["scan_id"] == s1  # still reachable when asked for by id
 
 
 def test_list_objects_since_and_latest_default(wm):
@@ -158,3 +160,72 @@ def test_where_is_speech_names_a_different_object_first(wm):
     wm2 = wm.start_scan()
     wm.observe(frame(wm, wm2, 5.0, 0.0), [{"label": "mug", "box": centre_box(240, 320)}, {"label": "mug", "box": centre_box(300, 320)}])
     assert "of another mug" in wm.where_is("mug", scan_id=wm2)["speech"]
+
+
+def test_list_scans_newest_first_with_counts(wm):
+    a = wm.start_scan(name="first", ts=1.0)
+    wm.observe(frame(wm, a, 1.0, 0.0), [{"label": "mug", "box": centre_box()}])
+    b = wm.start_scan(name="second", ts=2.0)
+    wm.end_scan(b, ts=3.0)
+    scans = wm.list_scans()
+    assert [s["id"] for s in scans] == [b, a]
+    assert scans[1]["n_frames"] == 1 and scans[1]["n_objects"] == 1 and scans[0]["n_frames"] == 0 and scans[0]["ended_at"] == 3.0
+    assert wm.get_scan(a)["name"] == "first" and wm.get_scan(999) is None
+
+
+def test_cut_off_view_of_a_big_object_joins_it(wm):
+    s = wm.start_scan()
+    whole = wm.observe(frame(wm, s, 1.0, 100.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]
+    # camera now 40 deg to the left: the laptop is half out of view, so its box centre is ~15 deg from the first one
+    cut = wm.observe(frame(wm, s, 2.0, 60.0), [{"label": "laptop", "box": [388, 260, 480, 380]}])[0]
+    assert A.angular_distance(whole["yaw"], whole["pitch"], cut["yaw"], cut["pitch"]) > wm.merge_deg
+    assert cut["object_id"] == whole["object_id"] and not cut["new"]
+    assert len(wm.list_objects(s)) == 1
+
+
+def test_small_fragment_at_the_border_never_starts_an_object(wm):
+    s = wm.start_scan()
+    out = wm.observe(frame(wm, s, 1.0, 100.0), [{"label": "laptop", "box": [0, 300, 20, 340]}])[0]
+    assert out["object_id"] is None and out["skipped"] == "fragment"
+    assert wm.list_objects(s) == []
+    wm.observe(frame(wm, s, 2.0, 100.0), [{"label": "laptop", "box": [0, 260, 200, 380]}])  # big enough: a real, if cut-off, laptop
+    assert len(wm.list_objects(s)) == 1
+
+
+def test_two_boxes_in_one_view_are_two_objects_however_much_they_overlap(wm):
+    s = wm.start_scan()
+    f = frame(wm, s, 3.0, 100.0)
+    wm.observe(f, [{"label": "mug", "box": [200, 300, 280, 380]}, {"label": "mug", "box": [220, 300, 300, 380]}])
+    assert wm.consolidate(s) == 0 and len(wm.list_objects(s)) == 2
+
+
+def test_the_same_object_seen_again_is_one_object_and_far_apart_ones_are_two(wm):
+    s = wm.start_scan()
+    a = wm.observe(frame(wm, s, 1.0, 100.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]["object_id"]
+    b = wm.observe(frame(wm, s, 2.0, 160.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]["object_id"]
+    assert a != b and len(wm.list_objects(s)) == 2
+    c = wm.observe(frame(wm, s, 3.0, 102.0), [{"label": "laptop", "box": [40, 260, 440, 380]}])[0]
+    assert c["object_id"] == a and not c["new"] and wm.get_object(a)["n_obs"] == 2
+
+
+def test_overlay_objects_carry_the_mask_and_the_pose_it_was_taken_at(wm):
+    s = wm.start_scan()
+    f = frame(wm, s, 1.0, 100.0, 5.0)
+    poly = [[200.0, 280.0], [280.0, 280.0], [280.0, 360.0], [200.0, 360.0]]
+    wm.observe(f, [{"label": "mug", "box": [200, 280, 280, 360], "polygon": poly}, {"label": "cup", "box": [20, 20, 80, 80]}])
+    mug, cup = wm.overlay_objects(s)
+    assert mug["mask"]["poly"] == poly and mug["mask"]["yaw"] == 100.0 and mug["mask"]["pitch"] == 5.0
+    assert mug["mask"]["width"] == W and mug["mask"]["height"] == H and mug["mask"]["hfov"] == wm.default_hfov_deg
+    assert cup["mask"] is None and len(cup["footprint"]) == 5  # no outline stored: the phone falls back to the footprint
+    assert mug["uncertainty_deg"] == pytest.approx(0.0, abs=1e-3) and mug["n_obs"] == 1
+
+
+def test_database_from_before_outlines_is_upgraded(tmp_path):
+    import sqlite3
+    db = tmp_path / "old.sqlite"
+    con = sqlite3.connect(db)
+    con.executescript("CREATE TABLE observations (id INTEGER PRIMARY KEY, object_id INTEGER, frame_id INTEGER, ts REAL, box TEXT, conf REAL, yaw REAL, pitch REAL);")
+    con.close()
+    m = WorldModel(db)
+    assert "poly" in {r["name"] for r in m.db.execute("PRAGMA table_info(observations)")}
+    m.close()

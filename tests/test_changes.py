@@ -103,3 +103,13 @@ def test_estimate_robust_to_moved_minority_and_flags_weak_evidence(wm):
     weak = estimate_yaw_offset(wm.list_objects(a), wm.list_objects(one))
     assert not weak["confident"] and weak["inliers"] == 1
     assert estimate_yaw_offset([], wm.list_objects(a))["candidates"] == 0
+
+
+def test_speech_groups_repeated_labels_and_caps_the_list(wm):
+    many = [("mug", 20 + 8 * i, 0) for i in range(3)] + [("keys", 150, 0), ("laptop", 200, 0), ("charger", 250, 0), ("scissors", 300, 0),
+                                                          ("notebook", 330, 0), ("stapler", 350, 0)]
+    a = build(wm, many)
+    b = build(wm, [], ts=100.0)  # everything gone
+    r = diff_scans(wm, a, b, yaw_offset=0.0)
+    assert len(r["removed"]) == 9
+    assert "3 mugs are gone." in r["speech"] and r["speech"].count("is gone") == 5 and r["speech"].endswith("And 1 more change.")

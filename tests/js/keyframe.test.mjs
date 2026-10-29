@@ -77,17 +77,26 @@ test("undo lets the next sample retry a frame that was not sent", () => {
 });
 
 test("coverage fills around frames, wraps north, and points at the nearest gap", () => {
-  const c = new Coverage({ binDeg: 10, reachDeg: 15 });
+  const c = new Coverage(); // 60 degree FOV: each frame covers yaw +- 24
   assert.equal(c.fraction, 0);
   c.mark(355);
-  assert.ok(c.bins[35] && c.bins[0] && c.bins[1] && !c.bins[3]);
+  assert.ok(c.bins[33] && c.bins[35] && c.bins[0] && c.bins[1] && !c.bins[2] && !c.bins[30]); // covers 331..19
   for (let y = 0; y < 360; y += 20) c.mark(y);
   assert.equal(c.fraction, 1);
   assert.equal(c.nextGap(10), null);
   const g = new Coverage();
-  g.mark(0); g.mark(30); g.mark(60); // covers -15..75
-  assert.deepEqual(g.nextGap(60), { dir: "right", deg: 20 }); // next uncovered bin is 80
+  g.mark(0); g.mark(30); g.mark(60); // covers -24..84
+  assert.deepEqual(g.nextGap(60), { dir: "right", deg: 30 }); // the first bin that is not mostly covered is 90
   g.reset();
   g.mark(180);
-  assert.equal(g.nextGap(180).deg, 20);
+  assert.equal(g.nextGap(180).deg, 30);
+});
+
+test("coverage uses the frame's own field of view and reports pitch bands", () => {
+  const wide = new Coverage({ hfov: 90 }), narrow = new Coverage({ hfov: 40 });
+  wide.mark(0); narrow.mark(0);
+  assert.ok(wide.fraction > narrow.fraction * 2);
+  const c = new Coverage();
+  c.mark(0, -45); c.mark(90, 0);
+  assert.ok(c.bands.low.covered_deg > 0 && c.bands.mid.covered_deg > 0 && c.bands.high.covered_deg === 0);
 });

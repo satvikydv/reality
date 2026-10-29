@@ -1,9 +1,15 @@
-const A='#FFD54F',G='#5EE6A0',TAU=Math.PI*2,rad=d=>(d-90)*Math.PI/180;
-export function fit(c){const d=Math.min(devicePixelRatio||1,2),r=c.getBoundingClientRect();if(c.width!==Math.round(r.width*d)){c.width=Math.round(r.width*d);c.height=Math.round(r.height*d)}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,r.width,r.height);return{x,w:r.width,h:r.height}}
+const css=(n,f)=>(typeof document!=='undefined'&&getComputedStyle(document.documentElement).getPropertyValue(n).trim())||f;
+// The accent comes from the page (--accent): blue on the phone, amber on the laptop dashboard.
+export const ACCENT=css('--accent','#8AA4FF');
+export const rgba=(hex,a)=>{const n=parseInt(hex.replace('#',''),16);return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`};
+const A=ACCENT,G='#5EE6A0',TAU=Math.PI*2,rad=d=>(d-90)*Math.PI/180;
+export function fit(c){const d=Math.min(devicePixelRatio||1,2),r=c.getBoundingClientRect();if(c.width!==Math.round(r.width*d)||c.height!==Math.round(r.height*d)){c.width=Math.round(r.width*d);c.height=Math.round(r.height*d)}const x=c.getContext('2d');x.setTransform(d,0,0,d,0,0);x.clearRect(0,0,r.width,r.height);return{x,w:r.width,h:r.height}}
 
-// Coverage compass ring: 36 segments, N marker, heading dot + view cone.
-export function drawRing(c,bins,yaw,pulse=0){
-  const{x,w,h}=fit(c),cx=w/2,cy=h/2,R=Math.min(w,h)/2-18,T=16;
+// Coverage compass: 36 yaw segments (what was looked at), N marker, the view cone of the camera as wide as its real field of
+// view, a heading dot, and three pitch bands at the side (floor / eye level / ceiling) filled by how much of each was seen.
+// It shows what the scan has covered, never where objects are. o: {hfov, pitch, bands:{low,mid,high}.fraction}.
+export function drawRing(c,bins,yaw,pulse=0,o={}){
+  const{x,w,h}=fit(c),cx=w/2,cy=h/2,R=Math.min(w,h)/2-30,T=Math.max(9,Math.min(16,Math.min(w,h)*.045));
   x.lineCap='butt';
   for(let i=0;i<36;i++){
     const a0=rad(i*10+1.2),a1=rad(i*10+8.8),on=bins&&bins[i];
@@ -16,15 +22,21 @@ export function drawRing(c,bins,yaw,pulse=0){
   x.strokeStyle='rgba(255,255,255,.25)';x.lineWidth=1;x.beginPath();x.arc(cx,cy,R-T/2-10,0,TAU);x.stroke();
   for(let d=0;d<360;d+=30){const a=rad(d),r1=R-T/2-10,r2=r1-(d%90?5:10);x.beginPath();x.moveTo(cx+Math.cos(a)*r1,cy+Math.sin(a)*r1);x.lineTo(cx+Math.cos(a)*r2,cy+Math.sin(a)*r2);x.stroke()}
   // view cone
-  const ya=rad(yaw);x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R-T/2-10,rad(yaw-30),rad(yaw+30));x.closePath();
-  const g=x.createRadialGradient(cx,cy,0,cx,cy,R);g.addColorStop(0,'rgba(255,213,79,0)');g.addColorStop(1,'rgba(255,213,79,.22)');x.fillStyle=g;x.fill();
+  const half=(o.hfov||60)/2,ya=rad(yaw);x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R-T/2-10,rad(yaw-half),rad(yaw+half));x.closePath();
+  const g=x.createRadialGradient(cx,cy,0,cx,cy,R);g.addColorStop(0,rgba(A,0));g.addColorStop(1,rgba(A,.22));x.fillStyle=g;x.fill();
   // N marker
   x.fillStyle=A;x.beginPath();const ny=cy-R-T/2-4;x.moveTo(cx,ny+1);x.lineTo(cx-6,ny-10);x.lineTo(cx+6,ny-10);x.closePath();x.fill();
   x.font='700 12px JetBrains Mono,monospace';x.textAlign='center';x.fillText('N',cx,ny-16);
   // heading dot
   const hx=cx+Math.cos(ya)*R,hy=cy+Math.sin(ya)*R;
-  x.beginPath();x.arc(hx,hy,13+pulse*10,0,TAU);x.fillStyle=`rgba(255,213,79,${.25*(1-pulse)+.12})`;x.fill();
+  x.beginPath();x.arc(hx,hy,13+pulse*10,0,TAU);x.fillStyle=rgba(A,.25*(1-pulse)+.12);x.fill();
   x.beginPath();x.arc(hx,hy,8,0,TAU);x.fillStyle=A;x.fill();x.lineWidth=3;x.strokeStyle='#07090b';x.stroke();
+  if(o.bands){ // pitch bands: high on top, low at the bottom; a tick marks where the camera points now
+    const bx=w-9,bw=7,gap=4,bh=(Math.min(h,170)-2*gap)/3,top=cy-Math.min(h,170)/2;
+    [['high',0],['mid',1],['low',2]].forEach(([n,i])=>{const y=top+i*(bh+gap),f=Math.max(0,Math.min(1,o.bands[n]?.fraction??0));
+      x.fillStyle='rgba(255,255,255,.2)';x.fillRect(bx,y,bw,bh);x.fillStyle=G;x.fillRect(bx,y+bh*(1-f),bw,bh*f)});
+    const py=top+(Math.min(h,170))*(.5-Math.max(-60,Math.min(60,o.pitch||0))/120);x.fillStyle=A;x.beginPath();x.moveTo(bx-3,py);x.lineTo(bx-10,py-4);x.lineTo(bx-10,py+4);x.closePath();x.fill();
+  }
 }
 
 // Radial room map. yaw clockwise from scan start (top), pitch up = toward centre.
@@ -37,7 +49,7 @@ export function drawMap(c,objs,o={}){
   x.fillStyle='rgba(255,255,255,.4)';x.font=`400 ${big?15:10}px JetBrains Mono,monospace`;
   [['E',90],['S',180],['W',270]].forEach(([t,d])=>x.fillText(t,cx+Math.cos(rad(d))*(R+(big?22:14)),cy+Math.sin(rad(d))*(R+(big?22:14))));
   // sweep wedge
-  if(o.yaw!=null){x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R,rad(o.yaw-30),rad(o.yaw+30));x.closePath();x.fillStyle='rgba(255,213,79,.12)';x.fill()}
+  if(o.yaw!=null){x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R,rad(o.yaw-30),rad(o.yaw+30));x.closePath();x.fillStyle=rgba(A,.12);x.fill()}
   const placed=[];x.textBaseline='middle';
   objs.forEach(ob=>{
     const r=R*Math.max(.18,Math.min(.95,.62-(ob.pitch||0)/110)),a=rad(ob.yaw),px=cx+Math.cos(a)*r,py=cy+Math.sin(a)*r;
@@ -63,4 +75,15 @@ export function drawReplay(c,img,rp,t){
   x.strokeStyle=A;x.lineWidth=3;x.lineCap='square';x.shadowColor='rgba(0,0,0,.6)';x.shadowBlur=6;
   [[bx,by,1,1],[bx+bw,by,-1,1],[bx,by+bh,1,-1],[bx+bw,by+bh,-1,-1]].forEach(([px,py,dx,dy])=>{x.beginPath();x.moveTo(px,py+dy*L);x.lineTo(px,py);x.lineTo(px+dx*L,py);x.stroke()});
   x.shadowBlur=0;x.lineWidth=1;x.globalAlpha=.5*e;x.strokeRect(bx,by,bw,bh);x.globalAlpha=1;
+}
+
+// A stored keyframe with its box, fully drawn (no animation); images are fetched once.
+const photos=new Map();
+export function drawPhoto(canvas,rp){
+  const url=rp.image_url||`/world/frame/${rp.frame_id}.jpg`;
+  let im=photos.get(url);
+  if(!im){im=new Image();im.src=url;photos.set(url,im)}
+  const paint=()=>drawReplay(canvas,im.naturalWidth?im:null,rp,1);
+  im.complete?paint():im.addEventListener('load',paint,{once:true});
+  paint();
 }

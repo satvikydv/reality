@@ -55,6 +55,20 @@ async def resolve_concept(reasoner: Reasoner, query: str, known_labels: list[str
     return res, {"input_tokens": r.input_tokens, "output_tokens": r.output_tokens, "latency_ms": r.latency_ms}
 
 
+async def semantic_find_rooms(reasoner: Reasoner, wm: WorldModel, query: str, scans: dict[int, int]) -> dict:
+    """Find across rooms, read-only: one concept lookup, then each room's own memory. `scans` maps room id -> the scan that
+    is that room's memory. Result: resolution, found {room id: where_is dict or None}, skipped_llm, usage."""
+    labels = [o["label"] for sid in scans.values() for o in wm.list_objects(sid)]
+    q = normalize_label(query)
+    if q and any(normalize_label(l) == q for l in labels):
+        res, usage, skipped = Resolution(concept=q, alternates=[], confidence=1.0), {}, True
+    else:
+        res, usage = await resolve_concept(reasoner, query, labels)
+        skipped = False
+    found = {rid: (wm.where_is(res.concept, res.alternates, sid) if res.concept else None) for rid, sid in scans.items()}
+    return {"resolution": res.model_dump(), "found": found, "skipped_llm": skipped, "usage": usage}
+
+
 async def semantic_find(reasoner: Reasoner, wm: WorldModel, query: str, scan_id: int | None = None) -> dict:
     """Full F11 lookup. Result keys: resolution, found (where_is dict or None), needs_live_look, skipped_llm, usage."""
     labels = [o["label"] for o in wm.list_objects(scan_id)]

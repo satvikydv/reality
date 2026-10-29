@@ -81,6 +81,7 @@ export class OrientationTracker {
     this.history = { absolute: [], relative: [] }; // last ~2 s
     this.listeners = new Set();
     this.started = false;
+    this.permission = null; // the answer to the iOS-style permission request, when there is one
     this.cleanup = { absolute: null, relative: null };
   }
 
@@ -91,13 +92,18 @@ export class OrientationTracker {
     this.started = true;
     try { // iOS-style gate; Chrome on Android may also expose it
       if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function")
-        await DeviceOrientationEvent.requestPermission();
-    } catch { /* fall through; events may still work */ }
+        this.permission = await DeviceOrientationEvent.requestPermission();
+    } catch { this.permission = "denied"; /* fall through; events may still work */ }
     this._startSource("absolute", "AbsoluteOrientationSensor", "deviceorientationabsolute");
     this._startSource("relative", "RelativeOrientationSensor", "deviceorientation");
   }
 
-  stop() { for (const k of Object.keys(this.cleanup)) { this.cleanup[k]?.(); this.cleanup[k] = null; } this.started = false; }
+  // Stops the sensors; the last readings are dropped so nothing keeps drawing from a stale pose.
+  stop() {
+    for (const k of Object.keys(this.cleanup)) { this.cleanup[k]?.(); this.cleanup[k] = null; }
+    this.started = false;
+    this.latest = { absolute: null, relative: null };
+  }
 
   _push(source, pose, api, raw) {
     const s = { ...pose, t: nowMs(), api, raw };

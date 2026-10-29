@@ -1,3 +1,5 @@
+import math
+
 import pytest
 
 from app import anchoring as A
@@ -65,3 +67,13 @@ def test_in_view_pixel_matches_anchoring():
 def test_looking_straight_down_does_not_crash():
     r = g(0.0, 0.0, cam_pitch=-90.0)
     assert 0.0 <= r["arrow_deg"] < 360.0 and r["instruction"]
+
+
+def test_cone_matches_the_phone_formula():
+    from app.guidance import cone_deg
+    assert cone_deg(50, 0) == 0.0
+    assert cone_deg(100, 10) == pytest.approx(5.739, abs=1e-3)  # asin(10 / 100), the same value tests/js/guide.test.mjs checks
+    assert cone_deg(8, 10) == 90.0 and cone_deg(20, 10) > cone_deg(60, 10)
+    g = guide(40, 0, 0, 0, 0, 540, 960, 60.0, uncertainty_deg=8.0)
+    assert g["cone_deg"] == pytest.approx(math.degrees(math.asin(8 / g["distance_deg"])))
+    assert guide(40, 0, 0, 0, 0, 540, 960, 60.0)["cone_deg"] == 0.0

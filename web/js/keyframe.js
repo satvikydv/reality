@@ -4,6 +4,8 @@
 // frame and is steady enough not to blur. Coverage is a ring of 10-degree compass bins filled around
 // each sent frame, used for the progress ring and the "turn left to fill the gap" hint.
 
+import { coverage } from "./coverage.js";
+
 const D2R = Math.PI / 180;
 const R2D = 180 / Math.PI;
 
@@ -79,32 +81,36 @@ export class KeyframePolicy {
   }
 }
 
+// The ring of covered compass directions. What counts as covered is defined once in coverage.js (and, identically,
+// in backend/app/coverage.py), so the ring and the server's scan summary cannot disagree.
 export class Coverage {
-  constructor({ binDeg = 10, reachDeg = 15 } = {}) {
-    this.binDeg = binDeg;
-    this.reachDeg = reachDeg;
-    this.n = Math.round(360 / binDeg);
-    this.bins = new Array(this.n).fill(false);
+  constructor({ hfov = 60, width = 540, height = 960 } = {}) {
+    Object.assign(this, { hfov, width, height });
+    this.reset();
   }
 
-  reset() { this.bins.fill(false); }
+  reset() { this.frames = []; this.result = coverage([]); }
 
-  mark(yaw) {
-    for (let d = -this.reachDeg; d <= this.reachDeg; d += this.binDeg / 2) {
-      this.bins[Math.floor((((yaw + d) % 360) + 360) % 360 / this.binDeg) % this.n] = true;
-    }
+  // One frame sent at this pose. hfov/width/height default to the values given at construction.
+  mark(yaw, pitch = 0, { hfov = this.hfov, width = this.width, height = this.height } = {}) {
+    this.frames.push({ yaw, pitch, hfov_deg: hfov, width, height });
+    this.result = coverage(this.frames);
   }
 
-  get fraction() { return this.bins.filter(Boolean).length / this.n; }
+  get bins() { return this.result.bins; }
+  get n() { return this.result.bins.length; }
+  get binDeg() { return 360 / this.n; }
+  get fraction() { return this.result.fraction; }
+  get bands() { return this.result.bands; }
 
   // The nearest uncovered bin from `yaw`: {dir: "left"|"right", deg} or null when everything is covered.
   nextGap(yaw) {
     if (this.fraction >= 1) return null;
-    const here = Math.floor((((yaw % 360) + 360) % 360) / this.binDeg) % this.n;
+    const here = Math.floor((((yaw % 360) + 360) % 360) / this.binDeg) % this.n, bins = this.bins;
     for (let k = 1; k <= this.n / 2; k++) {
       const r = (here + k) % this.n, l = (here - k + this.n) % this.n;
-      if (!this.bins[r]) return { dir: "right", deg: k * this.binDeg };
-      if (!this.bins[l]) return { dir: "left", deg: k * this.binDeg };
+      if (!bins[r]) return { dir: "right", deg: k * this.binDeg };
+      if (!bins[l]) return { dir: "left", deg: k * this.binDeg };
     }
     return null;
   }

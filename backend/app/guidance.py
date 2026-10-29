@@ -23,7 +23,7 @@ FAR_DEG = 45.0
 
 def guide(target_yaw: float, target_pitch: float, cam_yaw: float, cam_pitch: float, cam_roll: float,
           width: int, height: int, hfov_deg: float = A.DEFAULT_HFOV_DEG, yaw_offset: float = 0.0,
-          margin: float = 0.1, arrive_deg: float = ARRIVE_DEG) -> dict:
+          margin: float = 0.1, arrive_deg: float = ARRIVE_DEG, uncertainty_deg: float = 0.0) -> dict:
     """Guidance from the live camera to the target.
 
     `cam_roll` is the image roll (A.image_roll: sensor roll plus screen angle). Returns:
@@ -33,6 +33,8 @@ def guide(target_yaw: float, target_pitch: float, cam_yaw: float, cam_pitch: flo
       in_view       target projects inside the image (inset by `margin` of each side)
       pixel         (u, v) of the target, or None when it is behind the camera
       arrived       in view and within `arrive_deg`
+      cone_deg      half-angle of the arrow's cone: how far the arrow may be off because the stored direction is only
+                    known to `uncertainty_deg` (asin(u / distance); 90 when the target is closer than its uncertainty)
       instruction   short spoken hint
     """
     t_yaw = (target_yaw + yaw_offset) % 360.0
@@ -45,8 +47,18 @@ def guide(target_yaw: float, target_pitch: float, cam_yaw: float, cam_pitch: flo
     distance = A.angular_distance(cam_yaw, cam_pitch, t_yaw, target_pitch)
     arrived = in_view and distance <= arrive_deg
     return {"distance_deg": distance, "dyaw": A.wrap180(t_yaw - cam_yaw), "dpitch": target_pitch - cam_pitch,
-            "arrow_deg": arrow, "in_view": in_view, "pixel": px, "arrived": arrived,
+            "arrow_deg": arrow, "in_view": in_view, "pixel": px, "arrived": arrived, "cone_deg": cone_deg(distance, uncertainty_deg),
             "instruction": instruction(distance, x, y, in_view, arrived)}
+
+
+def cone_deg(distance_deg: float, uncertainty_deg: float) -> float:
+    """Half-angle, in degrees, of the cone the arrow could really point into when the target direction is uncertain by
+    `uncertainty_deg`. Narrow for a far target, wide for a near one, and the whole half-turn once it is as close as the error."""
+    if uncertainty_deg <= 0:
+        return 0.0
+    if distance_deg <= uncertainty_deg:
+        return 90.0
+    return math.degrees(math.asin(uncertainty_deg / distance_deg))
 
 
 def instruction(distance_deg: float, x: float, y: float, in_view: bool, arrived: bool) -> str:

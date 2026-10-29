@@ -29,6 +29,7 @@ from app.concepts import canonical_name, is_sam_friendly
 from app.pricing import SAM_USD_PER_IMAGE, spark_usd
 from app.reasoner.base import Reasoner
 from app.sam_client import SamCall
+from app.memory import mask_histogram
 from app.world_model import WorldModel, normalize_label
 
 Segmenter = Callable[[str, str], Awaitable[SamCall]]
@@ -84,6 +85,29 @@ def suppress_overlaps(dets: list[dict], iou_thresh: float = 0.6, tie: float = 0.
     return kept
 
 
+def merge_parts(dets: list[dict], overlap: float = 0.35) -> list[dict]:
+    """One detection per object when SAM boxes parts of the same thing (a laptop's screen and its base, a box
+    nested inside a bigger one): same-label boxes whose overlap covers `overlap` of the smaller box become
+    their union, keeping the best confidence. Different labels are left alone (a cup in front of a laptop)."""
+    groups: list[dict] = []
+    for d in sorted(dets, key=lambda d: -d["conf"]):
+        box = list(d["box"])
+        hits = [g for g in groups if g["label"] == d["label"] and _covered(g["box"], box) >= overlap]
+        for g in hits:  # a new box can bridge two groups
+            box = [min(box[0], g["box"][0]), min(box[1], g["box"][1]), max(box[2], g["box"][2]), max(box[3], g["box"][3])]
+            groups.remove(g)
+        groups.append({**(hits[0] if hits else d), "box": box, "conf": max([d["conf"]] + [g["conf"] for g in hits]),
+                       "polygon": None if hits else d.get("polygon")})  # a merged box has no single mask
+    return groups
+
+
+def _covered(a, b) -> float:
+    """Overlap area as a share of the smaller box."""
+    ix, iy = max(0.0, min(a[2], b[2]) - max(a[0], b[0])), max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    small = min((a[2] - a[0]) * (a[3] - a[1]), (b[2] - b[0]) * (b[3] - b[1]))
+    return ix * iy / small if small > 0 else 0.0
+
+
 def pose_from_meta(meta: dict, prefer: str = "absolute") -> dict | None:
     """Camera pose from a Save-sample sidecar / frame meta: {yaw, pitch, roll, screen_angle, source, api}.
     Falls back to the other source when the preferred one is missing. None if there is no orientation."""
@@ -91,8 +115,10 @@ def pose_from_meta(meta: dict, prefer: str = "absolute") -> dict | None:
     for src in (prefer, "relative" if prefer == "absolute" else "absolute"):
         s = o.get(src)
         if s and s.get("yaw") is not None and s.get("pitch") is not None:
+            cap = o.get("captured_at")  # phone clock, epoch milliseconds: when the frame was grabbed
             return {"yaw": s["yaw"], "pitch": s["pitch"], "roll": s.get("roll"), "source": src, "api": s.get("api"),
-                    "screen_angle": (meta.get("camera") or {}).get("screen_angle", 0)}
+                    "screen_angle": (meta.get("camera") or {}).get("screen_angle", 0),
+                    "captured_at": cap / 1000.0 if isinstance(cap, (int, float)) else None}
     return None
 
 
@@ -185,11 +211,14 @@ class ScanPipeline:
                 if conf < self.min_conf:
                     rep.dropped_low_conf += 1
                     continue
-                dets.append({"label": name, "box": list(o.box), "conf": conf})
+                dets.append({"label": name, "box": list(o.box), "conf": conf, "polygon": o.polygon})
         if rep.errors:
             return rep  # incomplete look: do not record this direction as scanned
 
-        rep.detections = suppress_overlaps(dets)
+        rep.detections = merge_parts(suppress_overlaps(dets))
+        img = cv2.imdecode(np.frombuffer(small, dtype=np.uint8), cv2.IMREAD_COLOR)
+        for d in rep.detections:  # colour signature of each object, used to refuse merging two different-looking things
+            d["hist"] = mask_histogram(img, d.get("polygon"), d["box"]) if img is not None else None
         rep.frame_id = self.wm.add_frame(scan_id, ts, pose["yaw"], pose["pitch"], w, h, roll=pose.get("roll"),
                                          screen_angle=pose.get("screen_angle", 0.0), source=pose.get("source"),
                                          api=pose.get("api"), hfov_deg=pose.get("hfov_deg"), jpeg=small)

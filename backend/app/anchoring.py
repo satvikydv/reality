@@ -13,9 +13,53 @@ direction is all we can anchor to. Assumptions to check on the phone [VERIFY]:
 """
 from __future__ import annotations
 
+import json
 import math
+import os
+from pathlib import Path
 
-DEFAULT_HFOV_DEG = 60.0  # horizontal field of view across the image width as sent [VERIFY: calibrate]
+# Horizontal field of view across the image width as sent. One value for the whole system: the server anchors
+# detections with it and the phone projects them back with it (served by /api/overlay). It is only valid for the
+# camera settings it was measured at (resolution, zoom), so a calibration records them and frames from a camera in
+# another state are refused (see check_capture). Without a calibration the value is the 60 degree placeholder.
+CALIBRATION_FILE = Path(os.environ.get("FOV_CALIBRATION") or Path(__file__).resolve().parents[2] / "data" / "fov_calibration.json")
+
+
+def load_calibration() -> dict | None:
+    """{hfov_deg, width, height, zoom, ...} from HFOV_DEG (no capture settings known) or data/fov_calibration.json."""
+    env = os.environ.get("HFOV_DEG")
+    if env:
+        return {"hfov_deg": float(env), "width": None, "height": None, "zoom": None, "source": "HFOV_DEG"}
+    try:
+        d = json.loads(CALIBRATION_FILE.read_text(encoding="utf-8"))
+        return {**d, "hfov_deg": float(d["hfov_deg"]), "source": str(CALIBRATION_FILE)}
+    except (OSError, ValueError, KeyError):
+        return None
+
+
+CALIBRATION = load_calibration()
+DEFAULT_HFOV_DEG = CALIBRATION["hfov_deg"] if CALIBRATION else 60.0
+FOV_CALIBRATED = CALIBRATION is not None
+# How wrong the FOV may be, as a share of the angle from the optical axis: a calibrated value is trusted to ~2%,
+# the placeholder only to ~10%. Anchor error from this grows with the distance from the image centre.
+FOV_REL_ERROR = 0.02 if FOV_CALIBRATED else 0.10
+
+
+def check_capture(camera: dict | None, calibration: dict | None = None) -> str | None:
+    """None when the camera that took a frame matches the one the FOV was calibrated for, else a sentence saying
+    what differs. `camera` is the frame's camera meta ({video_w, video_h, settings: {width, height, zoom}})."""
+    cal = CALIBRATION if calibration is None else calibration
+    if not cal or not cal.get("width") or not cal.get("height") or not camera:
+        return None  # nothing recorded about the calibration camera (or the frame): cannot compare
+    s = camera.get("settings") or {}
+    w, h = s.get("width") or camera.get("video_w"), s.get("height") or camera.get("video_h")
+    diffs = []
+    if w and h and (w, h) != (cal["width"], cal["height"]):
+        diffs.append(f"resolution {w}x{h} (calibrated at {cal['width']}x{cal['height']})")
+    z, cz = s.get("zoom"), cal.get("zoom")
+    if z is not None and cz is not None and abs(z - cz) > 0.01:
+        diffs.append(f"zoom {z:g} (calibrated at {cz:g})")
+    return ("the camera is not in the state the FOV was calibrated for: " + ", ".join(diffs)) if diffs else None
 
 
 def wrap180(deg: float) -> float:
@@ -113,3 +157,93 @@ def box_anchor(box: tuple[float, float, float, float], width: int, height: int, 
     """(yaw, pitch) anchor of a detection box (x1, y1, x2, y2 in pixels), using the box centre."""
     return pixel_to_direction((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0, width, height,
                               yaw_deg, pitch_deg, roll_deg, hfov_deg)
+
+
+def box_extent(box: tuple[float, float, float, float], width: int, height: int, yaw_deg: float, pitch_deg: float,
+               roll_deg: float = 0.0, hfov_deg: float = DEFAULT_HFOV_DEG) -> tuple[float, float, float, float, float]:
+    """Angular footprint of a box: (yaw0, dyaw_lo, dyaw_hi, pitch_lo, pitch_hi), yaw offsets measured from yaw0
+    (the box centre's yaw) so the 0/360 wrap never splits it."""
+    c, _ = box_anchor(box, width, height, yaw_deg, pitch_deg, roll_deg, hfov_deg)
+    ys, ps = [], []
+    for u, v in ((box[0], box[1]), (box[2], box[1]), (box[0], box[3]), (box[2], box[3])):
+        y, p = pixel_to_direction(u, v, width, height, yaw_deg, pitch_deg, roll_deg, hfov_deg)
+        ys.append(wrap180(y - c))
+        ps.append(p)
+    return c, min(ys), max(ys), min(ps), max(ps)
+
+
+def extent_area(e) -> float:
+    return max(0.0, e[2] - e[1]) * max(0.0, e[4] - e[3])
+
+
+def extent_overlap(a, b) -> tuple[float, float]:
+    """How much two angular footprints overlap: (share of the smaller one covered, share of the larger one covered)."""
+    s = wrap180(a[0] - b[0])
+    iy = min(s + a[2], b[2]) - max(s + a[1], b[1])
+    ip = min(a[4], b[4]) - max(a[3], b[3])
+    if iy <= 0 or ip <= 0:
+        return 0.0, 0.0
+    inter, aa, ab = iy * ip, extent_area(a), extent_area(b)
+    return (inter / min(aa, ab) if min(aa, ab) > 0 else 0.0), (inter / max(aa, ab) if max(aa, ab) > 0 else 0.0)
+
+
+def _matmul(a, b):
+    return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+
+def _basis_matrix(yaw_deg: float, pitch_deg: float, roll_deg: float):
+    """Columns are the image's (right, up, forward) in earth coordinates: earth = B @ camera."""
+    right, up, fwd = camera_basis(yaw_deg, pitch_deg, roll_deg)
+    return [[right[i], up[i], fwd[i]] for i in range(3)]
+
+
+def _k(width: int, height: int, hfov_deg: float):
+    """Intrinsics as a 3x3 acting on camera coordinates (x right, y up, z forward); image y points down, hence -f."""
+    f = focal_px(width, hfov_deg)
+    return [[f, 0.0, width / 2.0], [0.0, -f, height / 2.0], [0.0, 0.0, 1.0]]
+
+
+def _k_inv(width: int, height: int, hfov_deg: float):
+    f = focal_px(width, hfov_deg)
+    return [[1.0 / f, 0.0, -width / (2.0 * f)], [0.0, -1.0 / f, height / (2.0 * f)], [0.0, 0.0, 1.0]]
+
+
+def homography(cap: dict, cur: dict) -> list[list[float]]:
+    """H = K_cur R K_cap^-1: where a pixel of the capture image lands in the current view, for a camera that only
+    rotates (translation is unknown and ignored). `cap` and `cur` are {yaw, pitch, roll, width, height, hfov}."""
+    b_cap = _basis_matrix(cap["yaw"], cap["pitch"], cap.get("roll", 0.0))
+    b_cur = _basis_matrix(cur["yaw"], cur["pitch"], cur.get("roll", 0.0))
+    r = _matmul([[b_cur[j][i] for j in range(3)] for i in range(3)], b_cap)  # B_cur^T B_cap
+    return _matmul(_matmul(_k(cur["width"], cur["height"], cur["hfov"]), r), _k_inv(cap["width"], cap["height"], cap["hfov"]))
+
+
+def warp_points(h: list[list[float]], pts: list[tuple[float, float]]) -> list[tuple[float, float]] | None:
+    """Apply a homography to pixels. None if any point ends up behind the current camera (no honest outline then)."""
+    out = []
+    for u, v in pts:
+        x = h[0][0] * u + h[0][1] * v + h[0][2]
+        y = h[1][0] * u + h[1][1] * v + h[1][2]
+        w = h[2][0] * u + h[2][1] * v + h[2][2]
+        if w <= 1e-6:
+            return None
+        out.append((x / w, y / w))
+    return out
+
+
+def footprint_outline(ext, cur: dict, per_edge: int = 4) -> list[tuple[float, float]] | None:
+    """Outline of an object's angular footprint `ext` (yaw0, dyaw_lo, dyaw_hi, pitch_lo, pitch_hi) in the current view:
+    the rectangle's edges sampled `per_edge` times each, then projected. None if any sample is behind the camera."""
+    yaw0, lo, hi, plo, phi = ext
+    n = max(1, per_edge)
+    bottom = [(lo + (hi - lo) * i / n, plo) for i in range(n)]
+    right = [(hi, plo + (phi - plo) * i / n) for i in range(n)]
+    top = [(hi - (hi - lo) * i / n, phi) for i in range(n)]
+    left = [(lo, phi - (phi - plo) * i / n) for i in range(n)]
+    edge = bottom + right + top + left  # once around the rectangle, so the outline is a simple polygon
+    out = []
+    for dy, p in edge:
+        px = direction_to_pixel(yaw0 + dy, p, cur["width"], cur["height"], cur["yaw"], cur["pitch"], cur.get("roll", 0.0), cur["hfov"])
+        if px is None:
+            return None
+        out.append(px)
+    return out

@@ -46,8 +46,15 @@ async def seg(data_url, concept):
     return SamCall([SamObject("1", (220.0, 300.0, 260.0, 340.0), 0.9, None)], 5.0, 2.0, "completed", 0)
 
 
+def save_drafts(svc):
+    """Live scans are drafts until the user saves them; most tests want them to be a room's memory."""
+    for s in svc.wm.list_scans():
+        svc.wm.save_scan(s["id"])
+
+
 def make_service(tmp_path, **kw):
     wm = WorldModel(frames_dir=tmp_path / "frames")
+    wm.create_room("Test", active=True)  # scans and questions go to the active room unless they name another
     reasoner = FakeReasoner()
     return ScanService(wm, ScanPipeline(wm, reasoner, seg), reasoner, **kw)
 
@@ -120,6 +127,7 @@ def test_queue_full_and_failed_frames(tmp_path):
             raise RuntimeError("boom")
 
     wm = WorldModel()
+    wm.create_room("Test", active=True)
     svc2 = ScanService(wm, ScanPipeline(wm, BoomReasoner(), seg), BoomReasoner())
     ev2 = []
 
@@ -194,7 +202,9 @@ def test_websocket_scan_find_and_frame_route(client):
         got = collect(ws, "scan_summary")
         summary = got[-1]
         assert summary["frames"]["stored"] == 3 and summary["objects"][0]["label"] == "mug"
+        assert summary["status"] == "draft" and summary["room_name"] == "Test" and summary["objects"][0]["replay"]["frame_id"]
         assert sum(m["type"] == "frame_done" for m in got) == 3
+        save_drafts(client.svc)
 
         ws.send_text(json.dumps({"type": "find", "query": "the thing I drink coffee from"}))
         r = ws.receive_json()
@@ -220,3 +230,66 @@ def test_websocket_scan_start_without_api_key(monkeypatch):
         assert e["type"] == "error" and e["where"] == "scan_start" and "MODEL_API_KEY" in e["message"]
         ws.send_bytes(frame_msg(1, 0, {}, jpeg()))  # the socket is still usable
         assert ws.receive_json()["seq"] == 1
+
+
+def test_bus_sees_scan_events_world_updates_and_find(tmp_path):
+    svc = make_service(tmp_path)
+
+    async def go():
+        async def send(o):
+            pass
+        sub = svc.bus.subscribe()
+        s = svc.session(send)
+        await s.start()
+        await s.submit(1, jpeg(), meta(0))
+        await s.end()
+        save_drafts(svc)
+        await svc.find("something to drink coffee from")
+        types = []
+        while not sub.queue.empty():
+            types.append((await sub.get())["type"])
+        return types
+
+    types = asyncio.run(go())
+    assert types[0] == "scan_started" and "world_update" in types and "frame_done" in types
+    assert types.index("world_update") < types.index("frame_done")  # map updates before the frame is reported
+    assert types[-2:] == ["scan_summary", "find_result"]
+    ev = [e for e in svc.bus.history() if e["type"] == "world_update"][0]
+    assert ev["objects"][0]["label"] == "mug" and "source" not in ev and ev["coverage_deg"] > 0
+
+
+def timed_meta(yaw, captured_ms, camera=None):
+    m = meta(yaw)
+    m["orientation"]["captured_at"] = captured_ms
+    m["camera"] = {"screen_angle": 0, **(camera or {})}
+    return m
+
+
+def test_frames_are_stamped_with_when_they_were_captured_not_when_they_arrived(client):
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(json.dumps({"type": "scan_start"}))
+        assert ws.receive_json()["type"] == "scan_started"
+        # the frame captured later (at +2 s) is delivered first
+        ws.send_bytes(frame_msg(1, 2, timed_meta(30, 1_700_000_002_000), jpeg()))
+        ws.send_bytes(frame_msg(2, 2, timed_meta(0, 1_700_000_000_000), jpeg()))
+        ws.send_text(json.dumps({"type": "scan_end"}))
+        collect(ws, "scan_summary")
+    frames = client.svc.wm.list_frames(1)
+    assert [round(f["yaw"]) for f in frames] == [0, 30]  # capture order
+    assert frames[1]["ts"] - frames[0]["ts"] == pytest.approx(2.0)  # and the capture spacing, on the server clock
+
+
+def test_a_camera_that_differs_from_the_fov_calibration_is_refused_loudly(client, monkeypatch):
+    from app import anchoring
+    monkeypatch.setattr(anchoring, "CALIBRATION", {"hfov_deg": 66.0, "width": 1080, "height": 1920, "zoom": 1.0})
+    with client.websocket_connect("/ws") as ws:
+        ws.send_text(json.dumps({"type": "scan_start"}))
+        assert ws.receive_json()["type"] == "scan_started"
+        ws.send_bytes(frame_msg(1, 2, timed_meta(0, 1_700_000_000_000, {"video_w": 720, "video_h": 1280}), jpeg()))
+        err, rej = ws.receive_json(), ws.receive_json()
+        assert err["type"] == "error" and err["where"] == "camera" and "720x1280" in err["message"] and "1080x1920" in err["message"]
+        assert rej["type"] == "frame_rejected" and "calibrated" in rej["reason"]
+        ws.send_bytes(frame_msg(2, 2, timed_meta(0, 1_700_000_001_000, {"video_w": 1080, "video_h": 1920, "settings": {"width": 1080, "height": 1920, "zoom": 1.0}}), jpeg()))
+        assert ws.receive_json()["type"] == "frame_queued"  # the calibrated state is accepted
+        ws.send_bytes(frame_msg(3, 2, timed_meta(0, 1_700_000_002_000, {"settings": {"width": 1080, "height": 1920, "zoom": 2.0}}), jpeg()))
+        assert "zoom 2" in collect(ws, "error")[-1]["message"]  # zoom changed since calibration

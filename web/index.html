@@ -3,165 +3,302 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="theme-color" content="#07090b"><title>Reality OS</title>
 <link rel="stylesheet" href="css/theme.css">
-<style>
-body{position:fixed;inset:0;--b:max(env(safe-area-inset-bottom),14px);--t:max(env(safe-area-inset-top),12px)}
-#v{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#0b0d0f}
-body.demo #v{display:none}
-#bg{position:absolute;inset:0;display:none;background:radial-gradient(circle at 30% 20%,#8a7a5a 0,transparent 35%),radial-gradient(circle at 75% 60%,#3d5a6e 0,transparent 40%),repeating-linear-gradient(100deg,#5b4f44 0 38px,#6d6054 38px 76px)}
-body.demo #bg{display:block}
-#hud{position:absolute;inset:0;background:linear-gradient(#000a 0,transparent 22%,transparent 55%,#000b 100%);pointer-events:none}
-#hud>*{pointer-events:auto}
-.scr{position:absolute;inset:0;display:none;flex-direction:column;padding:var(--t) 16px var(--b);pointer-events:none;animation:in .35s ease}
-.scr>*{pointer-events:auto}
-@keyframes in{from{opacity:0;transform:translateY(8px)}}
-body[data-screen=home] #home,body[data-screen=scan] #scan,body[data-screen=summary] #summary,body[data-screen=find] #result,body[data-screen=guide] #guide,body[data-screen=changes] #changes{display:flex}
-.top{display:flex;justify-content:space-between;align-items:center;min-height:48px}
-.pill{white-space:nowrap;display:inline-flex;align-items:center;gap:8px;height:34px;padding:0 14px;border-radius:99px;font:500 12px var(--mono);letter-spacing:.06em}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
-.dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
-.sp{flex:1}
-button{font:600 16px var(--sans);color:var(--ink);border:0;cursor:pointer;min-height:48px;border-radius:16px;background:none}
-.btn{white-space:nowrap;background:var(--amber);color:#14110a;height:64px;border-radius:20px;font-size:17px;letter-spacing:.02em;display:flex;align-items:center;justify-content:center;gap:10px;padding:0 22px}
-.btn:active{transform:scale(.97)}
-.btn.red{background:var(--red);color:#fff}.btn.ghost{background:var(--panel);border:1px solid var(--line);backdrop-filter:blur(18px);color:var(--ink)}.btn.green{background:var(--green);color:#06150d}
-.row{display:flex;gap:10px;align-items:stretch}
-.find{flex:1;display:flex;align-items:center;gap:6px;padding:0 6px 0 16px;height:64px;min-width:0}
-.find input{flex:1;min-width:0;background:none;border:0;outline:0;color:var(--ink);font:400 16px var(--sans)}
-.find input::placeholder{color:var(--dim)}
-.find button{width:48px;padding:0;border-radius:14px;background:rgba(255,255,255,.1)}
-.reticle{position:absolute;left:50%;top:44%;width:44px;height:44px;margin:-22px;pointer-events:none}
-.reticle:before,.reticle:after{content:"";position:absolute;background:#fff9}.reticle:before{left:21px;top:0;width:2px;height:44px}.reticle:after{top:21px;left:0;height:2px;width:44px}
-.cap{position:absolute;left:0;right:0;top:calc(var(--t) + 62px);text-align:center;pointer-events:none}
-.cap b{display:inline-block;font:600 15px var(--sans);padding:9px 16px;border-radius:99px;background:var(--panel);backdrop-filter:blur(14px);border:1px solid var(--line)}
-/* scan */
-.ringwrap{position:relative;width:min(100%,340px);aspect-ratio:1;margin:8px auto 0}
-#ring{position:absolute;inset:0;width:100%;height:100%}
-.pct{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
-.pct b{font:700 64px/1 var(--mono);letter-spacing:-.04em}.pct b i{font:500 22px var(--mono);color:var(--dim);font-style:normal;margin-left:2px}
-.pct .label{margin-top:8px}
-.flash{position:absolute;inset:0;border-radius:50%;box-shadow:0 0 0 0 #fff;opacity:0;pointer-events:none}
-.flash.go{animation:sh .35s ease-out}
-@keyframes sh{0%{opacity:.9;box-shadow:inset 0 0 0 10px #fff6,0 0 0 0 #fff4}100%{opacity:0;box-shadow:inset 0 0 0 0 #fff0,0 0 0 18px #fff0}}
-#scanline{font:600 24px/1.25 var(--sans);text-align:center;margin:18px 8px 0;min-height:60px;text-shadow:0 1px 14px #000a}
-#hint{font:400 13px var(--mono);color:var(--dim);text-align:center;margin-top:4px;min-height:18px}
-.stats{display:flex;gap:10px;margin:12px 0 0}
-.stats>div{flex:1;padding:12px 14px}
-.stats b{display:block;font:600 22px var(--mono);margin-top:7px}
-/* summary */
-.sheet{margin-top:auto;padding:18px;max-height:84%;overflow-y:auto;overflow-x:hidden;display:flex;flex-direction:column;gap:12px}
-.sheet h1{font:600 22px/1.3 var(--sans);margin:0}
-#mapc{width:100%;aspect-ratio:1;max-height:220px;flex:none}
-.chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{font:500 13px var(--sans);padding:7px 12px;border-radius:99px;border:1px solid var(--line);background:rgba(255,255,255,.07)}
-.chip em{font:700 13px var(--mono);font-style:normal;color:var(--amber);margin-right:6px}
-.meta{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.meta div{display:flex;flex-direction:column;gap:7px}.meta b{font:600 18px var(--mono)}
-.proc{display:none;align-items:center;gap:12px;font:500 14px var(--mono);color:var(--dim)}
-.sheet.busy .proc{display:flex}.sheet.busy .after{display:none}
-.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--line);border-top-color:var(--amber);animation:r 1s linear infinite}@keyframes r{to{transform:rotate(360deg)}}
-/* find */
-#result{background:linear-gradient(#07090bf2,#07090bcc)}
-.ans{font:600 28px/1.25 var(--sans);margin:6px 0 16px;text-wrap:pretty}
-.photo{position:relative;border-radius:20px;overflow:hidden;border:1px solid var(--line);aspect-ratio:4/3;background:#111}
-#replay{width:100%;height:100%;display:block}
-.tag{position:absolute;left:12px;bottom:12px;padding:7px 11px;border-radius:10px;font-size:11px}
-.dir{display:flex;gap:10px;margin:14px 0}
-.dir>div{flex:1;padding:12px 14px}.dir b{display:block;font:600 22px var(--mono);margin-top:8px;color:var(--amber)}
-/* guide */
-.garrow{position:relative;width:min(78%,300px);aspect-ratio:1;margin:auto}
-.garrow svg{width:100%;height:100%;overflow:visible;filter:drop-shadow(0 4px 18px #000a)}
-#arrow{transition:transform .45s cubic-bezier(.3,.8,.3,1);transform-origin:150px 150px}
-.gdeg{text-align:center;font:700 56px/1 var(--mono)}.gdeg i{font:500 20px var(--mono);color:var(--dim);font-style:normal}
-#ghint{text-align:center;font:600 24px var(--sans);margin:10px 0 18px;text-shadow:0 1px 14px #000a}
-.found .garrow{display:none}.foundbox{display:none}
-.found .foundbox{display:block;position:absolute;left:50%;top:40%;width:56%;height:22%;transform:translate(-50%,-50%);border:3px solid var(--green);border-radius:10px;box-shadow:0 0 0 999px #0005,0 0 30px var(--green);animation:pop .5s cubic-bezier(.2,1.4,.4,1)}
-@keyframes pop{from{transform:translate(-50%,-50%) scale(1.5);opacity:0}}
-.found #gdeg{color:var(--green)}
-/* changes */
-.chg{overflow:auto;margin:6px -16px 0;padding:0 16px 14px;display:flex;flex-direction:column;gap:14px;flex:1;background:none}
-.chg h2{font:600 15px var(--sans);margin:0 0 10px;display:flex;align-items:center;gap:10px}
-.chg h2 .ic{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font:700 16px var(--mono);color:#07090b}
-.chg h2 .n{margin-left:auto;font:500 12px var(--mono);color:var(--dim)}
-.grp{padding:14px}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
-.pair .stripe{aspect-ratio:4/3;border-radius:12px;position:relative}
-.pair .stripe i{position:absolute;left:8px;top:8px;font:500 10px var(--mono);font-style:normal;padding:4px 7px;background:#000a;border-radius:6px;color:#fff;letter-spacing:.1em}
-.pair+p{margin:0 0 14px;font:400 14px/1.4 var(--sans)}.grp p:last-child{margin-bottom:0}
-.unv{border-style:dashed}
-/* dev */
-#dev{position:absolute;right:10px;top:calc(var(--t) + 56px);z-index:9;font:12px var(--mono)}
-#dev summary{list-style:none;width:48px;height:34px;display:grid;place-items:center;margin-left:auto;color:var(--dim);cursor:pointer;border-radius:10px}
-#dev[open] summary{color:var(--amber)}
-#dev>div{margin-top:6px;padding:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px;width:230px}
-#dev button{min-height:48px;font:500 12px var(--mono);background:rgba(255,255,255,.08);border-radius:10px}
-body:not([data-screen=home]) #dev{display:none}
-#home .row{flex-direction:column}#home .row>*{flex:none!important}#home .find{order:-1}
-.toast{position:absolute;left:16px;right:16px;top:calc(var(--t) + 56px);padding:12px 16px;font:500 14px var(--sans);border-color:var(--red);display:none;z-index:8}
-</style></head>
+<link rel="stylesheet" href="css/app.css">
+</head>
 <body data-screen="home">
-<video id="v" playsinline muted autoplay></video><div id="bg"></div>
+<video id="v" playsinline muted autoplay></video><div id="bg"><i></i></div>
 <div id="hud">
+<canvas id="ar"></canvas>
 
-<section class="scr" id="home">
-  <div class="top"><span class="pill panel"><span class="dot" id="dotc"></span><span id="stat">Connected · ok</span></span><span class="pill panel mono" id="homeyaw">YAW 000°</span></div>
-  <div class="reticle"></div>
-  <div class="sp"></div>
-  <div class="row">
-    <button class="btn" id="scanbtn" style="flex:0 0 auto;padding:0 18px"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8.5"/><circle cx="11" cy="11" r="2.5" fill="currentColor"/></svg>Scan room</button>
-    <div class="find panel"><input id="q" type="text" placeholder="Where is my charger?" enterkeyhint="search" autocomplete="off"><button id="mic" aria-label="Voice"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0012 0M10 16v3"/></svg></button><button id="findbtn" aria-label="Find" style="background:var(--amber);color:#14110a"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 10h12M11 5l5 5-5 5"/></svg></button></div>
+<!-- Every screen is a section with id "s-<screen>" (see js/screens.js). Inside, data-show="state ..." parts appear only in
+     those states, and data-act names what a tap does. No other wiring: restyle freely, keep the ids, data-show and data-act. -->
+
+<!-- ============ Rooms home. The camera is never on here. ============ -->
+<section class="scr" id="s-home">
+  <header class="top"><span class="brand"><svg width="24" height="24" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8.5"/><circle cx="11" cy="11" r="2.5" fill="currentColor"/></svg>Reality OS</span>
+    <button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></header>
+  <div class="body">
+    <button class="pill panel conn" id="connpill" data-act="retry" aria-live="polite" aria-label="Server status. Tap to check again"><span class="dot wait" id="dotc"></span><span id="stat">Checking…</span></button>
+    <div class="notice panel" id="hnotice" data-show="error offline slow"><span id="hmsg"></span><button data-act="retry">Retry now</button></div>
+    <div class="search panel" data-show="default"><input id="hsearch" type="search" placeholder="Search objects in your rooms" autocomplete="off" enterkeyhint="search" aria-label="Search objects in your rooms"></div>
+    <div class="chips scroll" id="hchips" data-show="default"></div>
+    <div id="hresults" hidden></div>
+    <div id="hmain" data-show="default">
+      <h2 class="sec" id="hrecenthead">Recent</h2><div class="thumbs" id="hrecent"></div>
+      <h2 class="sec">Rooms</h2><div class="cards" id="hrooms"></div>
+      <button class="btn ghost" data-act="add-room">+ Add a room</button>
+    </div>
+    <div class="statecard panel" data-g="+" data-show="empty"><h2>No rooms yet</h2><p>A room is a place you scan once, like your Living Room or Desk. Reality OS then remembers where things are in it.</p><button class="btn" data-act="add-room">Add your first room</button></div>
+    <div class="statecard panel" data-show="loading slow"><div class="skel"></div><div class="skel"></div><div class="skel"></div></div>
   </div>
 </section>
 
-<section class="scr" id="scan">
-  <div class="top"><span class="pill panel"><span class="dot"></span><span id="scanstatus">Scanning</span></span><span class="pill panel mono" id="fcount">0 frames</span></div>
-  <div class="ringwrap"><canvas id="ring"></canvas><div class="flash" id="flash"></div>
-    <div class="pct"><b id="pct">0<i>%</i></b><span class="label">Coverage</span></div></div>
-  <div id="scanline">Turn slowly to the left</div><div id="hint"></div>
-  <div class="stats"><div class="panel"><span class="label">Frames</span><b id="nfr">0</b></div><div class="panel"><span class="label">Objects</span><b id="nob" style="color:var(--amber)">0</b></div><div class="panel"><span class="label">Seen now</span><b id="nnm" style="font-size:13px;line-height:1.3;font-family:var(--sans);font-weight:500;margin-top:8px;max-height:34px;overflow:hidden">—</b></div></div>
-  <div class="sp"></div>
-  <button class="btn red" id="donebtn" style="width:100%">Done</button>
+<!-- ============ Scan wizard: which room, then the live scan ============ -->
+<section class="scr" id="s-wizard">
+  <header class="top"><button class="back panel" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><span class="pill panel mono">SCAN A ROOM</span></header>
+  <div class="body">
+    <div class="card panel" data-show="rescan error"><h2>Scan a room you already have</h2><div class="chips" id="wzrooms"></div></div>
+    <div class="card panel"><h2>Or name a new room</h2>
+      <input id="wzname" type="text" maxlength="60" placeholder="e.g. Living Room" autocomplete="off" aria-label="Room name">
+      <div class="chips" id="wzchips"></div>
+      <button class="chk" id="wzactive" data-act="toggle-active" aria-pressed="false"><i></i><span>Use this as my active room</span></button></div>
+    <div class="problem" role="alert" data-show="error"><span id="wzerr"></span></div>
+  </div>
+  <div class="hbtns"><button class="btn" id="wzgo" data-act="wizard-go">Continue to scan</button></div>
 </section>
 
-<section class="scr" id="summary">
-  <div class="top"><span class="pill panel"><span class="dot"></span>Scan complete</span></div>
-  <div class="sheet panel busy" id="sumsheet">
-    <div class="proc"><div class="spin"></div><span id="proctxt">Reading frames…</span></div>
-    <div class="after" style="display:contents">
-    <h1 id="sumtext">I found 14 objects.</h1>
-    <canvas id="mapc"></canvas>
-    <div class="chips" id="chips"></div>
-    <div class="meta"><div><span class="label">Frames</span><b id="mf">–</b></div><div><span class="label">Seconds</span><b id="ms">–</b></div><div><span class="label">Cover</span><b id="mc">–</b></div><div><span class="label">Cost</span><b id="mu">–</b></div></div>
-    <div class="row"><button class="btn ghost" id="sumback" style="flex:0 0 96px;height:56px">Rescan</button><button class="btn" id="sumfind" style="flex:1;height:56px">Find an object</button></div></div>
+<!-- ============ Live scan: checklist, then coverage ============ -->
+<section class="scr" id="s-scan">
+  <header class="top"><button class="camstop" data-act="stop" aria-label="Stop the camera and discard this scan"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button><span class="pill panel" id="scanroom">Room</span><span class="pill panel" id="fcount">0 frames</span></header>
+  <div class="sp"></div>
+  <div class="bot">
+    <div class="check panel" id="checklist" data-show="ready">
+      <h2>Before you scan</h2>
+      <div class="chk" id="chklight" role="status"><i>·</i><span id="lighttext">Checking the light…</span></div>
+      <button class="chk" id="chkpeople" data-act="toggle-people" aria-pressed="false"><i></i><span>The room is empty: no people in the room or in frame</span></button>
+      <div class="chk ok"><i>✓</i><span>Stand in the middle of the room, hold the phone upright</span></div>
+    </div>
+    <div id="scanline" data-show="live" role="status" aria-live="polite">Turn slowly to the left</div><div id="hint" data-show="live"></div>
+    <!-- the coverage compass: yaw bins around, the view cone, three pitch bands at the side. It shows what was looked at, not where things are. -->
+    <div class="ringwrap" data-show="live"><canvas id="ring"></canvas><div class="flash" id="flash"></div>
+      <div class="pct"><b id="pct">0<i>%</i></b><span class="label">Covered</span></div></div>
+    <div class="stats" data-show="live"><div class="panel"><span class="label">Frames</span><b id="nfr">0</b></div><div class="panel"><span class="label">Objects</span><b id="nob">0</b></div><div class="panel wide"><span class="label">Just saw</span><b id="nnm">—</b></div></div>
+    <div class="row"><button class="btn ghost" data-act="scan-cancel" id="scancancel">Cancel</button><button class="btn" data-act="scan-start" id="startbtn" data-show="ready">Start scanning</button><button class="btn red" data-act="scan-done" id="donebtn" data-show="live">Done</button></div>
   </div>
 </section>
 
-<section class="scr" id="result">
-  <div class="top"><button id="resback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ BACK</button><span class="pill panel mono" id="resq" style="max-width:220px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis"></span></div>
-  <div class="ans" id="resulttext">The charger was last seen about 60 degrees to the left of where the scan started, below the laptop.</div>
-  <div class="photo"><canvas id="replay"></canvas><span class="tag panel mono" id="rtag">CHARGER · FRAME 14</span></div>
-  <div class="dir"><div class="panel"><span class="label">Yaw</span><b id="dyaw">60° L</b></div><div class="panel"><span class="label">Pitch</span><b id="dpit">10° ↓</b></div></div>
+<!-- ============ Scan summary: reading frames, then review (Save / Discard / View in room) ============ -->
+<section class="scr" id="s-summary">
+  <header class="top"><span class="pill panel"><span class="dot"></span><span id="sumpill">Scan complete</span></span></header>
+  <div class="sheet panel" id="sumsheet">
+    <div class="procbox" data-show="processing stalled">
+      <div class="procrow"><div class="spin"></div><span id="proctxt">Reading frames…</span></div>
+      <div class="procrow"><div class="bar" aria-hidden="true"><i id="procbar"></i></div><span id="procpct">0%</span></div>
+      <div class="procact" data-show="stalled"><button data-act="proc-check">Check the server</button><button data-act="proc-home">Go home</button></div>
+    </div>
+    <div class="after" data-show="review empty">
+      <h1 id="sumtext">I found 14 objects.</h1>
+      <div class="gtiles" id="sumtiles"></div>
+      <div class="thumbs" id="sumdetail" hidden></div>
+      <div class="meta"><div><span class="label">Frames</span><b id="mf">–</b></div><div><span class="label">Seconds</span><b id="ms">–</b></div><div><span class="label">Cover</span><b id="mc">–</b></div><div><span class="label">Cost</span><b id="mu">–</b></div></div>
+      <div class="row"><button class="btn ghost" data-act="discard-review">Discard</button><button class="btn" data-act="save-review" id="sumsave">Save</button></div>
+      <button class="plainbtn" data-act="inspect-scan" id="sumobjs">Review objects</button>
+      <button class="plainbtn" data-act="view-room">View in room</button>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Room details ============ -->
+<section class="scr" id="s-room">
+  <header class="top"><button class="back panel" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></header>
+  <div class="body">
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-g="!" data-tone="error" data-show="error"><h2>Could not load this room</h2><p id="rerr"></p><button class="plainbtn" data-act="retry">Try again</button></div>
+    <div data-show="default empty">
+      <div class="rhead"><h1 id="rname">Room</h1><span class="badge" id="ractive">ACTIVE</span></div>
+      <div class="actions">
+        <button class="btn" data-act="find-room">Find in this room</button>
+        <button class="btn ghost" data-act="rescan">Rescan</button>
+        <button class="btn ghost" data-act="changes-room">View changes</button>
+        <button class="btn ghost" data-act="explore-room">Explore (AR)</button>
+        <button class="btn ghost" data-act="activate-this" id="ractbtn">Make active</button>
+        <button class="btn ghost" data-act="room-settings">Room settings</button>
+      </div>
+      <div class="card panel" id="rinfo"></div>
+      <div class="statecard panel" data-g="+" data-show="empty"><h2>Not scanned yet</h2><p>Scan this room once and Reality OS will remember where things are in it.</p><button class="btn" data-act="rescan">Scan this room</button></div>
+      <div data-show="default"><h2 class="sec">Recent objects</h2><div class="thumbs" id="rrecent"></div></div>
+      <h2 class="sec" id="rhisthead">Scan history</h2><div id="rhist"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ Find (in the active room, or all rooms) ============ -->
+<section class="scr" id="s-find">
+  <header class="top"><span class="pill panel mono">FIND</span><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></header>
+  <div class="ftop">
+    <div class="seg" id="fscope" role="group" aria-label="Where to look"><button data-act="scope" data-v="room" aria-pressed="true">This room</button><button data-act="scope" data-v="all" aria-pressed="false">All rooms</button></div>
+    <div class="row" data-show="idle busy slow error offline all-results all-none">
+      <div class="find panel"><input id="q" type="text" placeholder="Find something…" enterkeyhint="search" autocomplete="off" aria-label="What are you looking for?"><button id="mic" data-act="mic" aria-label="Speak your question"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0012 0M10 16v3"/></svg></button><button id="findbtn" data-act="find-go" aria-label="Find"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 10h12M11 5l5 5-5 5"/></svg></button></div>
+    </div>
+    <div class="askstate panel" id="askstate" data-show="busy slow error offline" role="status"><div class="spin" id="askspin"></div><span id="askmsg"></span><button id="askact" data-act="ask-act"></button></div>
+  </div>
+  <div class="body">
+    <div class="statecard panel" data-g="○" data-show="no-room"><h2>Choose a room first</h2><p>Find looks in one room at a time. Pick the room you are in, or search all rooms.</p><button class="btn" data-act="switcher">Choose a room</button></div>
+    <div class="statecard panel" data-g="○" data-show="room-empty"><h2 id="fempty">This room has not been scanned yet</h2><p>Scan it once, then ask where things are.</p><button class="btn" data-act="rescan">Scan this room</button></div>
+    <div id="fgroups" data-show="all-results"></div>
+    <div class="statecard panel" data-g="○" data-show="all-none"><h2>Not seen in any room</h2><p>Nothing called that is in any room’s memory. The rooms may not have been scanned where it is.</p></div>
+    <button class="plainbtn" id="quickbtn" data-act="open-quick" data-show="idle busy slow error offline">Quick ask ▴</button>
+  </div>
+</section>
+
+<!-- ============ Find result ============ -->
+<section class="scr" id="s-result">
+  <header class="top"><button id="resback" class="back panel" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><span class="pill panel mono" id="resq"></span></header>
+  <div class="photo"><canvas id="replay"></canvas>
+    <span class="tag panel mono" id="rtag">CHARGER · FRAME 14</span></div>
+  <div class="fsheet">
+    <span class="pill panel mono" id="resroom">Room</span>
+    <p class="ans" id="resulttext"></p>
+    <div class="nfbox" data-show="notfound notscanned"><h2 id="nftitle"></h2><div class="covcard" id="nfcov"><b id="nfpct">0<i>%</i></b><div><span class="label">Covered by the last scan</span><div class="bar"><i id="nfbar"></i></div></div></div><p id="nftext"></p>
+      <div class="row"><button class="btn ghost" data-act="find-all-rooms" data-show="notfound">Search all rooms</button><button class="btn ghost" data-act="rescan">Scan this room</button><button class="btn" data-act="find-again">Find something else</button></div></div>
+    <div class="drow" data-show="found"><canvas id="bear"></canvas>
+      <div class="dgrid"><div><span class="label">Yaw</span><b id="dyaw">60° L</b></div><div><span class="label">Pitch</span><b id="dpit">10° ↓</b></div><div class="wide"><span class="label">Confidence</span><b class="w" id="dseen">–</b></div></div></div>
+    <div class="sp"></div>
+    <button class="btn" id="guidebtn" data-act="guide-me" data-show="found">Guide me</button>
+  </div>
+</section>
+
+<!-- ============ Guided search (camera on). Direction in words and degrees; never a distance. ============ -->
+<section class="scr" id="s-guide">
+  <header class="top"><button class="back panel" data-act="guide-end" aria-label="End guidance"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><button class="tog on" id="artog2" data-act="toggle-ar" hidden aria-pressed="true" aria-label="Show remembered objects over the camera"><i></i>AR</button>
+    <button class="camstop" data-act="stop" aria-label="Stop the camera"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button></header>
   <div class="sp"></div>
-  <button class="btn" id="guidebtn" style="width:100%">Guide me</button>
+  <div class="bot">
+    <div class="gt"><span class="pill panel" id="gobj">Charger</span></div>
+    <div class="garrow"><svg viewBox="0 0 300 300"><circle cx="150" cy="150" r="140" fill="rgba(7,9,11,.55)" stroke="rgba(255,255,255,.2)"/><circle cx="150" cy="150" r="104" fill="none" stroke="rgba(255,255,255,.1)" stroke-dasharray="2 8"/><g id="arrow"><path id="cone" d="" fill="rgba(138,164,255,.20)" stroke="rgba(138,164,255,.45)" stroke-width="1.5"/><path d="M150 38 L204 148 L166 148 L166 232 L134 232 L134 148 L96 148 Z" fill="#8AA4FF" stroke="#07090b" stroke-width="5" stroke-linejoin="round"/></g></svg></div>
+    <div class="gdeg" id="gdeg"><span id="gnum">60</span><i>° to go</i></div>
+    <div id="ghint" role="status" aria-live="polite">Turn right</div>
+    <div id="gwords" class="gwords"></div>
+    <div id="ginfo" class="ginfo"></div>
+    <button class="btn ghost found-btn" id="gfound" data-act="guide-done" data-show="found">Done</button>
+  </div>
 </section>
 
-<section class="scr" id="guide">
-  <div class="top"><button id="gback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ END</button><span class="pill panel" id="gobj">Charger</span></div>
-  <div class="foundbox"></div>
-  <div class="garrow"><svg viewBox="0 0 300 300"><circle cx="150" cy="150" r="140" fill="rgba(7,9,11,.45)" stroke="rgba(255,255,255,.2)"/><circle cx="150" cy="150" r="104" fill="none" stroke="rgba(255,255,255,.1)" stroke-dasharray="2 8"/><g id="arrow"><path d="M150 38 L204 148 L166 148 L166 232 L134 232 L134 148 L96 148 Z" fill="#FFD54F" stroke="#07090b" stroke-width="5" stroke-linejoin="round"/></g></svg></div>
-  <div class="sp" id="gsp"></div>
-  <div class="gdeg" id="gdeg"><span id="gnum">60</span><i>° to go</i></div>
-  <div id="ghint">Turn right</div>
-  <button class="btn ghost" id="gfound" style="width:100%;display:none;border-color:var(--green);color:var(--green)">Found it</button>
+<!-- ============ What changed (one room, two of its saved scans) ============ -->
+<section class="scr" id="s-changes">
+  <header class="top"><span class="pill panel mono" id="chgpill">WHAT CHANGED</span><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></header>
+  <div class="body">
+    <div class="picker panel" data-show="default nothing-changed"><label>Before<select id="chbefore" aria-label="Earlier scan"></select></label><label>After<select id="chafter" aria-label="Later scan"></select></label></div>
+    <div class="chg" id="chg" data-show="default nothing-changed"></div>
+    <div class="statecard panel" data-show="loading slow"><div class="spin"></div><h2 id="chgloadtitle">Comparing your scans…</h2><p id="chgloadtext">This usually takes a second.</p></div>
+    <div class="statecard panel" data-g="!" data-show="need-two error offline no-room"><h2 id="chgtitle"></h2><p id="chgtext"></p><button class="plainbtn" id="chgact" data-act="changes-act"></button></div>
+  </div>
 </section>
 
-<section class="scr" id="changes">
-  <div class="top"><button id="cback" class="pill panel" style="min-height:48px;font:500 13px var(--mono)">‹ BACK</button><span class="pill panel mono">SCAN A → B</span></div>
-  <div class="chg" id="chg"></div>
+<!-- ============ First run ============ -->
+<section class="scr sheetscr" id="s-welcome" aria-label="Welcome">
+  <button class="skip" data-act="intro-skip">Skip</button>
+  <div class="panel intro" id="introcard"></div>
+  <div class="dots" id="introdots" aria-hidden="true"></div>
+  <div class="navrow"><button class="btn ghost" id="introback" data-act="intro-back">Back</button><button class="btn" id="intronext" data-act="intro-next">Next</button></div>
 </section>
 
-<div class="toast panel" id="toast"></div>
+<section class="scr sheetscr" id="s-primer" aria-label="Permissions">
+  <div class="panel intro">
+    <div class="ic">◉</div>
+    <h1 id="primertitle"></h1>
+    <p id="primerintro"></p>
+    <div id="primeritems" class="ritems"></div>
+    <div class="problem" role="alert" data-show="denied"><b id="problemtitle"></b><span id="problembody"></span></div>
+    <p class="note" id="primernote"></p>
+  </div>
+  <div class="navrow"><button class="btn ghost" id="primerlater" data-act="primer-later">Not now</button><button class="btn" id="primergo" data-act="primer-go">Continue</button></div>
+</section>
+
+<!-- ============ Settings: global, then the rooms ============ -->
+<section class="scr" id="s-settings">
+  <header class="top"><span class="pill panel mono">SETTINGS</span><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></header>
+  <div class="setbody">
+    <div class="setgrp panel" id="dbgrow" hidden><h2>Debug HUD</h2><p>The dots menu with frame rate, camera tools and screen jumps. Only available because the page was opened with ?debug.</p>
+      <div class="seg" id="dbgseg"><button data-act="debug" data-v="1">On</button><button data-act="debug" data-v="0">Off</button></div></div>
+    <div class="setgrp panel"><h2>Voice language</h2><p>For speaking replies and for the microphone button.</p><select id="langsel" aria-label="Voice language"></select></div>
+    <div class="setgrp panel"><h2>Keyframes per second</h2><p>The most frames a scan may send each second. Fewer is cheaper and slower; the scan also waits for you to turn and hold steady.</p><div class="seg" id="kfseg"></div></div>
+    <div class="setgrp panel"><h2>Overlay detail</h2><p>Calm: a few labels for the objects you are most likely looking at, duplicates grouped, one outline, and the compass only while guiding. Normal: every object with its outline and the compass. Debug: Normal plus confidence and uncertainty on each label.</p><div class="seg" id="detailseg"></div></div>
+    <div class="setgrp panel"><h2>Your rooms</h2><p>Rename a room or delete it. Deleting erases its scans, photos and objects.</p>
+      <div id="setrooms" aria-live="polite"><div class="skel" data-show="loading"></div></div>
+      <div class="statecard" data-show="error"><p id="seterr"></p><button class="plainbtn" data-act="retry">Try again</button></div></div>
+    <div class="setgrp panel"><h2>Intro</h2><p>Replay the three cards that explain how Reality OS works and what happens to your data.</p><button class="plainbtn" data-act="replay-intro">Replay intro</button></div>
+    <div class="setgrp panel"><h2>Delete all data</h2><p>Every room, scan, photo and object on the computer running Reality OS. This cannot be undone.</p><button class="dangerbtn" data-act="delete-all">Delete all data</button></div>
+  </div>
+</section>
+
+<section class="scr" id="s-roomsettings">
+  <header class="top"><button class="back panel" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><span class="pill panel mono">ROOM SETTINGS</span></header>
+  <div class="setbody">
+    <div class="setgrp panel"><h2>Name</h2><input id="rsname" type="text" maxlength="60" autocomplete="off" aria-label="Room name"><div class="problem" role="alert" data-show="error"><span id="rserr"></span></div>
+      <button class="plainbtn" data-act="rename-room">Save name</button></div>
+    <div class="setgrp panel"><h2>Active room</h2><p id="rsactivetext"></p><button class="plainbtn" data-act="activate-this" id="rsact">Make this the active room</button></div>
+    <div class="setgrp panel"><h2>Delete this room</h2><p id="rsdeltext">Erases every scan, photo and object in it. This cannot be undone.</p><button class="dangerbtn" data-act="delete-room">Delete room</button></div>
+  </div>
+</section>
+
+<!-- ============ Explore (AR): the room's objects over the camera ============ -->
+<section class="scr" id="s-explore">
+  <header class="top"><button class="back panel" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><button class="tog on" id="artog" data-act="toggle-ar" aria-pressed="true" aria-label="Show remembered objects over the camera"><i></i>AR</button>
+    <button class="camstop" data-act="stop" aria-label="Stop the camera"><i class="rec"></i><span class="cl">Camera on</span><b>STOP</b></button></header>
+  <div class="sp"></div>
+  <div class="bot">
+    <div class="gt"><span class="pill panel" id="exroom">Room</span></div>
+    <div class="statecard panel" data-g="○" data-show="no-memory"><h2>Nothing to show yet</h2><p>This room has not been scanned, so there is nothing to draw over the camera.</p><button class="btn" data-act="rescan">Scan this room</button></div>
+    <p class="note center" data-show="default">Point the camera around: remembered objects appear where they were.</p>
+  </div>
+</section>
+
+<!-- ============ Objects review on the phone: labels, instances, sightings ============ -->
+<section class="scr" id="s-labels">
+  <header class="top"><button class="back panel" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><span class="pill panel mono" id="lbpill">OBJECTS</span></header>
+  <div class="body">
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-g="!" data-tone="error" data-show="error offline"><h2 id="lberrtitle"></h2><p id="lberr"></p><button class="plainbtn" data-act="retry">Try again</button></div>
+    <div class="statecard panel" data-g="○" data-show="empty"><h2>No objects in this scan</h2><p>Nothing was recognised, or every kind was hidden as not an object in this room.</p></div>
+    <div data-show="default empty"><p class="dim" id="lbsum"></p>
+      <div class="cards" id="lbrows" data-show="default"></div>
+      <div id="lbhidden"></div>
+      <p class="dim" id="lbdups"></p></div>
+  </div>
+</section>
+
+<section class="scr" id="s-instances">
+  <header class="top"><button class="back panel" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><span class="pill panel mono" id="inpill">INSTANCES</span></header>
+  <div class="body">
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-g="!" data-tone="error" data-show="error"><h2>Could not load this</h2><p id="inerr"></p><button class="plainbtn" data-act="retry">Try again</button></div>
+    <div class="statecard panel" data-g="○" data-show="empty"><h2>Nothing left here</h2><p>This kind has no instances in the scan any more.</p></div>
+    <div data-show="default">
+      <p class="dim" id="insum"></p>
+      <div class="actions"><button class="btn" data-act="merge-picked" id="mergebtn">Merge selected</button><button class="btn ghost" data-act="not-object" id="notobjbtn">Not an object here</button></div>
+      <div class="cards" id="inrows"></div></div>
+  </div>
+</section>
+
+<section class="scr" id="s-sightings">
+  <header class="top"><button class="back panel" data-act="back" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><span class="pill panel mono" id="sipill">SIGHTINGS</span></header>
+  <div class="body">
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-g="!" data-tone="error" data-show="error"><h2>Could not load this</h2><p id="sierr"></p><button class="plainbtn" data-act="retry">Try again</button></div>
+    <div data-show="default">
+      <div class="card panel" id="sifacts"></div>
+      <h2 class="sec">Sightings</h2>
+      <div class="cards" id="sirows"></div>
+      <button class="dangerbtn" data-act="delete-object">Delete this object</button></div>
+  </div>
+</section>
+
+<!-- ============ Quick ask: what the room contains, as a bottom sheet over Find ============ -->
+<section class="scr sheetwrap" id="s-quick" aria-label="Quick ask">
+  <div class="scrim" data-act="close-switcher"></div>
+  <div class="sheet2 panel"><h2>Ask about</h2>
+    <div class="chips" id="quicklist" data-show="default"></div>
+    <p class="dim" data-show="empty">This room has no objects to ask about yet.</p>
+    <button class="plainbtn" data-act="close-switcher">Close</button></div>
+</section>
+
+<!-- ============ Room switcher: a sheet over any screen ============ -->
+<section class="scr sheetwrap" id="s-switcher" aria-label="Rooms">
+  <div class="scrim" data-act="close-switcher"></div>
+  <div class="sheet2 panel"><h2>Your rooms</h2>
+    <div id="swlist" data-show="default"></div>
+    <p class="dim" data-show="empty">No rooms yet.</p>
+    <button class="btn ghost" data-act="add-room">+ Add a room</button><button class="plainbtn" data-act="close-switcher">Close</button></div>
+</section>
+
+<nav id="nav" aria-label="Main"></nav>
+<div class="toast panel" id="toast" role="status"></div>
+<div class="cap panel" id="cap" role="status" aria-live="polite"><b>REALITY OS SAYS</b><span id="captext"></span></div>
+<div id="dlg" role="dialog" aria-modal="true" aria-labelledby="dlgtitle"><div class="box panel"><h2 id="dlgtitle"></h2><p id="dlgbody"></p><ul class="dlgitems" id="dlgitems" hidden></ul><div class="navrow"><button id="dlgno">Cancel</button><button class="go" id="dlgyes">OK</button></div></div></div>
 <details id="dev"><summary>⋯</summary><div class="panel">
-  <button id="flipbtn">Flip cam</button><button id="streambtn">Stream</button><button id="savebtn">Save sample</button><button data-go="home">Home</button><button data-go="scan">Scan</button><button data-go="summary">Summary</button><button data-go="find">Find</button><button data-go="guide">Guide</button><button data-go="changes">Changes</button>
+  <div class="info" id="arinfo">AR: –</div>
+  <button id="flipbtn">Flip cam</button><button id="streambtn">Stream</button><button id="savebtn">Save sample</button>
 </div></details>
 </div>
 <script type="module" src="js/app.js"></script>
