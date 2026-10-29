@@ -21,7 +21,7 @@ from starlette.routing import Route
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.auth import AccessTokenMiddleware
-from app import ask as ask_mod, care, inspector, mcp_server, reality_api, rewind as rewind_mod, scan_service, status
+from app import align as align_mod, anchoring as A, ask as ask_mod, care, inspector, mcp_server, reality_api, rewind as rewind_mod, scan_service, status
 from app.world_model import RoomNameError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +65,7 @@ app.add_middleware(AccessTokenMiddleware)
 HEADER = struct.Struct(">BIdH")  # 15 bytes
 FLAG_SAVE = 1  # store the frame and its sidecar in data/frames (M0 samples)
 FLAG_SCAN = 2  # keyframe for the running scan
+FLAG_PROBE = 4  # a live camera frame to compare with the room's reference keyframe: answered with an align_hint
 
 _service: scan_service.ScanService | None = None
 service_factory = scan_service.build_default_service  # tests replace this
@@ -287,6 +288,25 @@ async def api_delete_room(room_id: int):
     _room_or_404(room_id)
     _svc().wm.delete_room(room_id)
     return {"deleted": room_id}
+
+
+@app.get("/api/rooms/{room_id}/reference")
+async def api_reference(room_id: int):
+    """The room's first-scan keyframe, for lining up a rescan (see the phone's scan screen)."""
+    return reality_api.reference(_svc(), _room_or_404(room_id)["id"])
+
+
+@app.get("/api/rooms/{room_id}/reference.png")
+async def api_reference_png(room_id: int, frame: int | None = None):
+    """That keyframe's outline as a transparent PNG (white edges): laid over the live camera at low opacity."""
+    svc, room = _svc(), _room_or_404(room_id)
+    f = reality_api.reference_frame(svc, room)
+    if f is None or (frame is not None and frame != f["id"]):
+        raise HTTPException(404, "no reference frame")
+    png = await asyncio.to_thread(lambda: align_mod.edges_png(svc.wm.frame_jpeg(f["id"]) or b""))
+    if png is None:
+        raise HTTPException(404, "the reference frame has no usable picture")
+    return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @app.get("/api/rooms/{room_id}/notes")
@@ -601,6 +621,28 @@ def parse_frame(msg: bytes) -> tuple[int, int, float, dict, bytes]:
     return flags, seq, client_ts, meta if isinstance(meta, dict) else {}, msg[meta_end:]
 
 
+_probes: dict[int, align_mod.ReferenceProbe] = {}   # reference frame id -> its features, computed once
+
+
+async def probe_reference(room_id, jpeg: bytes) -> dict:
+    """How far a live camera frame is from the room's reference keyframe, as words and numbers (app.align.guidance). Never raises."""
+    try:
+        svc = get_service()
+        room = svc.wm.get_room(int(room_id)) if room_id is not None else None
+        f = reality_api.reference_frame(svc, room) if room else None
+        if f is None:
+            return {"ok": False, "within": False, "no_reference": True, "words": "", "inliers": 0}
+        probe = _probes.get(f["id"])
+        if probe is None:
+            probe = await asyncio.to_thread(lambda: align_mod.ReferenceProbe(svc.wm.frame_jpeg(f["id"]) or b"", f["hfov_deg"]))
+            while len(_probes) >= 6:
+                _probes.pop(next(iter(_probes)))
+            _probes[f["id"]] = probe
+        return await asyncio.to_thread(probe.probe, jpeg, A.DEFAULT_HFOV_DEG)
+    except Exception as e:  # noqa: BLE001 - a failed guess must not break the socket
+        return {"ok": False, "within": False, "words": "", "inliers": 0, "error": f"{type(e).__name__}: {e}"[:200]}
+
+
 @app.websocket("/ws")
 async def ws(sock: WebSocket):
     await sock.accept()
@@ -657,6 +699,9 @@ async def ws(sock: WebSocket):
                 continue
             t_in = time.perf_counter()
             flags, seq, client_ts, meta, jpeg = parse_frame(msg_bytes)
+            if flags & FLAG_PROBE:
+                await send({"type": "align_hint", "seq": seq, "room_id": meta.get("room_id"), **await probe_reference(meta.get("room_id"), jpeg)})
+                continue
             if flags & FLAG_SCAN:
                 if session is None:
                     await send({"type": "frame_rejected", "seq": seq, "reason": "no scan running"})

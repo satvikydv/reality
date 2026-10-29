@@ -206,6 +206,26 @@ def leave_note(svc: ScanService, text: str, yaw: float, pitch: float, room=None,
         return {"status": "bad_request", "message": str(e)}
 
 
+def reference_frame(svc: ScanService, room: dict) -> dict | None:
+    """The reference keyframe of a room for lining up a rescan: the first frame of its memory (latest saved scan) that has a picture."""
+    sid = svc.wm.latest_scan_id(room["id"])
+    if sid is None:
+        return None
+    return next((f for f in svc.wm.list_frames(sid) if f.get("path")), None)
+
+
+def reference(svc: ScanService, room=None) -> dict:
+    """Where the phone gets the first scan's keyframe from, to show as a faded outline while lining up a rescan."""
+    rm, err = resolve_room(svc, room)
+    if err:
+        return err
+    f = reference_frame(svc, rm)
+    if f is None:
+        return {"status": "no_reference", "room": _room_ref(rm), "message": f"{rm['name']} has no saved scan to line up with."}
+    return {"status": "ok", "room": _room_ref(rm), "scan_id": f["scan_id"], "frame_id": f["id"], "width": f["width"], "height": f["height"], "hfov_deg": f["hfov_deg"],
+            "outline_url": f"/api/rooms/{rm['id']}/reference.png?frame={f['id']}"}
+
+
 def what_changed(svc: ScanService, scan_a: int | None = None, scan_b: int | None = None, room=None) -> dict:
     """Compare two scans of ONE room: default the room's latest saved scan against its baseline (else the scan before it).
     Scans of different rooms are never compared (status wrong_room)."""
