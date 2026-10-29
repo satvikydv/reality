@@ -39,7 +39,7 @@ def test_a_start_heading_rotated_by_ninety_degrees_is_found_by_the_search(wm):
     a, b = two_scans(wm, 110.0)                                   # far outside the pose prior's window: frames facing the same way are 110 degrees apart in metadata
     r = align.align_scans(wm, a, b, window_deg=40.0)
     assert r["quality"] in ("good", "weak") and abs(align.wrap180(r["offset_deg"] - 110.0)) <= 1.5, r
-    assert r["method"] in ("search", "pose prior")
+    assert r["method"] in ("search", "pose prior, refined", "pose prior")
 
 
 def test_a_yaw_only_shift_leaves_the_pitch_and_roll_offsets_near_zero_even_with_a_pitch_error_in_the_metadata(wm):

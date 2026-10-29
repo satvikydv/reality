@@ -50,8 +50,10 @@ FindResult  {room_id, room_name, found, speech, concept, object: {id, label, yaw
              all rooms: {all_rooms: true, groups: [FindResult-like, one per room], found, speech}
 Summary     {scan_id, room_id, room_name, status: "draft", speech, coverage: {covered_deg, gaps}, frames: {stored...}, seconds, cost_usd, objects: [{id, label, yaw, pitch, replay}]}
 Changes     {status, room, scan_before, scan_after, scans: [{id, started_at, baseline}], summary,
-             moved: [{label, key, review, shift: {yaw_deg, pitch_deg, words}, from: {replay}, to: {replay}}],
-             removed / added: [{label, key, review, speech, replay}], unverified: [{label, key, reason}], unchanged_count}   review: "confirmed" | "dismissed" | null
+             alignment: {quality: "good" | "weak" | "failed", inliers, pairs, spread_deg, offset_used_deg, offset_source, viewpoint_cm, method, translation, parallax_deg},
+             moved / possibly_moved: [{label, key, review, shift: {yaw_deg, pitch_deg, words}, from: {replay}, to: {replay}, sep_deg, tolerance_deg, uncertainty_deg, distance_cm}],
+             removed / added: [{label, key, review, speech, replay}], cant_compare: [{label, key, was, reason}]  (also served as "unverified"), unchanged_count}
+             review: "confirmed" | "dismissed" | null. When alignment.quality is not "good" nothing is in moved, possibly_moved, removed or added.
 ```
 
 Every list screen has the same set of non-happy states: `loading`, `error` (the server answered with an error), `offline` (not reachable, reconnecting by itself) and `slow` (no answer yet). Where a state would add nothing (a sheet, a form), it is left out.

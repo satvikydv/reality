@@ -358,18 +358,27 @@ def align_scans(wm, scan_a: int, scan_b: int, *, prior_offset: float = 0.0, wind
                     out.append(p)
         return out
 
+    def good(items: list[dict]) -> bool:
+        c = combine(items)
+        return c is not None and quality_of(len(c["used"]), int(sum(e["inliers"] for e in c["used"])), c["spread"]) == "good"
+
     ests = collect(prior_offset, window_deg)
     method = "pose prior"
-    if not ests:  # the frames may differ by an unknown heading: look at pairs across the whole scans, then refine around what is found
-        method = "search"
-        for fb in _spread(run.frames_b, SEARCH_B):
-            for fa in _spread(run.frames_a, SEARCH_A):
-                p = run.pair(fa, fb)
-                if p is not None:
-                    ests.append(p)
+    if not good(ests):  # the frames may differ by a heading the prior did not allow for: refine around what was found ...
         c = combine(ests)
         if c is not None:
-            ests = ests + collect(wrap180(-c["yaw"]), window_deg)
+            ests += collect(wrap180(-c["yaw"]), window_deg)
+            method = "pose prior, refined"
+        if not good(ests):  # ... and if that is not enough, look at pairs across the whole scans, then refine around the offset they agree on
+            method = "search"
+            for fb in _spread(run.frames_b, SEARCH_B):
+                for fa in _spread(run.frames_a, SEARCH_A):
+                    p = run.pair(fa, fb)
+                    if p is not None:
+                        ests.append(p)
+            c = combine(ests)
+            if c is not None:
+                ests += collect(wrap180(-c["yaw"]), window_deg)
     ests = list({(e["a"], e["b"]): e for e in ests}.values())
     return _summary(ests, method, run)
 

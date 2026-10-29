@@ -113,6 +113,12 @@ Record: device ______ · browser and version ______ · date ______
 - [ ] Rewind: scan a room, move or remove one object, scan again and save. In Explore, Rewind to the earlier scan: a dashed "was here" ring appears where the object was. A direction the second scan did not cover shows "was here?".
 - [ ] Caregiver: Settings, Caregiver sharing is off. On the dashboard, Care shows the list but no places or photos. Turn sharing on from the phone: places, photos and ages appear within about 8 seconds. Add "pills" with a usual room; scan it in another room and check the "usually lives in" alert.
 
+**Viewpoint-robust alignment and the rescan assist**
+- [ ] Rescan assist: scan a desk (this is the reference scan), save it. Tap Scan again, pick the room: the first scan's keyframe appears as a faded outline over the camera and a line says how to line up. Move the phone away: the words change ("Turn left 8 degrees, move slightly right."); line the outline up: "Lined up. Start scanning." and the button reads Start scanning, otherwise Start anyway. Start anyway must always work.
+- [ ] Time between the phone showing a view and the words reacting: ____ s (it asks about twice a second).
+- [ ] Changes: the alignment card says good, weak or failed with the matching points; nothing is under Moved when it is weak or failed.
+- [ ] Run the protocol below and fill in the table.
+
 **Upgrade**
 - [ ] Start the server on a database from before rooms: Home shows one room, "Unassigned", with the old scans, not active; Find says to choose a room until you pick one.
 
@@ -149,6 +155,46 @@ Frame rate and draw time in headless Chrome (`python scripts/measure_overlay_fps
 | 6x | 60 | debug | 20 | 10.23 | 19 |
 
 Calm draws less than half the time of Normal at 1x and about a quarter at 6x with 60 objects, because only the chosen object's mask is projected and the rest are positions only. Not measured on the phone.
+
+## Alignment protocol (docs for `scripts/eval_alignment.py`)
+
+Scan the same desk with a few objects on it (at least four: a mug, a charger, a book, a bottle) five times, each from the middle of a turn, each saved to the same room:
+
+| Scan | How | Truth to record |
+|---|---|---|
+| Reference | the usual scan, standing in your spot, phone upright | none |
+| (a) same spot | stand exactly where you stood, scan again | nothing moved; offset 0 if the compass was used |
+| (b) 20 cm sideways | step 20 cm to the side (measure it with a ruler on the floor), scan again | nothing moved; offset 0 |
+| (c) start heading rotated 90 degrees | start the scan facing 90 degrees away from where you started the reference (a relative sensor makes the frame differ by 90) | nothing moved; offset 90 (or minus 90) |
+| (d) two objects moved | back at your spot, really move two objects (say the mug and the charger by a hand's width or more) | `moved`: their labels; offset 0 |
+
+Find the scan ids with `python scripts/export_overlay.py --db data/world.sqlite --list`, write a manifest (see the top of the script), then:
+
+    python scripts/eval_alignment.py --db data/world.sqlite --manifest manifest.json --json alignment_eval.json
+
+It works on a copy of the database. Report, per scenario: alignment quality, matches, offset and its error against the truth you wrote down; over all scenarios: the yaw-offset error, the false-move rate (objects called moved that you did not move), the true-move recall (objects you moved that are called moved), and how many objects are in "possibly moved" and "can't compare". Targets: yaw-offset error within 1 degree for (a), (c), (d); no false moves in (a) to (c); both moves found in (d); (b) should be mostly unchanged and possibly moved, never moved. If (b) shows moved objects, try `--viewpoint-cm 25` and note which value the nearby objects need: it tells you how far you really stand off.
+
+| Scenario | Alignment | Matches | Offset error | Moved | Possibly moved | Can't compare |
+|---|---|---|---|---|---|---|
+| (a) same spot | | | | | | |
+| (b) 20 cm sideways | | | | | | |
+| (c) heading rotated 90 | | | | | | |
+| (d) two moved | | | | | | |
+
+Yaw-offset error ____ ; false-move rate ____ ; true-move recall ____ ; possibly moved ____ ; can't compare ____ . Not yet measured on the phone.
+
+## Alignment: synthetic check (not the phone)
+
+`python scripts/eval_alignment.py --synthetic` renders a textured room from a fixed spot, so the camera poses are exact, and runs the same four scenarios; the sideways one is simulated by shifting each object by the parallax a 20 cm step causes at its estimated distance (no depth is rendered, so the images themselves are not parallax-distorted). It checks the code, not the camera. Measured 2026-10-30, 10 frames per scan:
+
+| Scenario | Alignment | Matches | Offset error | Moved | Possibly moved | Can't compare |
+|---|---|---|---|---|---|---|
+| same spot | good | 18008 | 0.0° | – | – | 0 |
+| 20 cm sideways (simulated) | good | 16739 | 0.0° | – | plant, laptop, book, mug | 0 |
+| start heading +90 | good | 18065 | 0.0° | – | – | 0 |
+| two objects moved | good | 17056 | 0.0° | mug, book | – | 0 |
+
+Yaw-offset error mean 0.0°, max 0.0° (a rotation-only render, so this is the floor); false moves 0 of 16 objects; true-move recall 1.0 (2 of 2). The 20 cm step is simulated at 20 cm while the default tolerance assumes 15 cm, so all four objects land in "possibly moved": the doubt band is doing its job, and a real step of 15 cm or less is absorbed.
 
 ## Results
 
