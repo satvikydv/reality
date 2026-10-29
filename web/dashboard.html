@@ -78,6 +78,7 @@ button.small:disabled{opacity:.35;cursor:default}
   <div class="brand"><i></i>Reality OS</div>
   <span id="phase">Waiting for a scan</span>
   <button class="small go" id="objbtn" title="Review and correct what the memory believes">Objects</button>
+  <button class="small" id="carebtn" title="Where a person's important things were last seen">Care</button>
   <span class="pill panel"><span class="dot" id="conn"></span><span id="connt">connecting…</span></span>
   <div class="cnt">
     <div class="panel"><span class="label">Frames</span><b id="cf">0</b></div>
@@ -130,6 +131,23 @@ button.small:disabled{opacity:.35;cursor:default}
     <div class="pane panel"><div class="detail" id="idetail"></div></div>
   </div>
 </section>
+<section id="care" role="dialog" aria-modal="true" aria-label="Caregiver view">
+  <div class="ih"><h1>Care</h1><span class="badge2 off" id="careconsent">…</span><span class="hide">What the last scan of each room saw, not live.</span>
+    <span id="caremsg" role="status" style="font:500 13px var(--mono);color:var(--accent)"></span><button class="small grow" id="careclose">Close ✕</button></div>
+  <div class="cm">
+    <div class="pane">
+      <h2>Needs attention</h2>
+      <div id="carealerts"></div>
+      <h2>Watch for</h2>
+      <div class="cadd"><input id="carelabel" type="text" maxlength="60" placeholder="pills, glasses, keys…" aria-label="What to watch"><select id="careroom" aria-label="Usual room"></select><button class="small go" id="careadd">Add</button></div>
+      <h2 id="careasked">Ask</h2>
+      <div class="cadd"><input id="careq" type="text" maxlength="300" placeholder="Where did Mum put her pills?" aria-label="Ask where something is"><button class="small go" id="careask">Ask</button></div>
+      <div id="careans"></div>
+    </div>
+    <div class="pane"><h2>Their things</h2><div id="careitems" class="citems"></div></div>
+  </div>
+</section>
 <script type="module" src="js/dashboard.js"></script>
 <script type="module" src="js/inspector.js"></script>
+<script type="module" src="js/care.js"></script>
 </body></html>

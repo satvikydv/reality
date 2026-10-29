@@ -88,6 +88,17 @@ The memory can be wrong (two bottles that are one, a wall that is not an object)
 
 Every correction is recorded (`GET /api/corrections`, with who made it) and is applied again by every later rebuild, so the next frame does not undo it. API: `GET /api/scans/{id}/objects`, `GET /api/scans/{id}/duplicates`, `GET /api/objects/{id}`, `POST /api/objects/merge`, `POST /api/sightings/{id}/detach`, `DELETE /api/objects/{id}`, `GET/POST /api/rooms/{id}/not-objects`, `DELETE /api/rooms/{id}/not-objects/{label}`, `GET /api/corrections`. A sighting's id is its detection's id.
 
+### Notes, Ask the room, Rewind and the caregiver view
+
+Four things built on the same memory (directions seen from where the scans were made; nothing here claims world-locked tracking). On the phone they live in **Explore** (the camera over a room), as **Note**, **Ask** and **Rewind**.
+
+- **Notes in places.** Point at the fridge, tap Note, type or say "milk expires Friday". The note stays on the object under the reticle (or the direction you face) and shows over the camera for anyone using that room. Notes belong to one room, can be marked done or deleted, and are served in `/api/overlay` so a second phone sees them. API: `GET/POST /api/rooms/{id}/notes`, `PATCH/DELETE /api/notes/{id}`.
+- **Ask the room.** "What is charging?", "What here is fragile?", "When did something last move?" Spark reasons over the names, directions and neighbours the room remembers, plus what changed between its earlier saved scans, and names the objects the answer is about; the phone draws only those, with a reason each (an arrow points to one that is off screen). It never sees a photo and may only name objects that exist in the room. API: `POST /api/rooms/{id}/ask`.
+- **Rewind.** Pick an earlier saved scan and see, as dashed "was here" rings in today's directions, what it had that the room's memory does not. A direction today's scan never looked at is shown as "was here?", not as gone. API: `GET /api/rooms/{id}/rewind?scan=`.
+- **Caregiver view.** On the dashboard, **Care** lists the things a caregiver watches (pills, glasses, keys) with the room, photo and time each was last seen, and alerts for: not seen in any room's last scan (with the rooms' coverage), last seen somewhere other than its usual room, last seen more than 3 days ago (`CARE_STALE_DAYS`). It asks "where did Mum put her pills?" in plain words. It is memory as of the last scan, not live tracking, and says so. Nothing shows until the person turns on **Settings, Caregiver sharing** on their phone. API: `GET /api/care`, `POST /api/care/consent`, `POST/DELETE /api/care/watch`, `POST /api/care/ask`.
+
+The Reality API (MCP) gains `ask_room`, `list_notes` and `leave_note`, so another agent can ask a room a question or leave a note where it will be seen.
+
 ### Calibrate the camera
 
 The field of view depends on the camera mode (resolution, lens, zoom), so it is measured in the exact state the app scans in, and any later change is refused.

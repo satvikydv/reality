@@ -107,6 +107,12 @@ Record: device ______ · browser and version ______ · date ______
 - [ ] Walk around a cluttered shelf with Calm on: does the one outline follow the object you point at? Does the label choice feel right? Note any label you expected and did not get, and any that jumped between frames.
 - [ ] Frame rate: dev menu (`?debug`) fps and draw ms in Calm, Normal and Debug on the same view: Calm ____ , Normal ____ , Debug ____ .
 
+**Notes, Ask the room, Rewind, caregiver view**
+- [ ] Explore a scanned room. Tap Note with the reticle on an object and leave a note by typing, then by voice. The amber dot and text appear on that object; turn away and back: it stays. Open the same room on the laptop browser (`/` with `?demo` is not enough: use the real page) and check the note shows there too. Mark it done: it disappears on both.
+- [ ] Ask: "What is charging?", "What here is fragile?", "What should I take with me when I leave?". Do the highlighted objects match what you would say? Note how many of 10 questions you judge right ____ / 10, and the time to answer ____ s. Ask something that matches nothing: the answer says so and nothing is drawn.
+- [ ] Rewind: scan a room, move or remove one object, scan again and save. In Explore, Rewind to the earlier scan: a dashed "was here" ring appears where the object was. A direction the second scan did not cover shows "was here?".
+- [ ] Caregiver: Settings, Caregiver sharing is off. On the dashboard, Care shows the list but no places or photos. Turn sharing on from the phone: places, photos and ages appear within about 8 seconds. Add "pills" with a usual room; scan it in another room and check the "usually lives in" alert.
+
 **Upgrade**
 - [ ] Start the server on a database from before rooms: Home shows one room, "Unassigned", with the old scans, not active; Find says to choose a room until you pick one.
 
