@@ -40,7 +40,11 @@ MIN_PAIR_INLIERS = 20   # a pair below this is not used
 ROT_THRESH_DEG = 0.5    # a match agrees with a rotation when the rays differ by less than this
 EPI_THRESH_FRAC = 0.0023  # epipolar threshold as a share of the frame width (1.5 px at 640)
 E_PREFERRED = 1.15      # the essential matrix must explain this many times the rotation model's matches to be preferred
-GOOD_PAIRS, GOOD_INLIERS, GOOD_SPREAD_DEG = 3, 100, 2.0
+ALIGN_VERSION = 2       # bump when results change meaning: stored alignments of an older version are recomputed
+# Each pair's offset carries the sensor noise of both frames' poses (a phone's orientation is good to a few degrees), so pairs scatter by a
+# few degrees even when the alignment is right. What matters is how well the median is known: its standard error.
+GOOD_PAIRS, GOOD_INLIERS, GOOD_SEM_DEG, MAX_SPREAD_DEG = 3, 100, 1.5, 8.0
+TRANSLATION_CONSISTENT = 0.7   # share of the unit translation vectors that agree (their mean resultant length) before the direction is believed
 PRIOR_WINDOW_DEG = 70.0
 PER_FRAME = 3           # candidate A frames per B frame in the pose-prior pass
 SEARCH_B, SEARCH_A = 12, 24   # frames sampled from each scan by the coarse search
@@ -247,14 +251,15 @@ def combine(estimates: list[dict]) -> dict | None:
     dev = [wrap180(e["yaw"] - m0) for e in use]
     med = weighted_median(dev, w)
     spread = weighted_median([abs(d - med) for d in dev], w) * 1.4826
+    sem = 1.2533 * spread / math.sqrt(len(use))        # standard error of a median of n roughly normal values
     return {"yaw": wrap180(m0 + med), "pitch": weighted_median([e["pitch"] for e in use], w), "roll": weighted_median([e["roll"] for e in use], w),
-            "spread": spread, "used": use}
+            "spread": spread, "sem": sem, "used": use}
 
 
-def quality_of(pairs: int, inliers: int, spread: float) -> str:
+def quality_of(pairs: int, inliers: int, sem: float, spread: float = 0.0) -> str:
     if pairs == 0:
         return "failed"
-    return "good" if pairs >= GOOD_PAIRS and inliers >= GOOD_INLIERS and spread <= GOOD_SPREAD_DEG else "weak"
+    return "good" if pairs >= GOOD_PAIRS and inliers >= GOOD_INLIERS and sem <= GOOD_SEM_DEG and spread <= MAX_SPREAD_DEG else "weak"
 
 
 # ------------------------------------------------------------------------------------------------ two scans
@@ -315,11 +320,11 @@ class _Run:
 
 
 def _summary(ests: list[dict], method: str, run: _Run) -> dict:
-    base = {"method": method, "frames_a": len(run.frames_a), "frames_b": len(run.frames_b), "pairs_tried": sum(1 for _ in run.done)}
+    base = {"version": ALIGN_VERSION, "method": method, "frames_a": len(run.frames_a), "frames_b": len(run.frames_b), "pairs_tried": sum(1 for _ in run.done)}
     c = combine(ests)
     if c is None:
         return {**base, "quality": "failed", "offset_deg": 0.0, "pitch_offset_deg": 0.0, "roll_offset_deg": 0.0, "inliers": 0, "pairs": 0, "spread_deg": None,
-                "translation": None, "parallax_deg": None,
+                "offset_sem_deg": None, "translation": None, "parallax_deg": None,
                 "reason": "no pair of frames had enough matching texture (blank, blurred or too different views)"}
     used = c["used"]
     inliers = int(sum(e["inliers"] for e in used))
@@ -329,15 +334,17 @@ def _summary(ests: list[dict], method: str, run: _Run) -> dict:
         v = sum(t * w for t, w in ts)
         n = float(np.linalg.norm(v))
         if n > 1e-9:
+            consistency = n / sum(w for _, w in ts)        # 1 when every pair gives the same direction, near 0 when they disagree
             v = v / n
             trans = {"east": round(float(v[0]), 3), "north": round(float(v[1]), 3), "up": round(float(v[2]), 3),
-                     "yaw_deg": round(math.degrees(math.atan2(v[0], v[1])) % 360.0, 1)}
-    q = quality_of(len(used), inliers, c["spread"])
+                     "yaw_deg": round(math.degrees(math.atan2(v[0], v[1])) % 360.0, 1), "consistency": round(float(consistency), 2),
+                     "trusted": bool(consistency >= TRANSLATION_CONSISTENT)}
+    q = quality_of(len(used), inliers, c["sem"], c["spread"])
     par = weighted_median([e["parallax_deg"] for e in used], [e["w"] for e in used])
     # the offset is B minus A (the convention of app.changes); the estimate above is A minus B
     return {**base, "quality": q, "offset_deg": round(wrap180(-c["yaw"]), 2), "pitch_offset_deg": round(-c["pitch"], 2), "roll_offset_deg": round(-c["roll"], 2),
-            "inliers": inliers, "pairs": len(used), "spread_deg": round(c["spread"], 2), "translation": trans, "parallax_deg": round(par, 2),
-            "reason": None if q == "good" else ("few matching pairs or a wide spread between them: the alignment is only a rough guide" if q == "weak" else None),
+            "inliers": inliers, "pairs": len(used), "spread_deg": round(c["spread"], 2), "offset_sem_deg": round(c["sem"], 2), "translation": trans, "parallax_deg": round(par, 2),
+            "reason": None if q == "good" else "too few matching pairs, too few matching points, or pairs that disagree too much: the alignment is only a rough guide",
             "pair_estimates": [{"a": e["a"], "b": e["b"], "inliers": e["inliers"], "yaw": round(wrap180(-e["yaw"]), 2), "model": e["model"]} for e in sorted(used, key=lambda e: -e["inliers"])[:20]]}
 
 
@@ -360,7 +367,7 @@ def align_scans(wm, scan_a: int, scan_b: int, *, prior_offset: float = 0.0, wind
 
     def good(items: list[dict]) -> bool:
         c = combine(items)
-        return c is not None and quality_of(len(c["used"]), int(sum(e["inliers"] for e in c["used"])), c["spread"]) == "good"
+        return c is not None and quality_of(len(c["used"]), int(sum(e["inliers"] for e in c["used"])), c["sem"], c["spread"]) == "good"
 
     ests = collect(prior_offset, window_deg)
     method = "pose prior"

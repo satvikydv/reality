@@ -143,7 +143,7 @@ def alignment_for(wm: WorldModel, scan_a: int, scan_b: int, refresh: bool = Fals
     """How scan B's frame differs from scan A's, from the images (app.align). Computed once for a pair of finished scans and kept."""
     if not refresh:
         cached = wm.get_alignment(scan_a, scan_b)
-        if cached is not None:
+        if cached is not None and cached.get("version") == align_mod.ALIGN_VERSION:
             return cached
     res = align_mod.align_scans(wm, scan_a, scan_b)
     sa, sb = wm.get_scan(scan_a), wm.get_scan(scan_b)
@@ -179,7 +179,15 @@ def compare_scans(wm: WorldModel, scan_a: int, scan_b: int, align: dict | None =
         est = estimate_yaw_offset(objs_a, objs_b)
         off, source = (est["offset_deg"], "landmarks") if est["confident"] else (0.0, "none")
     al.update(offset_used_deg=round(off, 2), offset_source=source, viewpoint_cm=vp)
-    spread = al.get("spread_deg") or 0.0
+    sem = al.get("offset_sem_deg")
+    if sem is None:  # a result without it: the spread over the square root of the pairs
+        sem = (al.get("spread_deg") or 0.0) / math.sqrt(max(1, al.get("pairs") or 1))
+    trans = al.get("translation") if (al.get("translation") or {}).get("trusted") else None   # a direction the pairs disagree on is not used
+    mult = {}                                                                                      # labels that appear more than once in either scan
+    for o in objs_a:
+        mult[o["label"]] = mult.get(o["label"], 0) + 1
+    for o in objs_b:
+        mult[o["label"]] = max(mult.get(o["label"], 0), sum(1 for x in objs_b if x["label"] == o["label"]))
 
     pairs = sorted(((A.angular_distance(a["yaw"] + off, a["pitch"], b["yaw"], b["pitch"]), a, b)
                     for a in objs_a for b in objs_b if label_match_score(a["label"], b["label"]) > 0), key=lambda t: t[0])
@@ -207,10 +215,10 @@ def compare_scans(wm: WorldModel, scan_a: int, scan_b: int, align: dict | None =
     for sep, a, b in matched:
         ea, eb = distance(a), distance(b)
         est = min(ea, eb, key=lambda e: e["distance_cm"])                  # the nearer estimate: nearer things shift more
-        across = scale.across_share(al.get("translation"), a["yaw"], a["pitch"])
+        across = scale.across_share(trans, a["yaw"], a["pitch"])
         tol, band = scale.band_deg(est, vp, across)
         anchor_unc = 0.5 * math.hypot(a.get("uncertainty_deg") or a["spread_deg"], b.get("uncertainty_deg") or b["spread_deg"])
-        margin = math.hypot(band, spread, anchor_unc)
+        margin = math.hypot(band, sem, anchor_unc)
         upper = max(2.0 * tol, tol + margin)
         info = {"sep_deg": round(sep, 1), "tolerance_deg": round(tol, 1), "uncertainty_deg": round(margin, 1), "distance_cm": est["distance_cm"],
                 "distance_lo_cm": est["lo_cm"], "distance_hi_cm": est["hi_cm"], "size_source": est["size_source"]}
@@ -223,6 +231,9 @@ def compare_scans(wm: WorldModel, scan_a: int, scan_b: int, align: dict | None =
         elif sep <= upper:
             possibly.append({"label": b["label"], "from": before, "to": after, **info,
                              "speech": f"The {b['label']} may have moved: it was {before['where']}, now {after['where']}, but that is within what a different spot could explain."})
+        elif mult.get(a["label"], 1) > 1:  # several of the same thing: which one is which cannot be known, so a big difference is not proof of a move
+            possibly.append({"label": b["label"], "from": before, "to": after, **info, "ambiguous": True,
+                             "speech": f"One of the {plural(b['label'])} may have moved: it was {before['where']}, now {after['where']}, but there are several and they may have been mixed up."})
         else:
             moved.append({"label": b["label"], "from": before, "to": after, **info,
                           "speech": f"The {b['label']} moved: it was {before['where']}, now {after['where']}."})
@@ -249,7 +260,8 @@ def compare_scans(wm: WorldModel, scan_a: int, scan_b: int, align: dict | None =
         else:
             cant.append({**e, "was": "added?", "reason": "that direction was not in the earlier scan"})
 
-    parts = [x["speech"] for x in moved] + [x["speech"] for x in possibly] + _grouped(removed, "{n} {things} are gone.") + _grouped(added, "{n} {things} are new.")
+    parts = [x["speech"] for x in moved] + _grouped(possibly, "{n} {things} may have moved, but a different spot could explain it.") \
+        + _grouped(removed, "{n} {things} are gone.") + _grouped(added, "{n} {things} are new.")
     if len(parts) > max_spoken:
         parts = parts[:max_spoken] + [f"And {len(parts) - max_spoken} more change{'s' if len(parts) - max_spoken != 1 else ''}."]
     if not confident:

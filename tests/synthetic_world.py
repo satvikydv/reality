@@ -7,13 +7,14 @@ recovered from the pictures alone. A view from a different spot cannot be render
 import cv2
 import numpy as np
 
+from app import align as _align
 from app import anchoring as A
 
 PANO_W, PANO_H = 2880, 1440
 
 # an alignment result as app.align gives it for two scans that line up well (the same room, no shift); seed it with wm.set_alignment(a, b, GOOD)
-GOOD = {"method": "pose prior", "quality": "good", "offset_deg": 0.0, "pitch_offset_deg": 0.0, "roll_offset_deg": 0.0, "inliers": 500, "pairs": 6,
-        "spread_deg": 0.3, "translation": None, "parallax_deg": 0.2, "reason": None, "frames_a": 6, "frames_b": 6, "pairs_tried": 12}
+GOOD = {"version": _align.ALIGN_VERSION, "method": "pose prior", "quality": "good", "offset_deg": 0.0, "pitch_offset_deg": 0.0, "roll_offset_deg": 0.0, "inliers": 500, "pairs": 6,
+        "spread_deg": 0.3, "offset_sem_deg": 0.1, "translation": None, "parallax_deg": 0.2, "reason": None, "frames_a": 6, "frames_b": 6, "pairs_tried": 12}
 
 
 def make_panorama(seed=1, shapes=900):
@@ -48,15 +49,17 @@ def render_view(pano, yaw, pitch=0.0, roll=0.0, width=480, height=640, hfov=60.0
 
 
 def add_scan(wm, room_id, pano, yaws, *, pitch=0.0, meta_yaw_shift=0.0, meta_pitch_shift=0.0, true_jitter=(0.0, 0.0), ts=1.0, width=480, height=640,
-             hfov=60.0, status="saved", order=None, objects=()):
+             hfov=60.0, status="saved", order=None, objects=(), noise_deg=0.0, noise_seed=0):
     """A scan of the panorama: a frame per true yaw (plus a small jitter), whose stored pose is the true one plus a shift (another session's
     reference frame). `objects` = [(label, true_yaw, true_pitch)] seen straight on in a frame centred on them, at box (220,300,260,340)."""
     sid = wm.start_scan(ts=ts, room_id=room_id, status=status)
+    rng = np.random.default_rng(noise_seed)
+    noise = lambda: float(rng.normal(0.0, noise_deg)) if noise_deg else 0.0   # sensor noise: each stored pose is a little off its true direction
     frames = [(y + true_jitter[0], pitch + true_jitter[1]) for y in yaws]
     for i in (order if order is not None else range(len(frames))):
         ty, tp = frames[i]
         jpeg = render_view(pano, ty, tp, 0.0, width, height, hfov)
-        wm.add_frame(sid, ts + i, (ty + meta_yaw_shift) % 360.0, tp + meta_pitch_shift, width, height, roll=0.0, screen_angle=0.0, hfov_deg=hfov, jpeg=jpeg)
+        wm.add_frame(sid, ts + i, (ty + meta_yaw_shift + noise()) % 360.0, tp + meta_pitch_shift + noise() * 0.3, width, height, roll=0.0, screen_angle=0.0, hfov_deg=hfov, jpeg=jpeg)
     for label, oy, op in objects:
         jpeg = render_view(pano, oy, op, 0.0, width, height, hfov)
         fid = wm.add_frame(sid, ts + 100, (oy + meta_yaw_shift) % 360.0, op + meta_pitch_shift, width, height, roll=0.0, screen_angle=0.0, hfov_deg=hfov, jpeg=jpeg)

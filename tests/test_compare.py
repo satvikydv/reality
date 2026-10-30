@@ -145,3 +145,38 @@ def test_the_distance_band_widens_when_the_size_is_a_guess(wm):
     assert known["lo_cm"] < known["distance_cm"] < known["hi_cm"] and 90 < known["distance_cm"] < 120        # 10 cm seen as 40 px at a 415 px focal length
     assert guessed["rel_err"] > known["rel_err"]
     assert scale.distance_estimate(wm, {"id": 999999}, 10.0) is None
+
+
+# ------------------------------------------------------------------------------------------------ what real scans taught
+
+def test_a_translation_the_pairs_disagree_on_is_not_used_to_shrink_the_tolerance(wm):
+    a, b = pair_shifted(wm, [("mug", 80.0, 0.0)], [("mug", 80.0, 0.0)], shift=0.0)
+    obj = wm.list_objects(a)[0]
+    al_trusted = {**GOOD, "translation": {"east": 0.0, "north": 1.0, "up": 0.0, "consistency": 0.95, "trusted": True}}
+    al_noisy = {**GOOD, "translation": {"east": 0.0, "north": 1.0, "up": 0.0, "consistency": 0.3, "trusted": False}}
+    # the mug sits at yaw 80 (east) and the trusted movement is toward north: mostly across the view, so the tolerance stays; if it were toward the mug it would shrink
+    near = changes.compare_scans(wm, a, b, align={**al_trusted, "translation": {"east": 1.0, "north": 0.0, "up": 0.0, "consistency": 0.95, "trusted": True}})
+    assert near["unchanged"] == 1
+    assert scale.across_share(None, obj["yaw"], obj["pitch"]) is None
+    d_noisy = changes.compare_scans(wm, a, b, align=al_noisy)
+    assert d_noisy["alignment"]["translation"]["trusted"] is False and d_noisy["unchanged"] == 1
+
+
+def test_several_objects_of_one_kind_cannot_be_called_moved_only_possibly_moved(wm):
+    a, b = pair_shifted(wm, [("cable", 80.0, 0.0), ("cable", 200.0, 0.0)], [("cable", 80.0, 0.0), ("cable", 140.0, 0.0)], shift=0.0)   # one cable 'moved' 60 degrees: or a different cable
+    d = changes.compare_scans(wm, a, b)
+    assert d["moved"] == [] and len(d["possibly_moved"]) == 1 and d["possibly_moved"][0]["ambiguous"] is True
+    assert "several" in d["possibly_moved"][0]["speech"]
+
+
+def test_many_possibly_moved_objects_of_one_kind_are_one_sentence(wm):
+    a, b = pair_shifted(wm, [("mug", 40.0, 0.0), ("mug", 120.0, 0.0), ("mug", 200.0, 0.0)], [("mug", 52.0, 0.0), ("mug", 132.0, 0.0), ("mug", 212.0, 0.0)], shift=0.0)
+    d = changes.compare_scans(wm, a, b)
+    assert len(d["possibly_moved"]) == 3 and d["speech"].count("may have moved") == 1 and "3 mugs may have moved" in d["speech"]
+
+
+def test_a_stored_alignment_from_an_older_version_is_recomputed(wm):
+    a, b = pair_shifted(wm, [("mug", 80.0, 0.0)], [("mug", 80.0, 0.0)], shift=0.0)
+    wm.set_alignment(a, b, {"quality": "weak", "offset_deg": 0.0, "spread_deg": 3.0, "inliers": 10, "pairs": 1})        # an older result: no version
+    assert changes.alignment_for(wm, a, b)["quality"] == "good"
+    assert wm.get_alignment(a, b)["version"] == changes.align_mod.ALIGN_VERSION
