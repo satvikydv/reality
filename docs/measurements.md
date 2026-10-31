@@ -258,14 +258,20 @@ The mirror of the real case (desk 0.2, "mouse moved", 10 seeds): before, 9 weak 
 
 What changed and why: `docs/decisions.md`, 2026-10-31. How the static and moved objects separate in the local evidence (80 static object comparisons: at most 0.62 of the object's own size; moved: 2.05 or more) is in the same entry.
 
-## Near-field and room scans on the phone (reported by the owner, not re-measured here)
+## Near-field and room scans on the phone (as reported by the owner; re-run on the laptop below)
 
 The scans are in the owner's `data/` (a person's room), not in the repo, so these numbers are as reported on 2026-10-30/31 and could not be reproduced here; the synthetic desk above was built to mirror them.
 
 - **Desk, three scans** (phone, water bottle, paper cup, laptop, mouse, cables at about 40 to 60 cm; 3 to 4 frames of 540x960 each at an assumed 60 degree FOV; tilted down 35 to 45 degrees; mean pitch -42, -37, -34 per scan). Reference against an unmoved rescan: 1 of 12 candidate frame pairs matched, 84 inliers, offset -0.49 degrees (truth 0), parallax 0.35 degrees, quality weak. Reference against a rescan with the mouse moved (yaw/pitch 39/-43 to 23/-16): 1 of 12 pairs, 85 inliers, offset -0.69, weak; the mouse was not reported (true-move recall 0 of 1), no false moves.
 - **Office room, two scans** (27 and 34 objects): good alignment, 555 inliers from 11 pairs, offset -4 degrees, median parallax about 9.4 degrees; 11 possibly moved, 0 moved, 10 removed and 3 new that are very probably detector variance (one scan listed three paper cups, the other one).
 
-Not yet re-run with the 2026-10-31 code. To do on the laptop with the real database: `python scripts/eval_alignment.py --db data/world.sqlite --manifest manifest.json` for the two desk pairs (it works on a copy).
+**Re-run on the real scans with the 2026-10-31 code** (2026-10-31, on the laptop, a copy of the real database, no phone; `scripts/eval_alignment.py` and `compare_scans` on scans 13, 14, 15 of "office desk" and 11, 12 of "office cabin"):
+
+- **Desk, reference against an unmoved rescan:** weak (1 pair, 154 matches), offset -0.27 degrees against a true 0; 8 unchanged, 3 can't compare, nothing called moved, new or gone. No false move.
+- **Desk, reference against the rescan with the mouse moved:** weak (2 pairs, 200 matches), offset -1.14; **the mouse is "moved, low confidence"** (its surroundings put it 26.0 degrees from where it was seen, against a local tolerance of 9.3; the compass separation is 30.0), and nothing else is claimed. True-move recall 1 of 1, 0 false moves among 13 compared objects. Before the change below the mouse was "can't compare".
+- **What the change was.** The one frame pair that shows the mouse in both scans (reference frame 136, rescan frame 142, 99 matches, parallax 25 degrees) was dropped from the offset estimate as an outlier, and local evidence was only taken from the pairs the offset kept, so the move never reached the comparison. It is now taken from every pair with at least 20 matches (it depends on no offset), and a weak alignment uses the same 2.5-tolerance bar as a good one when local evidence exists, with the compass separation as a second check. Other local evidence on the unmoved rescan (cable, water bottle) stayed inside tolerance: residuals of 2.9 to 5.8 degrees against 21 to 31.
+- **Office room, 27 and 34 objects:** weak (19 pairs, 1654 matches, standard error 2.6 degrees, over the 1.5 limit), offset -0.74 (the code of 2026-10-30 gave good and -4.09); no claims: 22 unchanged, 15 can't compare, nothing moved, new or gone. At a 3 degree limit it comes out good but then says "the laptop is gone" and flags three cables as possibly moved; what really changed in that room is not known, so that is not adopted.
+- **What this does not show.** One desk, one phone, one moved object. The fix was found by looking at these same scans, so this is a repaired failure, not an independent test: the controlled protocol above (same spot, 20 cm sideways, heading rotated 90, two objects moved) is still the test.
 
 ## Results
 
