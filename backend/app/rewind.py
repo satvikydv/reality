@@ -6,7 +6,7 @@ current scan never looked at are not reported as gone but as "unsure": absence t
 """
 from __future__ import annotations
 
-from app.changes import compare_scans
+from app.changes import compare_scans, public_alignment
 
 
 def rewind(svc, room: dict, scan_id: int) -> dict:
@@ -30,7 +30,7 @@ def rewind(svc, room: dict, scan_id: int) -> dict:
     when = then["started_at"]
     ghosts = []
     if d["alignment"]["quality"] != "good":  # nothing can be placed reliably: say so instead of drawing rings in the wrong places
-        return {**base, "status": "ok", "then": {"id": then["id"], "started_at": when}, "now": {"id": now_id}, "alignment": d["alignment"], "ghosts": [],
+        return {**base, "status": "ok", "then": {"id": then["id"], "started_at": when}, "now": {"id": now_id}, "alignment": public_alignment(d["alignment"]), "ghosts": [],
                 "summary": d["speech"]}
     for e in d["removed"]:
         ghosts.append({"label": e["label"], "yaw": round(e["anchor"]["yaw"], 1), "pitch": round(e["anchor"]["pitch"], 1), "kind": "gone", "unsure": False, "text": e["speech"]})
@@ -41,5 +41,5 @@ def rewind(svc, room: dict, scan_id: int) -> dict:
         if u.get("was") == "removed?":
             ghosts.append({"label": u["label"], "yaw": round(u["anchor"]["yaw"], 1), "pitch": round(u["anchor"]["pitch"], 1), "kind": "gone", "unsure": True,
                            "text": f"The {u['label']} was there then; that direction was not rescanned, so it may still be."})
-    return {**base, "status": "ok", "then": {"id": then["id"], "started_at": when}, "now": {"id": now_id}, "alignment": d["alignment"],
+    return {**base, "status": "ok", "then": {"id": then["id"], "started_at": when}, "now": {"id": now_id}, "alignment": public_alignment(d["alignment"]),
             "ghosts": ghosts, "summary": d["speech"]}
