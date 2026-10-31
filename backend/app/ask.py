@@ -10,6 +10,7 @@ Positions are directions, so "near" and "next to" mean angularly close from wher
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 
 from pydantic import BaseModel, ConfigDict
@@ -47,7 +48,13 @@ Reply with:
 - matches: the objects the answer is about, each with its id from the list and a reason of at most 12 words. Only ids that are in the list. Empty when
   the question is about history, a count, or nothing in the room.
 For questions about when something moved or left, use the "since" lines (what changed between each earlier scan and the current one); say which scan dates
-you are relying on, and that an object not seen may simply not have been in the part of the room that was scanned."""
+you are relying on, and that an object not seen may simply not have been in the part of the room that was scanned. A "moved (low confidence)" line means the two
+scans lined up only roughly: say "seems to have moved", not "moved".
+For questions about danger or safety, you only know names and directions: not whether a stove is on, a blade is exposed or anything is within reach. Name only
+objects in the list that people commonly handle with care (heat, blades, medicines, cables low down, glass), say they "might need a look", and never say that
+anything or the room is safe."""
+SAFETY_WORDS = re.compile(r"\b(unsafe|safe|safety|danger\w*|hazard\w*|hurt|injur\w*|risk\w*|fire|burn\w*|sharp|poison\w*|toxic)\b", re.I)
+SAFETY_NOTE = "This comes from the names in the last scan only; it is not a safety check."
 
 
 def _when(ts: float) -> str:
@@ -71,6 +78,7 @@ def digest(svc, room: dict, scan: dict, now: float | None = None) -> str:
         d = compare_scans(wm, s["id"], scan["id"])
         rows = [f"gone: {e['label']}, it was {e['where']}" for e in d["removed"]] + [f"new: {e['label']}, {e['where']}" for e in d["added"]] \
             + [f"moved: {m['label']}, was {m['from']['where']}, now {m['to']['where']}" for m in d["moved"]] \
+            + [f"moved (low confidence, the scans lined up only roughly): {m['label']}, was {m['from']['where']}, now {m['to']['where']}" for m in d["moved_low_confidence"]] \
             + [f"possibly moved: {m['label']}, was {m['from']['where']}, now {m['to']['where']}" for m in d["possibly_moved"]] \
             + [f"not comparable: {u['label']} ({u['reason']})" for u in d["cant_compare"]]
         lines.append(f"since scan #{s['id']} ({_when(s['started_at'])}): " + ("; ".join(rows[:HISTORY_LINES]) if rows else "nothing changed"))
@@ -108,5 +116,8 @@ async def ask_room(svc, reasoner: Reasoner, question: str, room: dict, scan: dic
         answer, matches = clean_answer(Answer.model_validate(r.parsed), {o["id"]: o for o in objs})
     except (ReasonerError, ValueError) as e:
         return {**base, "status": "model_error", "scan_id": scan["id"], "message": f"The model could not answer: {e}"[:300]}
-    return {**base, "status": "ok", "scan_id": scan["id"], "answer": answer or "I could not tell from this room's memory.", "matches": matches,
+    answer = answer or "I could not tell from this room's memory."
+    if SAFETY_WORDS.search(q):  # whatever the model wrote, a question about safety gets the same plain limit, read out with the answer
+        answer = f"{answer} {SAFETY_NOTE}"
+    return {**base, "status": "ok", "scan_id": scan["id"], "answer": answer, "matches": matches,
             "usage": {"input_tokens": r.input_tokens, "output_tokens": r.output_tokens, "latency_ms": r.latency_ms}}
