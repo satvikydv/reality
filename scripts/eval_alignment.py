@@ -144,7 +144,7 @@ def main() -> None:
     if a.synthetic:
         res = run_synthetic(a.seed, a.viewpoint_cm)
     elif a.manifest:
-        res = run_real(a.db, json.loads(Path(a.manifest).read_text(encoding="utf-8")), a.viewpoint_cm)
+        res = run_real(a.db, json.loads(Path(a.manifest).read_text(encoding="utf-8-sig")), a.viewpoint_cm)
     else:
         ap.error("give --synthetic or --manifest")
     print(report(res))
