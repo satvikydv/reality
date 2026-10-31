@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from synthetic_world import GOOD
 from test_scan_service import client, frame_msg, jpeg, make_service, meta  # noqa: F401  (client is a fixture)
 
 
@@ -32,6 +33,7 @@ def test_scan_list_and_changes_endpoints(client):
 
     scans = client.get("/api/scans").json()["scans"]
     assert [s["n_frames"] for s in scans] == [1, 1] and scans[0]["id"] > scans[1]["id"]
+    client.svc.wm.set_alignment(scans[1]["id"], scans[0]["id"], GOOD)
     r = client.get("/api/changes").json()
     assert r["status"] == "ok" and r["moved"][0]["label"] == "mug" and r["moved"][0]["to"]["replay"]["image_url"].startswith("/world/frame/")
     assert client.get(f"/api/changes?before={scans[1]['id']}&after={scans[0]['id']}").json()["status"] == "ok"

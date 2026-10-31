@@ -12,7 +12,7 @@ import time
 from collections import Counter
 
 from app import anchoring as A
-from app.changes import diff_scans
+from app.changes import compare_scans
 from app.resolver import semantic_find
 from app.coverage import coverage
 from app.scan_service import ScanService, count_phrase
@@ -166,15 +166,64 @@ def _shift(a: dict, b: dict) -> dict:
 
 def _annotate(d: dict, reviews: dict[str, str]) -> None:
     """Give every change a stable key, the angular shift for moves, and the user's confirm / dismiss mark."""
-    for e in d["moved"]:
-        e["key"] = f"moved:{e['from']['object_id']}:{e['to']['object_id']}"
-        e["shift"] = _shift(e["from"]["anchor"], e["to"]["anchor"])
-    for kind in ("removed", "added", "unverified"):
+    for kind in ("moved", "possibly_moved"):
+        for e in d[kind]:
+            e["key"] = f"{kind}:{e['from']['object_id']}:{e['to']['object_id']}"
+            e["shift"] = _shift(e["from"]["anchor"], e["to"]["anchor"])
+    for kind in ("removed", "added", "cant_compare"):
         for e in d[kind]:
             e["key"] = f"{kind}:{e['object_id']}"
-    for kind in ("moved", "removed", "added"):
+    for kind in ("moved", "possibly_moved", "removed", "added"):
         for e in d[kind]:
             e["review"] = reviews.get(e["key"])
+
+
+async def ask_room(svc: ScanService, question: str, room=None) -> dict:
+    """A question about one room, answered from its memory (and what changed between its saved scans), with the objects it is about."""
+    from app import ask as ask_mod
+    rm, err = resolve_room(svc, room)
+    if err:
+        return err
+    sid = svc.wm.latest_scan_id(rm["id"])
+    return await ask_mod.ask_room(svc, svc.reasoner, question, rm, svc.wm.get_scan(sid) if sid is not None else None)
+
+
+def list_notes(svc: ScanService, room=None, include_done: bool = False) -> dict:
+    rm, err = resolve_room(svc, room)
+    if err:
+        return err
+    return {"status": "ok", "room": _room_ref(rm), "notes": svc.wm.list_notes(rm["id"], include_done)}
+
+
+def leave_note(svc: ScanService, text: str, yaw: float, pitch: float, room=None, label: str | None = None, author: str = "agent") -> dict:
+    """Leave a note in a room, anchored to a direction. The person sees it over the camera, where it was left."""
+    rm, err = resolve_room(svc, room)
+    if err:
+        return err
+    try:
+        return {"status": "ok", "room": _room_ref(rm), "note": svc.wm.add_note(rm["id"], text, yaw, pitch, label, author)}
+    except ValueError as e:
+        return {"status": "bad_request", "message": str(e)}
+
+
+def reference_frame(svc: ScanService, room: dict) -> dict | None:
+    """The reference keyframe of a room for lining up a rescan: the first frame of its memory (latest saved scan) that has a picture."""
+    sid = svc.wm.latest_scan_id(room["id"])
+    if sid is None:
+        return None
+    return next((f for f in svc.wm.list_frames(sid) if f.get("path")), None)
+
+
+def reference(svc: ScanService, room=None) -> dict:
+    """Where the phone gets the first scan's keyframe from, to show as a faded outline while lining up a rescan."""
+    rm, err = resolve_room(svc, room)
+    if err:
+        return err
+    f = reference_frame(svc, rm)
+    if f is None:
+        return {"status": "no_reference", "room": _room_ref(rm), "message": f"{rm['name']} has no saved scan to line up with."}
+    return {"status": "ok", "room": _room_ref(rm), "scan_id": f["scan_id"], "frame_id": f["id"], "width": f["width"], "height": f["height"], "hfov_deg": f["hfov_deg"],
+            "outline_url": f"/api/rooms/{rm['id']}/reference.png?frame={f['id']}"}
 
 
 def what_changed(svc: ScanService, scan_a: int | None = None, scan_b: int | None = None, room=None) -> dict:
@@ -198,9 +247,11 @@ def what_changed(svc: ScanService, scan_a: int | None = None, scan_b: int | None
             return {"status": "wrong_room", "room": _room_ref(rm), "message": f"Scan {sid} is from {s['room_name']}, not {rm['name']}. Scans of different rooms cannot be compared."}
         if s["status"] != "saved":
             return {"status": "not_saved", "room": _room_ref(rm), "message": f"Scan {sid} has not been saved."}
-    d = diff_scans(svc.wm, scan_a, scan_b)
-    out = {"status": "ok", "room": _room_ref(rm), "scan_before": scan_a, "scan_after": scan_b, "summary": d["speech"], "alignment": d["alignment"],
-           "added": _clean(d["added"]), "removed": _clean(d["removed"]), "moved": _clean(d["moved"]), "unverified": _clean(d["unverified"]),
+    d = compare_scans(svc.wm, scan_a, scan_b)
+    cant = _clean(d["cant_compare"])
+    out = {"status": "ok", "room": _room_ref(rm), "scan_before": scan_a, "scan_after": scan_b, "summary": d["speech"], "alignment": _clean(d["alignment"]),
+           "added": _clean(d["added"]), "removed": _clean(d["removed"]), "moved": _clean(d["moved"]), "possibly_moved": _clean(d["possibly_moved"]),
+           "cant_compare": cant, "unverified": cant,   # the same list: "unverified" is the older name of "cant_compare"
            "unchanged_count": d["unchanged"], "scans": [{"id": s["id"], "started_at": s["started_at"], "baseline": bool(s["baseline"])} for s in saved]}
     _annotate(out, svc.wm.reviews(rm["id"], scan_a, scan_b))
     return out
@@ -235,14 +286,14 @@ def overlay(svc: ScanService, scan_id: int | None = None, room=None) -> dict:
             "calibration": {k: cal.get(k) for k in ("width", "height", "zoom")} if cal.get("width") else None}
     rm, err = resolve_room(svc, room)
     if err:
-        return {**base, "status": err["status"], "message": err["message"], "scan_id": None, "room": None, "objects": []}
+        return {**base, "status": err["status"], "message": err["message"], "scan_id": None, "room": None, "objects": [], "notes": []}
     scan, err = _memory(svc, rm, scan_id)
     if err:
-        return {**base, "status": err["status"], "message": err["message"], "scan_id": None, "room": _room_ref(rm), "objects": []}
+        return {**base, "status": err["status"], "message": err["message"], "scan_id": None, "room": _room_ref(rm), "objects": [], "notes": svc.wm.list_notes(rm["id"])}
     now = time.time()
     objs = [{**{k: v for k, v in o.items() if k != "last_seen"}, "age_s": round(max(0.0, now - o["last_seen"]), 1)}
             for o in svc.wm.overlay_objects(scan["id"])]
-    return {**base, "status": "ok", "room": _room_ref(rm), "scan_id": scan["id"], "objects": objs}
+    return {**base, "status": "ok", "room": _room_ref(rm), "scan_id": scan["id"], "objects": objs, "notes": svc.wm.list_notes(rm["id"])}
 
 
 def _thumb(svc: ScanService, o: dict, room: dict) -> dict:

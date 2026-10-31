@@ -50,8 +50,10 @@ FindResult  {room_id, room_name, found, speech, concept, object: {id, label, yaw
              all rooms: {all_rooms: true, groups: [FindResult-like, one per room], found, speech}
 Summary     {scan_id, room_id, room_name, status: "draft", speech, coverage: {covered_deg, gaps}, frames: {stored...}, seconds, cost_usd, objects: [{id, label, yaw, pitch, replay}]}
 Changes     {status, room, scan_before, scan_after, scans: [{id, started_at, baseline}], summary,
-             moved: [{label, key, review, shift: {yaw_deg, pitch_deg, words}, from: {replay}, to: {replay}}],
-             removed / added: [{label, key, review, speech, replay}], unverified: [{label, key, reason}], unchanged_count}   review: "confirmed" | "dismissed" | null
+             alignment: {quality: "good" | "weak" | "failed", inliers, pairs, spread_deg, offset_used_deg, offset_source, viewpoint_cm, method, translation, parallax_deg},
+             moved / possibly_moved: [{label, key, review, shift: {yaw_deg, pitch_deg, words}, from: {replay}, to: {replay}, sep_deg, tolerance_deg, uncertainty_deg, distance_cm}],
+             removed / added: [{label, key, review, speech, replay}], cant_compare: [{label, key, was, reason}]  (also served as "unverified"), unchanged_count}
+             review: "confirmed" | "dismissed" | null. When alignment.quality is not "good" nothing is in moved, possibly_moved, removed or added.
 ```
 
 Every list screen has the same set of non-happy states: `loading`, `error` (the server answered with an error), `offline` (not reachable, reconnecting by itself) and `slow` (no answer yet). Where a state would add nothing (a sheet, a form), it is left out.
@@ -117,11 +119,13 @@ Live scan, with the camera on. A checklist first (light reading from the camera,
 
 | State | Shows |
 |---|---|
-| `ready` | the pre-scan checklist, Cancel, Start scanning |
+| `ready` | the pre-scan checklist, Cancel, Start scanning. When the room already has a saved scan (a rescan): that scan's first keyframe as a faded outline (30%) over the camera and a line saying how to line up ("Turn left 8 degrees, move slightly right.", "Lined up. Start scanning."); Start reads "Start anyway" until lined up and is never disabled |
 | `live` | hint, compass and percentage, stats, Cancel, Done |
 
 - Data: the room being scanned, light level, coverage bins and pitch bands, current direction and field of view, coaching hint, frame and object counts.
-- API: `WS /ws scan_start{room_id} / scan_end / scan_cancel`.
+- API: `WS /ws scan_start{room_id} / scan_end / scan_cancel`, `GET /api/rooms/{id}/reference`, `WS /ws live frame (flag 4) answered with align_hint`.
+
+How the lining up works: the phone sends a small live frame about twice a second; the server matches it with the first scan's keyframe (SIFT, RANSAC) and answers `align_hint {ok, within, words, turn_deg, tilt_deg, roll_deg, move, parallax_deg, inliers}`. Turn, tilt and roll come from the recovered rotation; "move slightly left / right / forward / back" from the direction of the recovered translation (its size is unknown, so only a direction is given). Within means turn, tilt and roll are each under 4 degrees and the remaining parallax is under 1.5 degrees. If the live view shares nothing with the keyframe the line says to point at the faded outline.
 
 ### `summary`
 
@@ -198,11 +202,11 @@ Guided search, camera on. An arrow toward the stored direction with a cone for h
 
 ### `changes`
 
-What changed in one room: a Before and an After picker over the room's saved scans (default: the latest against its baseline, else the one before), then moved / new / removed with before and after pictures and an angular shift ("moved 40° to the right"), a "Not checked" list for directions only one scan looked at, and Confirm / Dismiss per change. Scans of different rooms are never compared.
+What changed in one room: a Before and an After picker over the room's saved scans (default: the latest against its baseline, else the one before), an **alignment** card (how well the two scans lined up from their pictures: good, weak or failed, with the matches and the start-heading difference), then moved / possibly moved / new / removed with before and after pictures and an angular shift ("moved 40° to the right"), a "Not checked" list for directions only one scan looked at, and Confirm / Dismiss per change. Scans of different rooms are never compared.
 
 | State | Shows |
 |---|---|
-| `default` | pickers, the summary sentence, grouped change cards, Not checked |
+| `default` | pickers, the summary sentence, the alignment card, grouped change cards (Moved, Possibly moved, New, Removed), Can't compare |
 | `loading` | comparing |
 | `need-two` | the room has fewer than two saved scans; Scan this room |
 | `error` | what failed, Try again |
@@ -216,7 +220,7 @@ What changed in one room: a Before and an After picker over the room's saved sca
 
 ### `settings`
 
-Global settings: voice language, keyframes per second (1, 2, 3), overlay detail (Calm, Normal or Debug, see below), Your rooms (Edit opens Room settings), Replay intro, Delete all data (confirms), and the debug HUD switch (only with `?debug` in the URL).
+Global settings: voice language, keyframes per second (1, 2, 3), overlay detail (Calm, Normal or Debug, see below), caregiver sharing (off by default; when on, the caregiver view on the laptop dashboard shows where watched things were last seen, `GET /api/care`, `POST /api/care/consent`), Your rooms (Edit opens Room settings), Replay intro, Delete all data (confirms), and the debug HUD switch (only with `?debug` in the URL).
 
 | State | Shows |
 |---|---|
@@ -245,10 +249,12 @@ Explore (AR), opened from Room details: the room's remembered objects drawn over
 
 | State | Shows |
 |---|---|
-| `default` | the room name, a hint, the AR toggle |
+| `default` | the room name, the AR toggle, Note / Ask / Rewind, a hint; bars for the answer being shown and for the earlier scan being shown, each with Clear |
 | `no-memory` | the room has not been scanned: nothing to draw; Scan this room |
 
-- Data: the room's overlay objects (direction, outline, age, uncertainty).
+Over the camera, besides the room's objects: the room's **notes** (an amber dot with the text, where they were left), the objects an **answer** names (outlined and labelled with a reason; everything else is hidden while an answer is shown; an arrow points to one that is off screen), and the **ghosts** of a **rewind** (dashed rings with "was here" for what an earlier scan had and the room's memory does not).
+
+- Data: the room's overlay objects (direction, outline, age, uncertainty) and its open notes.
 - API: `GET /api/overlay?room_id=`.
 
 ### `labels`
@@ -304,6 +310,45 @@ Quick ask: a bottom sheet over Find listing what the room contains as tap-to-ask
 
 - Data: what the room contains.
 - API: `WS find{query, room_id | all_rooms}`.
+
+### `note`
+
+Notes: a bottom sheet over Explore. You leave a message in the room at the place you are looking: the object under the reticle (the note then stays on it) or the direction you face. Typed or spoken. The sheet also lists the room's open notes with Done and Delete. Notes belong to one room; they are shown over the camera, in that room, to everyone who uses it.
+
+| State | Shows |
+|---|---|
+| `default` | where the note will be left, the text field with the microphone and a save button, the room's notes |
+| `empty` | the same, with "No notes in this room yet" |
+
+- Data: the target of the note, the room's open notes.
+- API: `GET /api/rooms/{id}/notes`, `POST /api/rooms/{id}/notes`, `PATCH /api/notes/{id}`, `DELETE /api/notes/{id}`.
+
+### `ask`
+
+Ask the room: a bottom sheet over Explore. A question in plain words ("What is charging?", "When did something last move?"), typed or spoken. The answer is read aloud, shown in a bar, and the objects it names are drawn over the camera with a reason each. It reasons over the names and directions the room remembers and what changed between its saved scans; photos are never sent.
+
+| State | Shows |
+|---|---|
+| `idle` | the field with the microphone, example questions |
+| `busy` | "Thinking about this room…" |
+| `error` | why it failed, and the examples to try again |
+
+- Data: the question, the answer, the matching objects with reasons.
+- API: `POST /api/rooms/{id}/ask`.
+
+### `history`
+
+Rewind: a bottom sheet over Explore listing the room's earlier saved scans. Choosing one shows, over the camera, what was there then and is gone or moved now (ghosts), aligned into today's directions. Directions the current scan never looked at are shown as "was here?", not as gone.
+
+| State | Shows |
+|---|---|
+| `default` | the earlier saved scans, newest first, with objects and frames |
+| `empty` | "Nothing earlier to rewind to" (only one saved scan) |
+| `loading` | skeleton rows |
+| `error` | why the scans could not be loaded, and Try again |
+
+- Data: the room's saved scans; the ghosts of the chosen one.
+- API: `GET /api/rooms/{id}/scans`, `GET /api/rooms/{id}/rewind?scan=`.
 
 ### `switcher`
 

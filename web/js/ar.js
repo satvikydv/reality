@@ -21,6 +21,28 @@ function chip(x,t,sub,cx,y,col){const tg=col===A,dot=tg?16:0;x.font=`600 13px ${
   const L=cx-W/2+12;if(tg){x.fillStyle=A;x.beginPath();x.arc(L+4,y+CHIP_H/2,4,0,7);x.fill()}
   x.textBaseline='middle';x.textAlign='left';x.font=`600 13px ${SANS}`;x.fillStyle='#f2f4f3';x.fillText(t,L+dot,y+CHIP_H/2+.5);
   if(sub){x.font=`500 11px ${MONO}`;x.fillStyle='rgba(242,244,243,.68)';x.fillText(sub,L+dot+a+8,y+CHIP_H/2+.5)}}
+const AMBER='#FFD54F';
+// Text in a rounded bubble, wrapped to at most three lines. `above`: y is where the bubble ends, not where it starts.
+function bubble(x,text,cx,y,col,{above=false,maxW=210}={}){
+  x.font=`500 12px ${SANS}`;const lines=[];let line='';
+  for(const w of String(text).split(' ')){const t=line?line+' '+w:w;if(x.measureText(t).width>maxW&&line){lines.push(line);line=w}else line=t}
+  if(line)lines.push(line);const L=lines.slice(0,3);if(lines.length>3)L[2]=L[2].slice(0,-2)+'…';
+  const W=Math.min(maxW,Math.max(...L.map(l=>x.measureText(l).width)))+20,H=L.length*16+14,top=above?y-H:y,bx=cx-W/2;
+  rr(x,bx,top,W,H,12);x.fillStyle='rgba(7,9,11,.86)';x.fill();x.lineWidth=1.5;x.strokeStyle=col;x.stroke();
+  x.fillStyle='#f2f4f3';x.textAlign='left';x.textBaseline='middle';L.forEach((l,i)=>x.fillText(l,bx+10,top+15+i*16));return H}
+
+// Notes people left in the room, at the direction they were left (or on the object they were left on).
+function notes(x,w,s,at){
+  for(const o of s.notes||[]){const p=at(o.yaw,o.pitch);if(!p||p[0]<24||p[0]>w-24||p[1]<s.top+30||p[1]>s.h-s.bot)continue;
+    x.fillStyle=AMBER;x.beginPath();x.arc(p[0],p[1],5,0,7);x.fill();x.strokeStyle='rgba(7,9,11,.85)';x.lineWidth=2;x.stroke();
+    bubble(x,(o.author?o.author+': ':'')+o.text,Math.min(w-110,Math.max(110,p[0])),p[1]-12,AMBER,{above:true})}}
+
+// Ghosts: what an earlier scan had in a direction where the room's memory has nothing now.
+function ghosts(x,w,s,at){
+  for(const g of s.ghosts||[]){const p=at(g.yaw,g.pitch);if(!p||p[0]<24||p[0]>w-24||p[1]<s.top||p[1]>s.h-s.bot-40)continue;
+    x.save();x.globalAlpha=g.unsure?.55:.95;x.setLineDash([5,5]);x.strokeStyle='rgba(255,255,255,.9)';x.lineWidth=2;x.beginPath();x.arc(p[0],p[1],28,0,7);x.stroke();x.setLineDash([]);
+    chip(x,g.label,g.unsure?'was here?':'was here',Math.min(w-62,Math.max(62,p[0])),p[1]+36,'rgba(255,255,255,.92)');x.restore()}}
+
 // Arrow at the screen edge toward something that is out of view; dx, dy are degrees right and up of the view centre.
 function edge(x,w,s,dx,dy,col,label,deg,t){const vx=dx*s.ppd,vy=-dy*s.ppd,hw=w/2-28,hh=vy>0?s.h-s.bot-s.cy:s.cy-s.top,
   f=Math.min(hw/(Math.abs(vx)||1e-6),hh/(Math.abs(vy)||1e-6)),px=w/2+vx*f,py=s.cy+vy*f,a=Math.atan2(vy,vx),p=(Math.sin(t*5)+1)/2;
@@ -98,6 +120,22 @@ function calmWorld(x,w,s,cur,fitv,t){
   return{drawn:r.shown,hidden:s.world.length-r.shown,labels:r.labels.length,hiddenBy:r.hidden,calm:r};
 }
 
+// An answer to "Ask the room": only the objects it names, each outlined and labelled with the reason; the others are not drawn. One off screen
+// gets an arrow toward it.
+function askedWorld(x,w,s,cur,fitv,t){
+  let drawn=0;
+  for(const o of s.world){const reason=s.asked.get(o.id);if(reason===undefined)continue;
+    const pr=projectObject(o,cur,fitv,{maxUncertainty:999}),dx=nd(o.yaw-s.yaw),dy=o.pitch-s.pitch;
+    const on=pr&&pr.anchor&&pr.anchor[0]>0&&pr.anchor[0]<w&&pr.anchor[1]>s.top&&pr.anchor[1]<s.h-s.bot;
+    if(!on){edge(x,w,s,dx,dy,A,o.label,Math.hypot(dx,dy),t);continue}
+    if(pr.outline){x.save();x.globalAlpha=pr.alpha;x.beginPath();pr.outline.forEach(([px,py],i)=>i?x.lineTo(px,py):x.moveTo(px,py));x.closePath();
+      x.fillStyle=rgba(A,.14);x.fill();x.lineJoin='round';x.lineWidth=3;x.strokeStyle=A;x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=5;x.stroke();x.restore()}
+    const[ax,ay]=pr.anchor,cx=Math.min(w-60,Math.max(60,ax)),ly=Math.min(ay+14,s.h-s.bot-CHIP_H-70);
+    x.fillStyle=A;x.beginPath();x.arc(ax,ay,3.5,0,7);x.fill();
+    chip(x,o.label,'',cx,ly,A);if(reason)bubble(x,reason,cx,ly+CHIP_H+6,'rgba(138,164,255,.48)');
+    drawn++}
+  return{drawn,hidden:s.world.length-drawn,labels:drawn,asked:true}}
+
 // s: {mode, now, yaw, pitch, roll, view:{width,height,hfov} (the camera image), world:[objects], showWorld, detail ('calm' | 'normal' | 'debug'), bins, gapBins, gap,
 //     markers, target, found, label, pulse, shutter, tapeY, top, bot}
 export function drawAR(c,s){
@@ -111,8 +149,9 @@ export function drawAR(c,s){
   const h1=hud&&at(s.yaw-35,0),h2=hud&&at(s.yaw+35,0);
   if(h1&&h2){x.setLineDash([3,7]);x.strokeStyle='rgba(255,255,255,.28)';x.lineWidth=1;x.beginPath();x.moveTo(h1[0],h1[1]);x.lineTo(h2[0],h2[1]);x.stroke();x.setLineDash([])}
   if(hud)ladder(x,w,s);
-  s.stats=s.showWorld?(s.detail==='calm'?calmWorld(x,w,s,cur,fitv,t):world(x,w,s,cur,fitv,t)):{drawn:0,hidden:0};
+  s.stats=s.showWorld?(s.asked&&s.asked.size?askedWorld(x,w,s,cur,fitv,t):s.detail==='calm'?calmWorld(x,w,s,cur,fitv,t):world(x,w,s,cur,fitv,t)):{drawn:0,hidden:0};
   s.stats.hud=hud;
+  if(s.showWorld){ghosts(x,w,s,at);notes(x,w,s,at)}
   // scan: gap indicator
   if(s.mode==='scan'&&s.gap){const dx=nd(s.gap.mid-s.yaw);if(Math.abs(dx)>v.hfov/2-4)edge(x,w,s,dx,0,A,'gap',s.gap.size,t)}
   // guide target

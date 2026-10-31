@@ -88,6 +88,23 @@ The memory can be wrong (two bottles that are one, a wall that is not an object)
 
 Every correction is recorded (`GET /api/corrections`, with who made it) and is applied again by every later rebuild, so the next frame does not undo it. API: `GET /api/scans/{id}/objects`, `GET /api/scans/{id}/duplicates`, `GET /api/objects/{id}`, `POST /api/objects/merge`, `POST /api/sightings/{id}/detach`, `DELETE /api/objects/{id}`, `GET/POST /api/rooms/{id}/not-objects`, `DELETE /api/rooms/{id}/not-objects/{label}`, `GET /api/corrections`. A sighting's id is its detection's id.
 
+### Notes, Ask the room, Rewind and the caregiver view
+
+Four things built on the same memory (directions seen from where the scans were made; nothing here claims world-locked tracking). On the phone they live in **Explore** (the camera over a room), as **Note**, **Ask** and **Rewind**.
+
+- **Notes in places.** Point at the fridge, tap Note, type or say "milk expires Friday". The note stays on the object under the reticle (or the direction you face) and shows over the camera for anyone using that room. Notes belong to one room, can be marked done or deleted, and are served in `/api/overlay` so a second phone sees them. API: `GET/POST /api/rooms/{id}/notes`, `PATCH/DELETE /api/notes/{id}`.
+- **Ask the room.** "What is charging?", "What here is fragile?", "When did something last move?" Spark reasons over the names, directions and neighbours the room remembers, plus what changed between its earlier saved scans, and names the objects the answer is about; the phone draws only those, with a reason each (an arrow points to one that is off screen). It never sees a photo and may only name objects that exist in the room. API: `POST /api/rooms/{id}/ask`.
+- **Rewind.** Pick an earlier saved scan and see, as dashed "was here" rings in today's directions, what it had that the room's memory does not. A direction today's scan never looked at is shown as "was here?", not as gone. API: `GET /api/rooms/{id}/rewind?scan=`.
+- **Caregiver view.** On the dashboard, **Care** lists the things a caregiver watches (pills, glasses, keys) with the room, photo and time each was last seen, and alerts for: not seen in any room's last scan (with the rooms' coverage), last seen somewhere other than its usual room, last seen more than 3 days ago (`CARE_STALE_DAYS`). It asks "where did Mum put her pills?" in plain words. It is memory as of the last scan, not live tracking, and says so. Nothing shows until the person turns on **Settings, Caregiver sharing** on their phone. API: `GET /api/care`, `POST /api/care/consent`, `POST/DELETE /api/care/watch`, `POST /api/care/ask`.
+
+The Reality API (MCP) gains `ask_room`, `list_notes` and `leave_note`, so another agent can ask a room a question or leave a note where it will be seen.
+
+### Scanning the same place twice
+
+Two scans of a room made from slightly different spots, or with a different start heading, used to look like moved objects. Now the scans are aligned from their pictures (`app/align.py`: SIFT features, RANSAC, a rotation fit and the essential matrix, combined by an inlier-weighted median) with a quality of good, weak or failed. Each object pair is then judged against how far a change of viewpoint alone could move it (`app/scale.py`: Spark gives a typical size per label, the box gives a distance, a 15 cm viewpoint error is assumed and configurable with `VIEWPOINT_ERROR_CM`): **unchanged**, **possibly moved**, **moved**, **new**, **removed**, or **can't compare**. When the alignment is weak or failed nothing is called moved.
+
+Before a rescan the phone shows the first scan's keyframe as a faded outline over the camera and says how to line up ("Turn left 8 degrees, move slightly right."). **Start anyway** is always there. Changes and the dashboard show the alignment (matches, start-heading difference) and keep Moved, Possibly moved and Can't compare apart. `python scripts/eval_alignment.py --synthetic` checks the maths on a rendered room; the protocol for measuring it on real scans is in `docs/measurements.md`.
+
 ### Calibrate the camera
 
 The field of view depends on the camera mode (resolution, lens, zoom), so it is measured in the exact state the app scans in, and any later change is refused.

@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 from app import main, status
+from synthetic_world import GOOD
 from test_scan_service import frame_msg, jpeg, make_service, meta
 from test_status import FakeClient
 
@@ -597,6 +598,8 @@ def test_the_summary_groups_many_kinds_with_a_tappable_others_tile(site, clean):
 def test_changes_compare_two_scans_of_one_room_with_an_angle_and_confirm(site, clean):
     rid = site.room("Living Room", active=True, label="mug", yaw=0, ts=100)
     site.scan_in(rid, "mug", yaw=60, ts=200)
+    first, second = sorted(s["id"] for s in site.svc_.wm.room_scans(rid))
+    site.svc_.wm.set_alignment(first, second, GOOD)                 # alignment from pictures has its own tests; this one is about the screen
     other = site.room("Desk", label="mug", yaw=0, ts=150)
     p = booted(site)
     p.tap("#nav [data-nav=changes]")
@@ -759,7 +762,7 @@ def test_every_screen_opens_in_every_demo_state_without_errors_or_media(site, si
         p = site.page().open(f"/?demo&screen={sid}&state={st}")
         p.settle(0.5)
         assert p.eval(f"document.getElementById('s-{sid}').dataset.state") == st, (sid, st)
-        if sid not in ("switcher", "quick"):  # sheets open over the screen below
+        if sid not in ("switcher", "quick", "note", "ask", "history"):  # sheets open over the screen below
             assert p.screen() == sid, (sid, st)
         assert p.eval(f"document.getElementById('s-{sid}').classList.contains('on')") is True, (sid, st)
         assert p.media() == [] and p.errors == [], (sid, st, p.errors)
@@ -922,3 +925,151 @@ def test_quick_ask_is_a_bottom_sheet_not_a_row_of_chips(site, clean):
     p.tap("#quicklist .chip")
     p.wait("document.body.dataset.screen==='result'", what="the result of the quick ask")
     assert p.eval("document.getElementById('s-quick').classList.contains('on')") is False
+
+
+# ------------------------------------------------------------------------------------------------ notes, ask the room, rewind, caregiver sharing
+
+def explore_room(site, name="Study", label="mug"):
+    rid = site.room(name, active=True, label=label)
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("[data-act=explore-room]")
+    p.wait("document.body.classList.contains('live')")
+    return rid, p
+
+
+def test_a_note_is_left_listed_seen_from_another_page_and_marked_done(site, clean):
+    rid, p = explore_room(site)
+    p.tap("#s-explore [data-act=open-note]")
+    p.wait("document.getElementById('s-note').classList.contains('on')")
+    assert p.eval("document.getElementById('s-note').dataset.state") == "empty" and "direction you are facing" in p.text("#noteat") or "mug" in p.text("#noteat")
+    p.eval("document.getElementById('notetext').value='check the stove'")
+    p.tap("#notesave")
+    p.wait("document.querySelectorAll('#notelist .nrow').length===1", what="the note in the list")
+    note = site.svc_.wm.list_notes(rid)[0]
+    assert note["text"] == "check the stove" and note["author"] == "phone"
+    q = site.page(READY).open("/")                                   # a second phone, or the same one later
+    q.wait(HOME_LOADED)
+    q.tap(f"#hrooms [data-id='{rid}']")
+    q.wait("document.getElementById('s-room').dataset.state==='default'")
+    q.tap("[data-act=explore-room]")
+    q.wait("window.__ui.world.notes.some(n=>n.text==='check the stove')", what="the note on the other page")
+    q.tap("#s-explore [data-act=open-note]")                          # the other page lists it too, and marks it done
+    q.wait("document.querySelectorAll('#notelist .nrow').length===1")
+    q.tap("#notelist [data-act=note-done]")
+    q.wait("document.querySelectorAll('#notelist .nrow').length===0")
+    assert site.svc_.wm.list_notes(rid) == [] and q.errors == []
+
+
+def test_ask_the_room_draws_only_the_objects_the_answer_names(site, clean):
+    from test_room_features import Asker, Broken
+    rid, p = explore_room(site, label="mug")
+    oid = site.svc_.wm.list_objects(site.svc_.wm.latest_scan_id(rid))[0]["id"]
+    site.svc_.reasoner = Asker({"answer": "The mug is the only thing here.", "matches": [{"id": oid, "reason": "it is the only object"}]})
+    p.tap("#s-explore [data-act=open-ask]")
+    p.eval("document.getElementById('askq').value='what is here?'")
+    p.tap("#askgo")
+    p.wait("document.getElementById('askbar').classList.contains('on')", what="the answer bar")
+    assert "only thing here" in p.text("#askbartext") and p.eval("window.__ui.world.asked.size") == 1
+    assert p.eval("document.getElementById('s-ask').classList.contains('on')") is False
+    p.tap("#askbar [data-act=clear-ask]")
+    assert p.eval("window.__ui.world.asked.size") == 0 and p.eval("document.getElementById('askbar').classList.contains('on')") is False
+    site.svc_.reasoner = Broken()
+    p.tap("#s-explore [data-act=open-ask]")
+    p.tap("#s-ask [data-act=ask-example]")
+    p.wait("document.getElementById('s-ask').dataset.state==='error'", what="the error state")
+    assert p.text("#askrmsg") and p.eval("document.getElementById('s-ask').classList.contains('on')") is True and p.errors == []
+
+
+def test_rewind_shows_what_an_earlier_scan_had_as_ghosts_and_clears(site, clean):
+    rid = site.room("Study", active=True, label="mug", ts=100.0)
+    site.scan_in(rid, "lamp", 0.0, 200.0)                              # the mug is gone, a lamp is there now
+    first, second = sorted(s["id"] for s in site.svc_.wm.room_scans(rid))
+    site.svc_.wm.set_alignment(first, second, GOOD)
+    p = booted(site)
+    p.tap(f"#hrooms [data-id='{rid}']")
+    p.wait("document.getElementById('s-room').dataset.state==='default'")
+    p.tap("[data-act=explore-room]")
+    p.wait("document.body.classList.contains('live')")
+    p.tap("#s-explore [data-act=open-history]")
+    p.wait("document.getElementById('s-history').dataset.state==='default'")
+    assert p.eval("document.querySelectorAll('#histlist [data-act=pick-then]').length") == 1
+    p.tap("#histlist [data-act=pick-then]")
+    p.wait("window.__ui.world.ghosts.length===1", what="the ghost")
+    assert p.eval("window.__ui.world.ghosts[0].label") == "mug" and p.eval("document.getElementById('thenbar').classList.contains('on')") is True
+    p.tap("#thenbar [data-act=clear-then]")
+    assert p.eval("window.__ui.world.ghosts.length") == 0 and p.errors == []
+
+
+def test_rewind_with_a_single_saved_scan_says_there_is_nothing_earlier(site, clean):
+    rid, p = explore_room(site)
+    p.tap("#s-explore [data-act=open-history]")
+    p.wait("document.getElementById('s-history').dataset.state==='empty'")
+
+
+def test_caregiver_sharing_is_off_until_the_person_turns_it_on_in_settings(site, clean):
+    from app import care
+    p = booted(site)
+    p.tap("#nav [data-nav=settings]")
+    p.wait("document.getElementById('s-settings').dataset.state==='default'")
+    assert p.eval("document.querySelector('#careseg [data-v=\"0\"]').getAttribute('aria-pressed')") == "true" and care.consent(site.svc_)["on"] is False
+    p.tap("#careseg [data-v='1']")
+    p.wait("document.querySelector('#careseg [data-v=\"1\"]').getAttribute('aria-pressed')==='true'")
+    assert care.consent(site.svc_)["on"] is True
+    p.tap("#careseg [data-v='0']")
+    p.wait("document.querySelector('#careseg [data-v=\"0\"]').getAttribute('aria-pressed')==='true'")
+    assert care.consent(site.svc_)["on"] is False
+
+
+# ------------------------------------------------------------------------------------------------ lining up a rescan, and the alignment on Changes
+
+def test_a_rescan_shows_the_first_scans_outline_and_start_is_never_blocked(site, clean):
+    from synthetic_world import add_scan, make_panorama
+    rid = site.svc_.wm.create_room("Study", active=True)["id"]
+    add_scan(site.svc_.wm, rid, make_panorama(), [0, 40, 80], ts=1.0)
+    p = booted(site)
+    p.tap("#nav [data-nav=scan]")
+    p.tap("#wzgo")
+    p.wait("document.body.dataset.screen==='scan'")
+    p.wait("!document.getElementById('ghost').hidden", what="the first scan's outline")
+    assert f"/api/rooms/{rid}/reference.png" in p.eval("document.getElementById('ghost').getAttribute('src')")
+    assert p.eval("getComputedStyle(document.getElementById('ghost')).opacity") == "0.3"
+    assert p.eval("document.getElementById('chkalign').hidden") is False
+    p.eval("window.__ui.align({ok:true,within:false,inliers:80,words:'Turn left 8 degrees, move slightly right.',turn_deg:-8,tilt_deg:1,roll_deg:0,move:'right',parallax_deg:2.4})")
+    assert "Turn left 8 degrees" in p.text("#aligntext") and p.text("#startbtn") == "Start anyway" and p.eval("document.getElementById('startbtn').disabled") is False
+    p.eval("window.__ui.align({ok:true,within:true,inliers:120,words:'Lined up. Start scanning.',turn_deg:1,tilt_deg:0,roll_deg:0,move:null,parallax_deg:0.4})")
+    assert p.text("#startbtn") == "Start scanning" and p.eval("document.getElementById('startbtn').classList.contains('ghost')") is False and p.errors == []
+
+
+def test_the_first_scan_of_a_room_has_nothing_to_line_up_with(site, clean):
+    site.svc_.wm.create_room("Fresh", active=True)
+    p = booted(site)
+    p.tap("#nav [data-nav=scan]")
+    p.tap("#wzgo")
+    p.wait("document.body.dataset.screen==='scan'")
+    p.settle(1.0)
+    assert p.eval("document.getElementById('ghost').hidden") is True and p.eval("document.getElementById('chkalign').hidden") is True
+    assert p.text("#startbtn") == "Start scanning"
+
+
+def test_changes_shows_the_alignment_and_keeps_possibly_moved_and_cant_compare_apart(site, clean):
+    p = site.page(READY).open("/?demo&screen=changes&state=default")
+    p.wait("document.getElementById('s-changes').dataset.state==='default'")
+    p.settle(0.5)
+    assert p.eval("document.querySelector('#chg .align.good h2')?.textContent") == "✓Alignment: good" and "214 matching points" in p.text("#chg .align")
+    heads = p.eval("[...document.querySelectorAll('#chg h2')].map(h=>h.textContent)")
+    assert any(h.startswith("↔Moved") for h in heads) and any(h.startswith("≈Possibly moved") for h in heads) and any(h.startswith("?Can’t compare") for h in heads)
+    assert p.eval("document.querySelectorAll('#chg .chgcard[data-kind=possibly_moved]').length") == 1
+    card = p.text("#chg .chgcard[data-kind=possibly_moved]")
+    assert "may have moved" in card and " m " not in card and "meter" not in card
+
+
+def test_a_weak_alignment_is_explained_and_no_move_is_shown(site, clean):
+    p = site.page(READY).open("/?demo&screen=changes&state=default")
+    p.wait("document.getElementById('s-changes').dataset.state==='default'")
+    p.eval("(()=>{const c=window.__ui.RENDER;const d=JSON.parse(JSON.stringify(document.getElementById('chg')._data));"
+           "d.alignment={quality:'weak',inliers:30,pairs:1,spread_deg:4};d.moved=[];d.possibly_moved=[];d.removed=[];d.added=[];d.summary='The two scans could not be lined up reliably, so I cannot say what moved.';"
+           "c.changes('default',{room:{id:1,name:'Living Room'},data:d})})()")
+    assert p.eval("!!document.querySelector('#chg .align.weak')") and "nothing is called moved" in p.text("#chg .align")
+    assert p.eval("[...document.querySelectorAll('#chg h2')].some(h=>/Moved|Removed|New/.test(h.textContent))") is False

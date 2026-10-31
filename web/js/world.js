@@ -11,6 +11,10 @@ export class WorldLayer {
     this.timer = null;
     this.highlightId = null;
     this.known = new Map();  // id -> born
+    this.notes = [];         // notes left in the room, as served: {id, text, author, yaw, pitch, label, created_at}
+    this.asked = new Map();  // object id -> why it answers the question just asked (empty: no question is being shown)
+    this.ghosts = [];        // what an earlier scan had that the room's memory does not: {label, yaw, pitch, kind, unsure}
+    this.ghostWhen = null;   // when that earlier scan was made (seconds)
   }
 
   async refresh() {
@@ -25,6 +29,7 @@ export class WorldLayer {
     this.calibrated = !!r.fov_calibrated;
     this.calibration = r.calibration ?? null;
     this.scanId = r.scan_id ?? null;
+    this.notes = r.notes || [];
     const t = this.now(), seen = new Set();
     this.objects = (r.objects || []).map((o) => {
       seen.add(o.id);
@@ -34,6 +39,8 @@ export class WorldLayer {
     for (const id of this.known.keys()) if (!seen.has(id)) this.known.delete(id);
   }
 
+  setAsk(matches) { this.asked = new Map((matches || []).map((m) => [m.object_id, m.reason || ""])); }
+  setGhosts(ghosts, when = null) { this.ghosts = ghosts || []; this.ghostWhen = this.ghosts.length ? when : null; }
   highlight(id) { this.highlightId = id ?? null; for (const o of this.objects) o.hl = o.id === this.highlightId; }
   labels(max = 3) { return [...new Set(this.objects.map((o) => o.label))].slice(0, max); }
 

@@ -23,7 +23,7 @@ from typing import Awaitable, Callable
 
 import cv2
 import numpy as np
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.concepts import canonical_name, is_sam_friendly
 from app.pricing import SAM_USD_PER_IMAGE, spark_usd
@@ -39,14 +39,26 @@ List the distinct physical objects a person might ask to find: devices, bottles,
 Skip: people and body parts, walls, floors, ceilings, windows, doors, lights, large fixed furniture, and anything that is only text or an image shown on a screen or printed on paper.
 Each item is one short English noun phrase of 1 to 3 words naming the object type (for example "water bottle", "laptop", "phone charger"). No colors, no positions, no commas.
 List each object type once even if several are visible. At most {n} items, most prominent first.
-If a list of known names is given, reuse a name from it when it fits the object."""
+If a list of known names is given, reuse a name from it when it fits the object.
+For each item also give size_cm: the typical real-world length of its longest side in centimetres (a mug 10, a laptop 34, a water bottle 24, a phone charger 8). Use null only if you cannot say."""
 
 _SKIP = {"person", "people", "man", "woman", "human", "face", "hand", "screen", "monitor screen", "wall", "floor", "ceiling", "window", "door", "table", "desk", "chair"}
 
 
+class Item(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    size_cm: float | None
+
+
 class Listing(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    objects: list[str]
+    objects: list[Item]
+
+    @field_validator("objects", mode="before")
+    @classmethod
+    def _bare_names(cls, v):  # a reply (or a test) that lists plain names has no sizes
+        return [{"name": x, "size_cm": None} if isinstance(x, str) else x for x in v]
 
 
 SCHEMA = Listing.model_json_schema()
@@ -174,7 +186,13 @@ class ScanPipeline:
              {"role": "user", "content": [{"type": "text", "text": text}, {"type": "image", "data_url": data_url}]}],
             schema=SCHEMA, effort=self.effort, max_output_tokens=2000)
         listing = Listing.model_validate(r.parsed)
-        return clean_names(listing.objects, self.max_names), {"input_tokens": r.input_tokens, "output_tokens": r.output_tokens, "ms": r.latency_ms}
+        names = clean_names([i.name for i in listing.objects], self.max_names)
+        sizes: dict[str, float] = {}
+        for i in listing.objects:  # the size Spark gave, filed under the same canonical name the objects will carry
+            n = canonical_name(normalize_label(i.name))
+            if n in names and i.size_cm and n not in sizes:
+                sizes[n] = float(i.size_cm)
+        return names, {"input_tokens": r.input_tokens, "output_tokens": r.output_tokens, "ms": r.latency_ms, "sizes": sizes}
 
     async def _segment(self, data_url: str, name: str) -> tuple[SamCall, int]:
         calls = 0
@@ -194,6 +212,8 @@ class ScanPipeline:
         known = [o["label"] for o in self.wm.list_objects(scan_id)]
         rep.names, u = await self.list_names(data_url, known)
         rep.spark_ms, rep.input_tokens, rep.output_tokens = u["ms"], u["input_tokens"], u["output_tokens"]
+        for n, size in u.get("sizes", {}).items():
+            self.wm.record_label_size(n, size)
 
         t = time.perf_counter()
         results = await asyncio.gather(*(self._segment(data_url, n) for n in rep.names))

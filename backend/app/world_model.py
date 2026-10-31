@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import sqlite3
 import threading
@@ -68,7 +69,24 @@ CREATE TABLE IF NOT EXISTS detections (
   label TEXT NOT NULL, box TEXT NOT NULL, conf REAL NOT NULL, yaw REAL NOT NULL, pitch REAL NOT NULL, ext TEXT,
   fov_err REAL NOT NULL DEFAULT 0, fragment INTEGER NOT NULL DEFAULT 0, poly TEXT, hist TEXT, track_id INTEGER, object_id INTEGER);
 CREATE INDEX IF NOT EXISTS det_scan ON detections(scan_id);
+-- A note left in a room: a message anchored to a direction (and the label of the object under the reticle, when there was one).
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY, room_id INTEGER NOT NULL, text TEXT NOT NULL, author TEXT, yaw REAL NOT NULL, pitch REAL NOT NULL,
+  label TEXT, created_at REAL NOT NULL, done_at REAL);
+CREATE INDEX IF NOT EXISTS notes_room ON notes(room_id);
+-- Things a caregiver keeps an eye on, by label, and the room each one usually lives in. Not tied to one room.
+CREATE TABLE IF NOT EXISTS watch_items (
+  id INTEGER PRIMARY KEY, label TEXT NOT NULL UNIQUE, usual_room_id INTEGER, created_at REAL NOT NULL);
+-- typical real-world size (longest side, cm) of each label, from the name pass; a running geometric mean over the frames that gave one
+CREATE TABLE IF NOT EXISTS label_sizes (label TEXT PRIMARY KEY, size_cm REAL NOT NULL, n INTEGER NOT NULL, updated REAL NOT NULL);
+-- how scan B's reference frame differs from scan A's (app.align), kept so a comparison does not redo the image matching
+CREATE TABLE IF NOT EXISTS alignments (scan_a INTEGER NOT NULL, scan_b INTEGER NOT NULL, result TEXT NOT NULL, ts REAL NOT NULL, PRIMARY KEY (scan_a, scan_b));
+-- small key / value settings kept with the memory (the caregiver-sharing consent)
+CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
+
+NOTE_MAX = 280
+WATCH_MAX = 60
 
 _ARTICLES = {"a", "an", "the", "my", "your"}
 SLIVER_FRACTION = 0.03  # a border-touching box smaller than this share of the frame never starts an object
@@ -254,6 +272,7 @@ class WorldModel:
             if self.db.execute("SELECT 1 FROM scans WHERE id=?", (scan_id,)).fetchone() is None:
                 return False
             paths = [r["path"] for r in self.db.execute("SELECT path FROM frames WHERE scan_id=? AND path IS NOT NULL", (scan_id,))]
+            self.db.execute("DELETE FROM alignments WHERE scan_a=? OR scan_b=?", (scan_id, scan_id))
             self.db.execute("DELETE FROM observations WHERE object_id IN (SELECT id FROM objects WHERE scan_id=?)", (scan_id,))
             for table in ("detections", "objects", "frames"):
                 self.db.execute(f"DELETE FROM {table} WHERE scan_id=?", (scan_id,))
@@ -366,6 +385,8 @@ class WorldModel:
             self.db.execute("DELETE FROM change_reviews WHERE room_id=?", (room_id,))
             self.db.execute("DELETE FROM corrections WHERE room_id=?", (room_id,))
             self.db.execute("DELETE FROM not_objects WHERE room_id=?", (room_id,))
+            self.db.execute("DELETE FROM notes WHERE room_id=?", (room_id,))
+            self.db.execute("UPDATE watch_items SET usual_room_id=NULL WHERE usual_room_id=?", (room_id,))
             self.db.execute("DELETE FROM rooms WHERE id=?", (room_id,))
             self.db.commit()
             return True
@@ -379,7 +400,130 @@ class WorldModel:
                 self.delete_room(r)
             for s in self.db.execute("SELECT id FROM scans").fetchall():  # a scan with a room that no longer exists
                 self.delete_scan(s["id"])
+            for table in ("notes", "watch_items", "settings", "label_sizes", "alignments"):
+                self.db.execute(f"DELETE FROM {table}")
+            self.db.commit()
             return {"rooms": len(rooms), "scans": n_scans}
+
+    # ------------------------------------------------------------------ notes, watch items, settings
+
+    @staticmethod
+    def _clean_text(text: str | None, limit: int, what: str) -> str:
+        t = " ".join(re.sub(r"[\x00-\x1f\x7f]+", " ", text or "").split())
+        if not t:
+            raise ValueError(f"{what} is empty")
+        if len(t) > limit:
+            raise ValueError(f"{what} is longer than {limit} characters")
+        return t
+
+    def add_note(self, room_id: int, text: str, yaw: float, pitch: float, label: str | None = None, author: str | None = None,
+                 ts: float | None = None) -> dict:
+        """Leave a note in a room, anchored to a direction as seen from where the scans were made."""
+        text = self._clean_text(text, NOTE_MAX, "the note")
+        if not (-360 <= yaw <= 720 and -90 <= pitch <= 90):
+            raise ValueError("the direction is not a yaw and a pitch in degrees")
+        with self.lock:
+            if self.get_room(room_id) is None:
+                raise KeyError(f"no room {room_id}")
+            cur = self.db.execute("INSERT INTO notes (room_id, text, author, yaw, pitch, label, created_at) VALUES (?,?,?,?,?,?,?)",
+                                  (room_id, text, (author or "").strip()[:40] or None, yaw % 360.0, pitch,
+                                   (label or "").strip()[:60] or None, time.time() if ts is None else ts))
+            self.db.commit()
+            return self.get_note(cur.lastrowid)
+
+    @staticmethod
+    def _note(r: sqlite3.Row | None) -> dict | None:
+        return dict(r) if r else None
+
+    def get_note(self, note_id: int) -> dict | None:
+        with self.lock:
+            return self._note(self.db.execute("SELECT * FROM notes WHERE id=?", (note_id,)).fetchone())
+
+    def list_notes(self, room_id: int, include_done: bool = False) -> list[dict]:
+        """A room's notes, newest first. Notes belong to one room and never appear in another."""
+        with self.lock:
+            q = "SELECT * FROM notes WHERE room_id=?" + ("" if include_done else " AND done_at IS NULL")
+            return [dict(r) for r in self.db.execute(q + " ORDER BY created_at DESC, id DESC", (room_id,))]
+
+    def set_note_done(self, note_id: int, done: bool, ts: float | None = None) -> dict | None:
+        with self.lock:
+            if self.get_note(note_id) is None:
+                return None
+            self.db.execute("UPDATE notes SET done_at=? WHERE id=?", ((time.time() if ts is None else ts) if done else None, note_id))
+            self.db.commit()
+            return self.get_note(note_id)
+
+    def delete_note(self, note_id: int) -> bool:
+        with self.lock:
+            n = self.db.execute("DELETE FROM notes WHERE id=?", (note_id,)).rowcount
+            self.db.commit()
+            return n > 0
+
+    def record_label_size(self, label: str, size_cm: float) -> None:
+        """Remember a size Spark gave for a label (a running geometric mean, so one wild answer does not dominate)."""
+        if not label or not size_cm or not (0.5 <= size_cm <= 400):
+            return
+        with self.lock:
+            r = self.db.execute("SELECT size_cm, n FROM label_sizes WHERE label=?", (label,)).fetchone()
+            if r is None:
+                self.db.execute("INSERT INTO label_sizes (label, size_cm, n, updated) VALUES (?,?,?,?)", (label, float(size_cm), 1, time.time()))
+            else:
+                n = r["n"]
+                mean = math.exp((n * math.log(r["size_cm"]) + math.log(size_cm)) / (n + 1))
+                self.db.execute("UPDATE label_sizes SET size_cm=?, n=?, updated=? WHERE label=?", (mean, n + 1, time.time(), label))
+            self.db.commit()
+
+    def get_label_size(self, label: str) -> float | None:
+        with self.lock:
+            r = self.db.execute("SELECT size_cm FROM label_sizes WHERE label=?", (label,)).fetchone()
+            return float(r["size_cm"]) if r else None
+
+    def get_alignment(self, scan_a: int, scan_b: int) -> dict | None:
+        with self.lock:
+            r = self.db.execute("SELECT result FROM alignments WHERE scan_a=? AND scan_b=?", (scan_a, scan_b)).fetchone()
+            return json.loads(r["result"]) if r else None
+
+    def set_alignment(self, scan_a: int, scan_b: int, result: dict) -> None:
+        with self.lock:
+            self.db.execute("INSERT INTO alignments (scan_a, scan_b, result, ts) VALUES (?,?,?,?) ON CONFLICT(scan_a, scan_b) DO UPDATE SET result=excluded.result, ts=excluded.ts",
+                            (scan_a, scan_b, json.dumps(result), time.time()))
+            self.db.commit()
+
+    def add_watch(self, label: str, usual_room_id: int | None = None) -> dict:
+        label = normalize_label(self._clean_text(label, WATCH_MAX, "the name"))
+        if not label:
+            raise ValueError("the name is empty")
+        with self.lock:
+            if usual_room_id is not None and self.get_room(usual_room_id) is None:
+                raise KeyError(f"no room {usual_room_id}")
+            if self.db.execute("SELECT 1 FROM watch_items WHERE label=?", (label,)).fetchone():
+                raise ValueError(f"“{label}” is already on the list")
+            cur = self.db.execute("INSERT INTO watch_items (label, usual_room_id, created_at) VALUES (?,?,?)", (label, usual_room_id, time.time()))
+            self.db.commit()
+            return dict(self.db.execute("SELECT * FROM watch_items WHERE id=?", (cur.lastrowid,)).fetchone())
+
+    def list_watches(self) -> list[dict]:
+        with self.lock:
+            return [dict(r) for r in self.db.execute("SELECT * FROM watch_items ORDER BY created_at, id")]
+
+    def delete_watch(self, watch_id: int) -> bool:
+        with self.lock:
+            n = self.db.execute("DELETE FROM watch_items WHERE id=?", (watch_id,)).rowcount
+            self.db.commit()
+            return n > 0
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        with self.lock:
+            r = self.db.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return r["value"] if r else default
+
+    def set_setting(self, key: str, value: str | None) -> None:
+        with self.lock:
+            if value is None:
+                self.db.execute("DELETE FROM settings WHERE key=?", (key,))
+            else:
+                self.db.execute("INSERT INTO settings (key, value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+            self.db.commit()
 
     def scan_room_id(self, scan_id: int) -> int | None:
         with self.lock:

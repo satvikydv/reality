@@ -5,6 +5,7 @@ from mcp import Client
 
 from app.mcp_server import build_server
 from test_reality_api import scan
+from synthetic_world import GOOD
 from test_scan_service import make_service
 
 
@@ -26,7 +27,7 @@ def test_tools_are_listed_with_descriptions(tmp_path):
             return {t.name: t for t in (await c.list_tools()).tools}
 
     tools = run(go())
-    assert set(tools) == {"list_rooms", "where_is", "list_objects", "scan_summary", "what_changed", "guide_user_to", "get_frame"}
+    assert set(tools) == {"list_rooms", "where_is", "list_objects", "scan_summary", "what_changed", "guide_user_to", "get_frame", "ask_room", "list_notes", "leave_note"}
     assert all("room" in tools[t].input_schema["properties"] for t in tools if t not in ("list_rooms", "get_frame"))  # every tool can name a room
     assert "plain-language" not in tools["where_is"].description and "compass direction" in tools["where_is"].description
     assert tools["where_is"].input_schema["required"] == ["query"]
@@ -61,8 +62,9 @@ def test_what_changed_through_mcp(tmp_path):
     svc = make_service(tmp_path)
 
     async def go():
-        await scan(svc, [0])
-        await scan(svc, [90])
+        a = await scan(svc, [0])
+        b = await scan(svc, [90])
+        svc.wm.set_alignment(a, b, GOOD)
         async with Client(build_server(lambda: svc)) as c:
             return await call(c, "what_changed")
 

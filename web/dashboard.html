@@ -33,6 +33,7 @@ select,button.small{font:600 13px var(--sans);color:var(--ink);background:var(--
 select{font-family:var(--mono);font-weight:500;padding:0 12px}select option{color:#000}
 button.small{cursor:pointer}button.small.go{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
 #chsum{font:500 14px/1.4 var(--sans);color:var(--dim)}
+#chalign{font:500 12px/1.4 var(--mono);color:var(--dim)}#chalign.al-good{color:var(--green)}#chalign.al-weak{color:var(--amber)}#chalign.al-failed{color:var(--red)}
 #cards{display:flex;gap:12px;overflow-x:auto;overflow-y:hidden;padding-bottom:6px;min-width:0;max-width:100%;flex:1;min-height:0}
 .card{flex:0 0 250px;padding:12px;border-radius:14px;background:rgba(255,255,255,.05);border:1px solid var(--line);display:flex;flex-direction:column;gap:8px;cursor:pointer;transition:border-color .15s,background .15s,transform .15s;overflow:hidden;text-align:left;color:inherit;font:inherit}
 .card:hover,.card:focus-visible{border-color:var(--accent);background:var(--accent-fill);transform:translateY(-2px);outline:none}
@@ -78,6 +79,7 @@ button.small:disabled{opacity:.35;cursor:default}
   <div class="brand"><i></i>Reality OS</div>
   <span id="phase">Waiting for a scan</span>
   <button class="small go" id="objbtn" title="Review and correct what the memory believes">Objects</button>
+  <button class="small" id="carebtn" title="Where a person's important things were last seen">Care</button>
   <span class="pill panel"><span class="dot" id="conn"></span><span id="connt">connecting…</span></span>
   <div class="cnt">
     <div class="panel"><span class="label">Frames</span><b id="cf">0</b></div>
@@ -93,6 +95,7 @@ button.small:disabled{opacity:.35;cursor:default}
       <div class="bar"><span class="label">Compare scans</span>
         <select id="sa" title="before"></select><span class="label">→</span><select id="sb" title="after"></select>
         <button class="small go" id="cmp">What changed?</button><button class="small" id="clr" hidden>Clear</button><span id="chsum"></span></div>
+      <div id="chalign" role="status"></div>
       <div id="cards"></div>
     </div>
   </div>
@@ -130,6 +133,23 @@ button.small:disabled{opacity:.35;cursor:default}
     <div class="pane panel"><div class="detail" id="idetail"></div></div>
   </div>
 </section>
+<section id="care" role="dialog" aria-modal="true" aria-label="Caregiver view">
+  <div class="ih"><h1>Care</h1><span class="badge2 off" id="careconsent">…</span><span class="hide">What the last scan of each room saw, not live.</span>
+    <span id="caremsg" role="status" style="font:500 13px var(--mono);color:var(--accent)"></span><button class="small grow" id="careclose">Close ✕</button></div>
+  <div class="cm">
+    <div class="pane">
+      <h2>Needs attention</h2>
+      <div id="carealerts"></div>
+      <h2>Watch for</h2>
+      <div class="cadd"><input id="carelabel" type="text" maxlength="60" placeholder="pills, glasses, keys…" aria-label="What to watch"><select id="careroom" aria-label="Usual room"></select><button class="small go" id="careadd">Add</button></div>
+      <h2 id="careasked">Ask</h2>
+      <div class="cadd"><input id="careq" type="text" maxlength="300" placeholder="Where did Mum put her pills?" aria-label="Ask where something is"><button class="small go" id="careask">Ask</button></div>
+      <div id="careans"></div>
+    </div>
+    <div class="pane"><h2>Their things</h2><div id="careitems" class="citems"></div></div>
+  </div>
+</section>
 <script type="module" src="js/dashboard.js"></script>
 <script type="module" src="js/inspector.js"></script>
+<script type="module" src="js/care.js"></script>
 </body></html>

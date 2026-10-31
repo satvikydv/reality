@@ -8,6 +8,7 @@
 <body data-screen="home">
 <video id="v" playsinline muted autoplay></video><div id="bg"><i></i></div>
 <div id="hud">
+<img id="ghost" alt="" hidden>
 <canvas id="ar"></canvas>
 
 <!-- Every screen is a section with id "s-<screen>" (see js/screens.js). Inside, data-show="state ..." parts appear only in
@@ -54,6 +55,7 @@
   <div class="bot">
     <div class="check panel" id="checklist" data-show="ready">
       <h2>Before you scan</h2>
+      <div class="chk" id="chkalign" role="status" aria-live="polite" hidden><i>·</i><span id="aligntext">Hold the phone where you first stood and point at the faded outline.</span></div>
       <div class="chk" id="chklight" role="status"><i>·</i><span id="lighttext">Checking the light…</span></div>
       <button class="chk" id="chkpeople" data-act="toggle-people" aria-pressed="false"><i></i><span>The room is empty: no people in the room or in frame</span></button>
       <div class="chk ok"><i>✓</i><span>Stand in the middle of the room, hold the phone upright</span></div>
@@ -207,6 +209,7 @@
     <div class="setgrp panel"><h2>Your rooms</h2><p>Rename a room or delete it. Deleting erases its scans, photos and objects.</p>
       <div id="setrooms" aria-live="polite"><div class="skel" data-show="loading"></div></div>
       <div class="statecard" data-show="error"><p id="seterr"></p><button class="plainbtn" data-act="retry">Try again</button></div></div>
+    <div class="setgrp panel"><h2>Caregiver sharing</h2><p>Lets a caregiver see, on the laptop dashboard, where the things on their list were last seen, with the photo and the time. It shows what the last scans saw, not live. Off by default; you can turn it off any time.</p><div class="seg" id="careseg"><button data-act="care" data-v="1" aria-pressed="false">On</button><button data-act="care" data-v="0" aria-pressed="true">Off</button></div></div>
     <div class="setgrp panel"><h2>Intro</h2><p>Replay the three cards that explain how Reality OS works and what happens to your data.</p><button class="plainbtn" data-act="replay-intro">Replay intro</button></div>
     <div class="setgrp panel"><h2>Delete all data</h2><p>Every room, scan, photo and object on the computer running Reality OS. This cannot be undone.</p><button class="dangerbtn" data-act="delete-all">Delete all data</button></div>
   </div>
@@ -230,6 +233,9 @@
   <div class="bot">
     <div class="gt"><span class="pill panel" id="exroom">Room</span></div>
     <div class="statecard panel" data-g="○" data-show="no-memory"><h2>Nothing to show yet</h2><p>This room has not been scanned, so there is nothing to draw over the camera.</p><button class="btn" data-act="rescan">Scan this room</button></div>
+    <div class="askbar panel" id="askbar" data-show="default"><span id="askbartext"></span><button data-act="clear-ask" aria-label="Clear the answer">Clear</button></div>
+    <div class="askbar panel" id="thenbar" data-show="default"><span id="thenbartext"></span><button data-act="clear-then" aria-label="Back to now">Back to now</button></div>
+    <div class="row tools" data-show="default"><button class="btn ghost" data-act="open-note">Note</button><button class="btn ghost" data-act="open-ask">Ask</button><button class="btn ghost" data-act="open-history">Rewind</button></div>
     <p class="note center" data-show="default">Point the camera around: remembered objects appear where they were.</p>
   </div>
 </section>
@@ -280,6 +286,45 @@
   <div class="sheet2 panel"><h2>Ask about</h2>
     <div class="chips" id="quicklist" data-show="default"></div>
     <p class="dim" data-show="empty">This room has no objects to ask about yet.</p>
+    <button class="plainbtn" data-act="close-switcher">Close</button></div>
+</section>
+
+<!-- ============ Notes: leave a message where you are looking, and see the room's notes ============ -->
+<section class="scr sheetwrap" id="s-note" aria-label="Notes">
+  <div class="scrim" data-act="close-switcher"></div>
+  <div class="sheet2 panel"><h2>Leave a note here</h2>
+    <p class="dim" id="noteat"></p>
+    <div class="find panel"><input id="notetext" type="text" maxlength="280" placeholder="What should people see here?" autocomplete="off" enterkeyhint="done" aria-label="Note"><button id="notemic" data-act="mic-note" aria-label="Speak the note"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0012 0M10 16v3"/></svg></button><button id="notesave" data-act="save-note" aria-label="Leave the note"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 10h12M11 5l5 5-5 5"/></svg></button></div>
+    <h2 class="sec">In this room</h2>
+    <div id="notelist" data-show="default"></div>
+    <p class="dim" data-show="empty">No notes in this room yet.</p>
+    <button class="plainbtn" data-act="close-switcher">Close</button></div>
+</section>
+
+<!-- ============ Ask the room: a question, answered on the objects it is about ============ -->
+<section class="scr sheetwrap" id="s-ask" aria-label="Ask the room">
+  <div class="scrim" data-act="close-switcher"></div>
+  <div class="sheet2 panel"><h2>Ask this room</h2>
+    <div class="find panel"><input id="askq" type="text" maxlength="300" placeholder="What is charging? What is fragile?" autocomplete="off" enterkeyhint="search" aria-label="Ask about this room"><button id="askmic" data-act="mic-ask" aria-label="Speak your question"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="2" width="6" height="10" rx="3"/><path d="M4 10a6 6 0 0012 0M10 16v3"/></svg></button><button id="askgo" data-act="ask-go" aria-label="Ask"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 10h12M11 5l5 5-5 5"/></svg></button></div>
+    <div class="askstate panel" id="askrbusy" data-show="busy error" role="status"><div class="spin" id="askrspin"></div><span id="askrmsg"></span></div>
+    <div id="askexamples" data-show="idle error">
+      <button class="chip qrow" data-act="ask-example" data-q="What is charging?">What is charging?</button>
+      <button class="chip qrow" data-act="ask-example" data-q="What here is fragile?">What here is fragile?</button>
+      <button class="chip qrow" data-act="ask-example" data-q="What should I take with me when I leave?">What should I take with me when I leave?</button>
+      <button class="chip qrow" data-act="ask-example" data-q="When did something last move or go missing?">When did something last move or go missing?</button>
+    </div>
+    <p class="note">The answer comes from the names and directions this room remembers, not from photos.</p>
+    <button class="plainbtn" data-act="close-switcher">Close</button></div>
+</section>
+
+<!-- ============ Rewind: pick an earlier scan and see what was there ============ -->
+<section class="scr sheetwrap" id="s-history" aria-label="Rewind">
+  <div class="scrim" data-act="close-switcher"></div>
+  <div class="sheet2 panel"><h2>Rewind this room to</h2>
+    <div id="histlist" data-show="default"></div>
+    <div class="statecard panel" data-g="○" data-show="empty"><h2>Nothing earlier to rewind to</h2><p>Rewind compares today with an earlier saved scan. Scan this room again after some time and it will be here.</p></div>
+    <div class="statecard panel" data-show="loading"><div class="skel"></div><div class="skel"></div></div>
+    <div class="statecard panel" data-g="!" data-tone="error" data-show="error"><h2>Could not load the scans</h2><p id="histerr"></p><button class="plainbtn" data-act="history-retry">Try again</button></div>
     <button class="plainbtn" data-act="close-switcher">Close</button></div>
 </section>
 

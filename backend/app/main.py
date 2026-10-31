@@ -21,7 +21,7 @@ from starlette.routing import Route
 from mcp.server.transport_security import TransportSecuritySettings
 
 from app.auth import AccessTokenMiddleware
-from app import inspector, mcp_server, reality_api, scan_service, status
+from app import align as align_mod, anchoring as A, ask as ask_mod, care, inspector, mcp_server, reality_api, rewind as rewind_mod, scan_service, status
 from app.world_model import RoomNameError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +65,7 @@ app.add_middleware(AccessTokenMiddleware)
 HEADER = struct.Struct(">BIdH")  # 15 bytes
 FLAG_SAVE = 1  # store the frame and its sidecar in data/frames (M0 samples)
 FLAG_SCAN = 2  # keyframe for the running scan
+FLAG_PROBE = 4  # a live camera frame to compare with the room's reference keyframe: answered with an align_hint
 
 _service: scan_service.ScanService | None = None
 service_factory = scan_service.build_default_service  # tests replace this
@@ -156,7 +157,7 @@ async def api_changes(before: int | None = None, after: int | None = None, room_
         if a and b and a["room_id"] != b["room_id"]:
             raise HTTPException(400, "those scans are from different rooms; scans of different rooms cannot be compared")
         room_id = a["room_id"] if a else None
-    return _changes_for(svc, before, after, room_id)
+    return await asyncio.to_thread(_changes_for, svc, before, after, room_id)
 
 
 def _changes_for(svc, before, after, room_id):
@@ -191,6 +192,31 @@ class ReviewIn(BaseModel):
     after: int
     key: str
     state: str | None = None
+
+
+class NoteIn(BaseModel):
+    text: str
+    yaw: float
+    pitch: float
+    label: str | None = None
+    author: str | None = None
+
+
+class NotePatch(BaseModel):
+    done: bool
+
+
+class AskIn(BaseModel):
+    question: str
+
+
+class WatchIn(BaseModel):
+    label: str
+    usual_room_id: int | None = None
+
+
+class ConsentIn(BaseModel):
+    on: bool
 
 
 class GuideIn(BaseModel):
@@ -264,6 +290,114 @@ async def api_delete_room(room_id: int):
     return {"deleted": room_id}
 
 
+@app.get("/api/rooms/{room_id}/reference")
+async def api_reference(room_id: int):
+    """The room's first-scan keyframe, for lining up a rescan (see the phone's scan screen)."""
+    return reality_api.reference(_svc(), _room_or_404(room_id)["id"])
+
+
+@app.get("/api/rooms/{room_id}/reference.png")
+async def api_reference_png(room_id: int, frame: int | None = None):
+    """That keyframe's outline as a transparent PNG (white edges): laid over the live camera at low opacity."""
+    svc, room = _svc(), _room_or_404(room_id)
+    f = reality_api.reference_frame(svc, room)
+    if f is None or (frame is not None and frame != f["id"]):
+        raise HTTPException(404, "no reference frame")
+    png = await asyncio.to_thread(lambda: align_mod.edges_png(svc.wm.frame_jpeg(f["id"]) or b""))
+    if png is None:
+        raise HTTPException(404, "the reference frame has no usable picture")
+    return Response(png, media_type="image/png", headers={"Cache-Control": "private, max-age=3600"})
+
+
+@app.get("/api/rooms/{room_id}/notes")
+async def api_notes(room_id: int, include_done: bool = False):
+    _room_or_404(room_id)
+    return {"room_id": room_id, "notes": _svc().wm.list_notes(room_id, include_done)}
+
+
+@app.post("/api/rooms/{room_id}/notes", status_code=201)
+async def api_add_note(room_id: int, body: NoteIn):
+    """Leave a note in a room, anchored to a direction (and the label of the object it was left on)."""
+    _room_or_404(room_id)
+    try:
+        return _svc().wm.add_note(room_id, body.text, body.yaw, body.pitch, body.label, body.author)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+@app.patch("/api/notes/{note_id}")
+async def api_note_done(note_id: int, body: NotePatch):
+    n = _svc().wm.set_note_done(note_id, body.done)
+    if n is None:
+        raise HTTPException(404, f"no note {note_id}")
+    return n
+
+
+@app.delete("/api/notes/{note_id}")
+async def api_delete_note(note_id: int):
+    if not _svc().wm.delete_note(note_id):
+        raise HTTPException(404, f"no note {note_id}")
+    return {"deleted": note_id}
+
+
+@app.post("/api/rooms/{room_id}/ask")
+async def api_ask(room_id: int, body: AskIn):
+    """Ask a question about one room's memory. The answer names the objects it is about; the phone highlights them."""
+    svc = _svc()
+    room = _room_or_404(room_id)
+    sid = svc.wm.latest_scan_id(room_id)
+    r = await ask_mod.ask_room(svc, svc.reasoner, body.question, room, svc.wm.get_scan(sid) if sid is not None else None)
+    if r["status"] == "bad_request":
+        raise HTTPException(400, r["message"])
+    if r["status"] == "model_error":
+        raise HTTPException(502, r["message"])
+    return r
+
+
+@app.get("/api/rooms/{room_id}/rewind")
+async def api_rewind(room_id: int, scan: int):
+    """What an earlier saved scan had that the room's memory does not, as ghosts in today's directions."""
+    return _http_for(await asyncio.to_thread(rewind_mod.rewind, _svc(), _room_or_404(room_id), scan))
+
+
+@app.get("/api/care")
+async def api_care():
+    return care.care_state(_svc())
+
+
+@app.post("/api/care/consent")
+async def api_care_consent(body: ConsentIn):
+    """The person turns caregiver sharing on or off (from their phone's Settings)."""
+    return care.set_consent(_svc(), body.on)
+
+
+@app.post("/api/care/watch", status_code=201)
+async def api_care_watch(body: WatchIn):
+    try:
+        return _svc().wm.add_watch(body.label, body.usual_room_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e.args[0]))
+    except ValueError as e:
+        raise HTTPException(409 if "already" in str(e) else 400, str(e))
+
+
+@app.delete("/api/care/watch/{watch_id}")
+async def api_care_unwatch(watch_id: int):
+    if not _svc().wm.delete_watch(watch_id):
+        raise HTTPException(404, f"no watch item {watch_id}")
+    return {"deleted": watch_id}
+
+
+@app.post("/api/care/ask")
+async def api_care_ask(body: AskIn):
+    r = await care.care_ask(_svc(), body.question)
+    if r["status"] == "no_consent":
+        raise HTTPException(403, r["message"])
+    if r["status"] == "bad_request":
+        raise HTTPException(400, r["message"])
+    return r
+
+
 @app.get("/api/rooms/{room_id}/scans")
 async def api_room_scans(room_id: int):
     """A room's scan history, newest first, with which scan is the baseline and which is an unsaved draft."""
@@ -324,7 +458,7 @@ async def api_delete_room_scan(room_id: int, scan_id: int):
 async def api_room_changes(room_id: int, before: int | None = None, after: int | None = None):
     """What changed between two saved scans of this room. Scans of another room are a 400."""
     _room_or_404(room_id)
-    return _changes_for(_svc(), before, after, room_id)
+    return await asyncio.to_thread(_changes_for, _svc(), before, after, room_id)
 
 
 @app.post("/api/rooms/{room_id}/changes/review")
@@ -487,6 +621,28 @@ def parse_frame(msg: bytes) -> tuple[int, int, float, dict, bytes]:
     return flags, seq, client_ts, meta if isinstance(meta, dict) else {}, msg[meta_end:]
 
 
+_probes: dict[int, align_mod.ReferenceProbe] = {}   # reference frame id -> its features, computed once
+
+
+async def probe_reference(room_id, jpeg: bytes) -> dict:
+    """How far a live camera frame is from the room's reference keyframe, as words and numbers (app.align.guidance). Never raises."""
+    try:
+        svc = get_service()
+        room = svc.wm.get_room(int(room_id)) if room_id is not None else None
+        f = reality_api.reference_frame(svc, room) if room else None
+        if f is None:
+            return {"ok": False, "within": False, "no_reference": True, "words": "", "inliers": 0}
+        probe = _probes.get(f["id"])
+        if probe is None:
+            probe = await asyncio.to_thread(lambda: align_mod.ReferenceProbe(svc.wm.frame_jpeg(f["id"]) or b"", f["hfov_deg"]))
+            while len(_probes) >= 6:
+                _probes.pop(next(iter(_probes)))
+            _probes[f["id"]] = probe
+        return await asyncio.to_thread(probe.probe, jpeg, A.DEFAULT_HFOV_DEG)
+    except Exception as e:  # noqa: BLE001 - a failed guess must not break the socket
+        return {"ok": False, "within": False, "words": "", "inliers": 0, "error": f"{type(e).__name__}: {e}"[:200]}
+
+
 @app.websocket("/ws")
 async def ws(sock: WebSocket):
     await sock.accept()
@@ -543,6 +699,9 @@ async def ws(sock: WebSocket):
                 continue
             t_in = time.perf_counter()
             flags, seq, client_ts, meta, jpeg = parse_frame(msg_bytes)
+            if flags & FLAG_PROBE:
+                await send({"type": "align_hint", "seq": seq, "room_id": meta.get("room_id"), **await probe_reference(meta.get("room_id"), jpeg)})
+                continue
             if flags & FLAG_SCAN:
                 if session is None:
                     await send({"type": "frame_rejected", "seq": seq, "reason": "no scan running"})

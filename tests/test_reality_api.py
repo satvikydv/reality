@@ -8,6 +8,7 @@ from app.reasoner.base import Result
 from app.scan import ScanPipeline
 from app.scan_service import ScanService
 from app.world_model import WorldModel
+from synthetic_world import GOOD
 from test_scan_service import FakeReasoner, jpeg, make_service, meta, seg
 
 
@@ -98,6 +99,7 @@ def test_what_changed_needs_two_scans_then_reports_a_move(tmp_path):
         a = await scan(svc, [0])
         assert api.what_changed(svc)["status"] == "need_two_scans"
         b = await scan(svc, [90])  # the mug now sits 90 degrees away
+        svc.wm.set_alignment(a, b, GOOD)
         return a, b
 
     a, b = run(go())
