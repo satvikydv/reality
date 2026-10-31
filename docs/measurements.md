@@ -111,12 +111,15 @@ Record: device ______ · browser and version ______ · date ______
 - [ ] Explore a scanned room. Tap Note with the reticle on an object and leave a note by typing, then by voice. The amber dot and text appear on that object; turn away and back: it stays. Open the same room on the laptop browser (`/` with `?demo` is not enough: use the real page) and check the note shows there too. Mark it done: it disappears on both.
 - [ ] Ask: "What is charging?", "What here is fragile?", "What should I take with me when I leave?". Do the highlighted objects match what you would say? Note how many of 10 questions you judge right ____ / 10, and the time to answer ____ s. Ask something that matches nothing: the answer says so and nothing is drawn.
 - [ ] Rewind: scan a room, move or remove one object, scan again and save. In Explore, Rewind to the earlier scan: a dashed "was here" ring appears where the object was. A direction the second scan did not cover shows "was here?".
+- [ ] The caregiver demo, in order: Care on the laptop shows the pills, the room and the photo; on the phone Explore the kitchen, Rewind to the earlier scan: a ring where the pills were; Ask "What here might be unsafe?": the stove and anything sharp or hot are drawn, and the answer ends "it is not a safety check"; Note on the stove: "Turn the stove off after cooking"; it shows on the laptop's page too. Time the whole run ____ s. Without the server, `/?demo&screen=explore` and `/dashboard?demo` (Care) play the same story with made-up data.
 - [ ] Caregiver: Settings, Caregiver sharing is off. On the dashboard, Care shows the list but no places or photos. Turn sharing on from the phone: places, photos and ages appear within about 8 seconds. Add "pills" with a usual room; scan it in another room and check the "usually lives in" alert.
 
 **Viewpoint-robust alignment and the rescan assist**
 - [ ] Rescan assist: scan a desk (this is the reference scan), save it. Tap Scan again, pick the room: the first scan's keyframe appears as a faded outline over the camera and a line says how to line up. Move the phone away: the words change ("Turn left 8 degrees, move slightly right."); line the outline up: "Lined up. Start scanning." and the button reads Start scanning, otherwise Start anyway. Start anyway must always work.
 - [ ] Time between the phone showing a view and the words reacting: ____ s (it asks about twice a second).
-- [ ] Changes: the alignment card says good, weak or failed with the matching points; nothing is under Moved when it is weak or failed.
+- [ ] Changes: the alignment card says good, weak or failed with the matching points; nothing is under Moved when it is weak or failed. When it is weak and something moved far (a hand's width at a desk), it may show under "Moved, low confidence" with "check it"; with `MOVED_LOW_CONFIDENCE=0` it never does.
+- [ ] Scan quality: after a 3-shot desk scan the review shows "Take a few more shots"; after a slow full pan with the wall in view it shows "A good scan to compare against later". Save works in both.
+- [ ] Rescan the desk without moving anything and with only one shot of some object: that object is under Can't compare "seen only once", never under Removed or New.
 - [ ] Run the protocol below and fill in the table.
 
 **Upgrade**
@@ -183,18 +186,86 @@ It works on a copy of the database. Report, per scenario: alignment quality, mat
 
 Yaw-offset error ____ ; false-move rate ____ ; true-move recall ____ ; possibly moved ____ ; can't compare ____ . Not yet measured on the phone.
 
+What to expect, from the synthetic desk (not a promise for the phone): (a) good alignment, nothing moved, new or removed; a 3-shot rescan may come out weak (then everything that is not clearly unchanged is "can't compare", which is correct). (b) good, no moved; near objects may be "possibly moved", and the alignment card's viewpoint should read about 20 cm (`viewpoint_cm_used`; measured from the objects that stayed put). (c) offset within a few degrees of 90 (synthetic: 0.3 to 2.4 degrees off; the per-shot compass noise shows here), nothing moved. (d) both objects moved, or "moved, low confidence" when the alignment is weak; nothing else moved. Take at least 5 shots per scan, keep the wall behind the desk in view, and check the review's scan quality card before saving. Anything under Moved in (a) to (c) is a false move: note the object, its "local" numbers in `alignment_eval.json`, and whether its box was cut by the frame edge or hidden behind something in one scan.
+
 ## Alignment: synthetic check (not the phone)
 
-`python scripts/eval_alignment.py --synthetic` renders a textured room from a fixed spot, so the camera poses are exact, and runs the same four scenarios; the sideways one is simulated by shifting each object by the parallax a 20 cm step causes at its estimated distance (no depth is rendered, so the images themselves are not parallax-distorted). It checks the code, not the camera. Measured 2026-10-30, 10 frames per scan:
+`python scripts/eval_alignment.py --synthetic` runs two synthetic worlds from `tests/synthetic_world.py`. It checks the code, not the camera: the poses are exact, the objects are rendered boxes, and the boxes are their visible pixels, which is kinder than SAM.
 
-| Scenario | Alignment | Matches | Offset error | Moved | Possibly moved | Can't compare |
-|---|---|---|---|---|---|---|
-| same spot | good | 18008 | 0.0° | – | – | 0 |
-| 20 cm sideways (simulated) | good | 16739 | 0.0° | – | plant, laptop, book, mug | 0 |
-| start heading +90 | good | 18065 | 0.0° | – | – | 0 |
-| two objects moved | good | 17056 | 0.0° | mug, book | – | 0 |
+**Room panorama, no depth** (re-run 2026-10-31; the "20 cm sideways (simulated parallax)" scenario of 2026-10-30 is gone: it shifted the objects but not the texture around them, which the local evidence now correctly reads as a move. A real sideways step is in the desk world below):
 
-Yaw-offset error mean 0.0°, max 0.0° (a rotation-only render, so this is the floor); false moves 0 of 16 objects; true-move recall 1.0 (2 of 2). The live guidance takes about 70 ms per camera frame on this laptop's CPU (a 480x640 frame against a stored 720x960 keyframe; the keyframe's features, 43 ms, are computed once per room), so 2 frames a second leaves most of the time free. The 20 cm step is simulated at 20 cm while the default tolerance assumes 15 cm, so all four objects land in "possibly moved": the doubt band is doing its job, and a real step of 15 cm or less is absorbed.
+| Scenario | Alignment | Matches | Pairs | Offset | Offset error | Moved | Possibly moved | Can't compare | Unchanged |
+|---|---|---|---|---|---|---|---|---|---|
+| same spot | good | 29596 | 51 | 0.0° | 0.0° | – | – | 0 | 4 |
+| start heading +90 | good | 29821 | 53 | 90.0° | 0.0° | – | – | 0 | 4 |
+| two objects moved | good | 26891 | 51 | -0.0° | 0.0° | book, mug | – | 0 | 2 |
+
+- Yaw-offset error: mean 0.0°, max 0.0° over 3 scenarios with a known offset.
+- False-move rate: 0 of 12 objects compared were called moved without being moved (0.0).
+- True-move recall: 1.0 (2 of 2 really moved objects were called moved; 0 more only as possibly moved).
+- Possibly moved (all scenarios): 0. Can't compare (all scenarios): 0.
+
+The live guidance takes about 70 ms per camera frame on this laptop's CPU (measured 2026-10-30: a 480x640 frame against a stored 720x960 keyframe; the keyframe's features, 43 ms, are computed once per room), so 2 frames a second leaves most of the time free.
+
+**Near-field desk, rendered with depth** (2026-10-31, 5 seeds, desk texture 0.2). A desk 40 to 60 cm below and ahead of the phone, a wall behind, five objects and a laptop whose screen changes every shot; the phone 7 to 20 cm from where the reference was taken plus about 3 cm of hand drift per axis per shot, 3 to 4 shots of 540x960 at 60 degrees, tilted down 34 to 42 degrees, a different exposure, a little blur, a stored tilt bias of +4 and -3 degrees in two rescans, and 1.5 degrees of compass noise per shot. The first two scenarios mirror the real desk scans below; the other three are the protocol on that desk. "Offset error" is against the true compass and includes the simulated per-shot compass noise, which images cannot remove; the comparison is less exposed to it, because every shot is re-anchored through its own image-derived pose and the local evidence uses no pose at all.
+
+| Seed | Scenario | Alignment | Matches | Pairs | Offset error | Moved | Moved (low confidence) | Possibly moved | New | Removed | Can't compare | Unchanged |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | desk, rescan, nothing moved | weak | 646 | 9 | 0.56° | – | – | – | – | – | 2 | 6 |
+| 1 | desk, rescan, mouse moved | good | 467 | 8 | 0.71° | mouse | – | – | – | – | 2 | 5 |
+| 1 | desk, 20 cm sideways | good | 347 | 9 | 2.97° | – | – | phone, mouse | – | – | 1 | 5 |
+| 1 | desk, start heading +90 | good | 701 | 8 | 0.63° | – | – | – | – | – | 1 | 7 |
+| 1 | desk, two objects moved | weak | 600 | 8 | 0.79° | – | phone | – | – | – | 3 | 4 |
+| 2 | desk, rescan, nothing moved | good | 742 | 9 | 0.09° | – | – | – | – | – | 0 | 6 |
+| 2 | desk, rescan, mouse moved | good | 322 | 4 | 3.91° | mouse | – | – | – | – | 1 | 5 |
+| 2 | desk, 20 cm sideways | good | 460 | 10 | 0.58° | – | – | – | – | – | 0 | 6 |
+| 2 | desk, start heading +90 | good | 733 | 9 | 1.25° | – | – | – | – | – | 0 | 6 |
+| 2 | desk, two objects moved | good | 815 | 11 | 0.79° | phone, mouse | – | – | – | – | 0 | 4 |
+| 3 | desk, rescan, nothing moved | weak | 831 | 11 | 1.03° | – | – | – | – | – | 0 | 6 |
+| 3 | desk, rescan, mouse moved | good | 461 | 8 | 0.06° | – | – | mouse | – | – | 1 | 5 |
+| 3 | desk, 20 cm sideways | good | 500 | 10 | 0.61° | – | – | mouse | – | – | 0 | 5 |
+| 3 | desk, start heading +90 | good | 802 | 10 | 0.34° | – | – | – | – | – | 0 | 6 |
+| 3 | desk, two objects moved | good | 1097 | 12 | 0.41° | phone, mouse | – | – | – | – | 0 | 4 |
+| 4 | desk, rescan, nothing moved | good | 582 | 7 | 1.85° | – | – | – | – | – | 0 | 6 |
+| 4 | desk, rescan, mouse moved | good | 401 | 6 | 0.76° | – | – | mouse | – | – | 0 | 5 |
+| 4 | desk, 20 cm sideways | good | 455 | 10 | 0.87° | – | – | phone | – | – | 1 | 5 |
+| 4 | desk, start heading +90 | good | 782 | 9 | 0.98° | – | – | – | – | – | 0 | 6 |
+| 4 | desk, two objects moved | good | 607 | 9 | 1.84° | phone, mouse | – | – | – | – | 0 | 4 |
+| 5 | desk, rescan, nothing moved | good | 461 | 6 | 4.71° | – | – | – | – | – | 1 | 6 |
+| 5 | desk, rescan, mouse moved | good | 580 | 8 | 0.74° | mouse | – | – | – | – | 1 | 5 |
+| 5 | desk, 20 cm sideways | good | 443 | 9 | 2.71° | – | – | mouse | – | – | 1 | 6 |
+| 5 | desk, start heading +90 | good | 683 | 9 | 2.38° | – | – | – | – | – | 1 | 6 |
+| 5 | desk, two objects moved | good | 811 | 10 | 0.39° | phone, mouse | – | – | – | – | 1 | 4 |
+
+- Alignment over 25 scenario runs: good 22, weak 3, failed 0.
+- Yaw-offset error: mean 1.28°, max 4.71°.
+- False moves: 0 of 152 objects compared. False new: 0. False removed: 0.
+- True moves: 11 of 15 called moved, 1 more as moved (low confidence), 2 only as possibly moved.
+- Possibly moved: 7. Can't compare: 17.
+
+**Before and after on the same worlds** (10 seeds x 5 scenarios = 50 scenario runs and 30 true moves per texture level; "before" is the code at commit 124c694 run on the same rendered scans; the plainer desk, 0.1, is harder than the real one, the busier, 0.5, easier):
+
+| Desk texture | Code | Alignment good / weak / failed | True moves: moved | moved, low confidence | possibly moved | False moves | False new | False removed |
+|---|---|---|---|---|---|---|---|---|
+| 0.1 | before | 1 / 43 / 6 | 0 | – | 0 | 0 | 0 | 0 |
+| 0.1 | after | 36 / 14 / 0 | 15 | 3 | 4 | 0 | 0 | 0 |
+| 0.2 | before | 10 / 39 / 1 | 3 | – | 5 | 1 | 3 | 0 |
+| 0.2 | after | 39 / 11 / 0 | 19 | 5 | 3 | 0 | 0 | 0 |
+| 0.5 | before | 27 / 23 / 0 | 6 | – | 7 | 0 | 4 | 4 |
+| 0.5 | after | 39 / 11 / 0 | 21 | 2 | 1 | 0 | 0 | 0 |
+
+The mirror of the real case (desk 0.2, "mouse moved", 10 seeds): before, 9 weak and 1 failed alignment and the mouse found 0 times; after, 8 good and 2 weak, the mouse called moved 5 times, moved (low confidence) once, possibly moved 3 times and missed once (can't compare). Remaining weak results are mostly 3-shot rescans whose standard error (counted over distinct shots) is just over 1.5 degrees; that is thin evidence, and the scan quality card now asks for at least 5 shots.
+
+What changed and why: `docs/decisions.md`, 2026-10-31. How the static and moved objects separate in the local evidence (80 static object comparisons: at most 0.62 of the object's own size; moved: 2.05 or more) is in the same entry.
+
+## Near-field and room scans on the phone (reported by the owner, not re-measured here)
+
+The scans are in the owner's `data/` (a person's room), not in the repo, so these numbers are as reported on 2026-10-30/31 and could not be reproduced here; the synthetic desk above was built to mirror them.
+
+- **Desk, three scans** (phone, water bottle, paper cup, laptop, mouse, cables at about 40 to 60 cm; 3 to 4 frames of 540x960 each at an assumed 60 degree FOV; tilted down 35 to 45 degrees; mean pitch -42, -37, -34 per scan). Reference against an unmoved rescan: 1 of 12 candidate frame pairs matched, 84 inliers, offset -0.49 degrees (truth 0), parallax 0.35 degrees, quality weak. Reference against a rescan with the mouse moved (yaw/pitch 39/-43 to 23/-16): 1 of 12 pairs, 85 inliers, offset -0.69, weak; the mouse was not reported (true-move recall 0 of 1), no false moves.
+- **Office room, two scans** (27 and 34 objects): good alignment, 555 inliers from 11 pairs, offset -4 degrees, median parallax about 9.4 degrees; 11 possibly moved, 0 moved, 10 removed and 3 new that are very probably detector variance (one scan listed three paper cups, the other one).
+
+Not yet re-run with the 2026-10-31 code. To do on the laptop with the real database: `python scripts/eval_alignment.py --db data/world.sqlite --manifest manifest.json` for the two desk pairs (it works on a copy).
 
 ## Results
 

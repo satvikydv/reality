@@ -48,12 +48,16 @@ Thumb       {id, label, yaw, pitch, last_seen, room: {id, name, active}, replay:
 FindResult  {room_id, room_name, found, speech, concept, object: {id, label, yaw, pitch, n_obs, conf_best, age_s, uncertainty_deg} | null,
              from_scan_start: {dyaw, dpitch}, replay, checked: {scans, covered_deg, scan_id} (when not found)}
              all rooms: {all_rooms: true, groups: [FindResult-like, one per room], found, speech}
-Summary     {scan_id, room_id, room_name, status: "draft", speech, coverage: {covered_deg, gaps}, frames: {stored...}, seconds, cost_usd, objects: [{id, label, yaw, pitch, replay}]}
+Summary     {scan_id, room_id, room_name, status: "draft", speech, coverage: {covered_deg, gaps}, frames: {stored...}, seconds, cost_usd, objects: [{id, label, yaw, pitch, replay}],
+             scan_quality: {ok, words, tips: [string], checks: [{id: "frames" | "overlap" | "seen_twice" | "background" | "sharp", ok, value, target, tip}]} | null}
 Changes     {status, room, scan_before, scan_after, scans: [{id, started_at, baseline}], summary,
-             alignment: {quality: "good" | "weak" | "failed", inliers, pairs, spread_deg, offset_used_deg, offset_source, viewpoint_cm, method, translation, parallax_deg},
-             moved / possibly_moved: [{label, key, review, shift: {yaw_deg, pitch_deg, words}, from: {replay}, to: {replay}, sep_deg, tolerance_deg, uncertainty_deg, distance_cm}],
+             alignment: {quality: "good" | "weak" | "failed", inliers, pairs, frames_used_a, frames_used_b, spread_deg, offset_sem_deg, offset_used_deg, offset_source,
+                         pitch_bias_deg, viewpoint_cm, viewpoint_cm_measured, viewpoint_cm_used, low_confidence_enabled, method, translation, parallax_deg},
+             moved / moved_low_confidence / possibly_moved: [{label, key, review, shift: {yaw_deg, pitch_deg, words}, from: {replay}, to: {replay}, sep_deg, tolerance_deg,
+                         uncertainty_deg, distance_cm, local: {residual_deg, tolerance_deg, size_deg, views} | null}],
              removed / added: [{label, key, review, speech, replay}], cant_compare: [{label, key, was, reason}]  (also served as "unverified"), unchanged_count}
-             review: "confirmed" | "dismissed" | null. When alignment.quality is not "good" nothing is in moved, possibly_moved, removed or added.
+             review: "confirmed" | "dismissed" | null. When alignment.quality is not "good" nothing is in moved, possibly_moved, removed or added; moved_low_confidence
+             is only ever filled when it is "weak" (and the owner's switch MOVED_LOW_CONFIDENCE is on). removed / added need the object seen in two frames.
 ```
 
 Every list screen has the same set of non-happy states: `loading`, `error` (the server answered with an error), `offline` (not reachable, reconnecting by itself) and `slow` (no answer yet). Where a state would add nothing (a sheet, a form), it is left out.
@@ -129,13 +133,15 @@ How the lining up works: the phone sends a small live frame about twice a second
 
 ### `summary`
 
-Scan summary, then review. While frames are read: real progress, and after a stall a way out. Then objects grouped by kind with thumbnails (the biggest kinds, then one tappable "Others" tile), counts, and Save / Discard / View in room.
+Scan summary, then review. While frames are read: real progress, and after a stall a way out. Then objects grouped by kind with thumbnails (the biggest kinds, then one tappable "Others" tile), a **scan quality** card, counts, and Save / Discard / View in room.
+
+The scan quality card says whether this scan will compare well later and, if not, what to do next time, most useful first: take more shots (at least 5), pan slower so each thing is in two shots (something seen once is never called gone), pan slower so neighbouring shots overlap by half, tilt up so the far wall is in view (a desk-only scan has little that stays put), hold still at each step (blurred shots). It is advice: Save is never blocked by it. The checks are in `backend/app/scan_quality.py`; their thresholds were set on the synthetic worlds and are not yet checked on a phone.
 
 | State | Shows |
 |---|---|
 | `processing` | progress bar and "Reading frames: n of m" |
 | `stalled` | the same in warning colour, "Check the server" and "Go home" |
-| `review` | the sentence, grouped tiles (tap one to see its objects), frames, seconds, coverage, cost, Discard / Save / View in room |
+| `review` | the sentence, grouped tiles (tap one to see its objects), the scan quality card (green when good, else the tips), frames, seconds, coverage, cost, Discard / Save / View in room |
 | `empty` | nothing was found: the sentence and Discard (Save is disabled), View in room |
 
 - Data: progress (frames answered of frames sent), the summary with objects and thumbnails.
@@ -202,11 +208,14 @@ Guided search, camera on. An arrow toward the stored direction with a cone for h
 
 ### `changes`
 
-What changed in one room: a Before and an After picker over the room's saved scans (default: the latest against its baseline, else the one before), an **alignment** card (how well the two scans lined up from their pictures: good, weak or failed, with the matches and the start-heading difference), then moved / possibly moved / new / removed with before and after pictures and an angular shift ("moved 40° to the right"), a "Not checked" list for directions only one scan looked at, and Confirm / Dismiss per change. Scans of different rooms are never compared.
+What changed in one room: a Before and an After picker over the room's saved scans (default: the latest against its baseline, else the one before), an **alignment** card (how well the two scans lined up from their pictures: good, weak or failed, with the matches, the start-heading difference and how much viewpoint change a move must beat), then moved / possibly moved / new / removed with before and after pictures and an angular shift ("moved 40° to the right"), a "Can't compare" list with a reason each (direction not rescanned, seen only once, the scans did not line up), and Confirm / Dismiss per change. Scans of different rooms are never compared.
+
+**Moved, low confidence** (amber, "↔?") is its own group, never mixed into Moved: it appears only when the alignment is weak (never failed) and an object with a unique label moved far beyond anything the viewpoint explains. Its card says "seems to have moved … so check it". The owner can switch it off (`MOVED_LOW_CONFIDENCE=0`); the alignment card then says nothing is called moved.
 
 | State | Shows |
 |---|---|
 | `default` | pickers, the summary sentence, the alignment card, grouped change cards (Moved, Possibly moved, New, Removed), Can't compare |
+| `weak-alignment` | the scans lined up only roughly (or not at all): the alignment card says so, no Moved, New or Removed; Moved, low confidence when there is one; Can't compare with the reason |
 | `loading` | comparing |
 | `need-two` | the room has fewer than two saved scans; Scan this room |
 | `error` | what failed, Try again |
@@ -325,7 +334,7 @@ Notes: a bottom sheet over Explore. You leave a message in the room at the place
 
 ### `ask`
 
-Ask the room: a bottom sheet over Explore. A question in plain words ("What is charging?", "When did something last move?"), typed or spoken. The answer is read aloud, shown in a bar, and the objects it names are drawn over the camera with a reason each. It reasons over the names and directions the room remembers and what changed between its saved scans; photos are never sent.
+Ask the room: a bottom sheet over Explore. A question in plain words ("What is charging?", "What here might be unsafe?", "When did something last move?"), typed or spoken. The answer is read aloud, shown in a bar, and the objects it names are drawn over the camera with a reason each. It reasons over the names and directions the room remembers and what changed between its saved scans; photos are never sent. A question about safety always ends with "This comes from the names in the last scan only; it is not a safety check." In demo mode the answer follows the question (unsafe: the stove, the pills and a cable; otherwise what is charging).
 
 | State | Shows |
 |---|---|
@@ -338,7 +347,7 @@ Ask the room: a bottom sheet over Explore. A question in plain words ("What is c
 
 ### `history`
 
-Rewind: a bottom sheet over Explore listing the room's earlier saved scans. Choosing one shows, over the camera, what was there then and is gone or moved now (ghosts), aligned into today's directions. Directions the current scan never looked at are shown as "was here?", not as gone.
+Rewind: a bottom sheet over Explore listing the room's earlier saved scans. Choosing one shows, over the camera, what was there then and is gone or moved now (ghosts), aligned into today's directions. Directions the current scan never looked at, and objects the earlier scan saw only once, are shown as "was here?", not as gone. In demo mode: the pills' earlier place and the keys as "was here?".
 
 | State | Shows |
 |---|---|
