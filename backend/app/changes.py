@@ -390,7 +390,9 @@ def compare_scans(wm: WorldModel, scan_a: int, scan_b: int, align: dict | None =
         repeated = mult.get(a["label"], 1) > 1
         far = (local_far and sep > tol_assumed) or (not local_far and sep > upper)
         if not confident:
-            if low_conf_ok and not repeated and (lev["residual_deg"] > LOW_CONF_K * lev["tolerance_deg"] + low_unc and sep > tol + low_unc if lev is not None
+            # With local evidence the residual is measured from the pictures alone, whatever the scans' alignment: the same bar as for a good
+            # alignment, and the object must also be well away from where the compass puts it. Without it, only a shift far beyond the tolerance.
+            if low_conf_ok and not repeated and (lev["residual_deg"] > LOCAL_MOVED_K * lev["tolerance_deg"] and sep > tol + low_unc if lev is not None
                                                  else sep > LOW_CONF_K * tol + low_unc):
                 low.append({"label": b["label"], "from": before, "to": after, **info, "low_confidence": True,
                             "speech": f"The {b['label']} seems to have moved: it was {before['where']}, now {after['where']}. The two scans only lined up roughly, so check it."})

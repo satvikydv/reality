@@ -181,3 +181,11 @@ def test_objects_split_by_hand_drift_count_once_but_objects_seen_together_count_
     dets[2] = [{"frame_id": 10}]                                                      # seen in the same frame as 1: two mice
     assert changes._kinds(objs, dets, lambda o: 15.0)[0]["mouse"] == 3
 
+
+
+def test_local_predictions_come_from_every_matched_pair_not_only_those_the_offset_was_combined_from():
+    class Run:
+        done = {(1, 2): {"inliers": align.MIN_PAIR_INLIERS, "local": [{"det": 1, "into": 2}]},
+                (1, 3): {"inliers": align.MIN_PAIR_INLIERS - 1, "local": [{"det": 9, "into": 3}]},     # too few matches to trust its surroundings
+                (4, 2): None}                                                                           # no estimate at all
+    assert align._local_predictions(Run) == [{"det": 1, "into": 2}]

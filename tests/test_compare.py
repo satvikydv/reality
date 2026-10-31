@@ -1,6 +1,9 @@
 """Parallax-aware comparison of two scans: the classes, the tolerance that grows for near objects, and no "moved" when the alignment is weak."""
+import math
+
 import pytest
 
+from app import anchoring as A
 from app import changes, scale
 from app.world_model import WorldModel
 from synthetic_world import GOOD, add_scan, make_panorama
@@ -259,3 +262,25 @@ def test_the_switch_is_one_module_setting(wm, monkeypatch):
     on = changes.compare_scans(wm, a, b, align=WEAK)
     assert off["moved_low_confidence"] == [] and off["alignment"]["low_confidence_enabled"] is False
     assert labels(on, "moved_low_confidence") == ["plant"] and on["alignment"]["low_confidence_enabled"] is True
+
+
+def test_with_local_evidence_a_weak_alignment_calls_a_move_the_model_alone_would_leave_unexplained(wm):
+    a, b = far_move(wm, b_objs=(("plant", 88.0, 0.0), ("laptop", 200.0, 0.0)))     # 8 degrees: beyond the tolerance, short of three times it plus the uncertainty
+    alone = changes.compare_scans(wm, a, b, align=WEAK, low_confidence=True)
+    assert alone["moved_low_confidence"] == [] and any(e["label"] == "plant" and e["was"] == "moved?" for e in alone["cant_compare"])
+    dets_a, dets_b = changes._det_rows(wm, a), changes._det_rows(wm, b)
+    plant_a = next(o["id"] for o in wm.list_objects(a) if o["label"] == "plant")
+    plant_b = next(o["id"] for o in wm.list_objects(b) if o["label"] == "plant")
+    frames = {f["id"]: f for f in wm.list_frames(b)}
+    local = []
+    for da in dets_a[plant_a]:
+        for db in dets_b[plant_b]:                                                  # the texture around the plant says it should sit well away from where it was seen
+            f, bx = frames[db["frame_id"]], db["box"]
+            foc = A.focal_px(f["width"], f["hfov_deg"])
+            tol = max(changes.LOCAL_MIN_DEG, changes.LOCAL_SIZE_SHARE * math.degrees(math.atan2(max(bx[2] - bx[0], bx[3] - bx[1]), foc)))
+            local.append({"det": da["id"], "into": db["frame_id"], "n": 8, "spread_px": 0.0,
+                          "px": [(bx[0] + bx[2]) / 2.0 + foc * math.tan(math.radians(2.8 * tol)), (bx[1] + bx[3]) / 2.0]})
+    d = changes.compare_scans(wm, a, b, align={**WEAK, "local": local}, low_confidence=True)
+    assert labels(d, "moved_low_confidence") == ["plant"] and d["moved"] == []
+    e = d["moved_low_confidence"][0]
+    assert e["local"]["residual_deg"] > changes.LOCAL_MOVED_K * e["local"]["tolerance_deg"] and e["sep_deg"] < changes.LOW_CONF_K * e["tolerance_deg"] + changes.LOW_CONF_UNC_FLOOR

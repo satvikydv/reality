@@ -48,7 +48,7 @@ MIN_PAIR_INLIERS = 20   # a pair below this is not used
 ROT_THRESH_DEG = 0.5    # a match agrees with a rotation when the rays differ by less than this
 EPI_THRESH_FRAC = 0.0023  # epipolar threshold as a share of the frame width (1.5 px at 640)
 E_PREFERRED = 1.15      # the essential matrix must explain this many times the rotation model's matches to be preferred
-ALIGN_VERSION = 3       # bump when results change meaning: stored alignments of an older version are recomputed
+ALIGN_VERSION = 4       # bump when results change meaning: stored alignments of an older version are recomputed
 # Each pair's offset carries the sensor noise of both frames' poses (a phone's orientation is good to a few degrees), so pairs scatter by a
 # few degrees even when the alignment is right. What matters is how well the median is known: its standard error.
 GOOD_PAIRS, GOOD_INLIERS, GOOD_SEM_DEG, MAX_SPREAD_DEG = 3, 100, 1.5, 8.0
@@ -475,10 +475,17 @@ def _summary(ests: list[dict], method: str, run: _Run) -> dict:
             "spread_deg": round(c["spread"], 2), "offset_sem_deg": round(c["sem"], 2), "translation": trans, "parallax_deg": round(par, 2),
             "pitch_bias_deg": None if not bias_w else round(weighted_median(bias_p, bias_w), 2),
             "roll_bias_deg": None if not bias_w else round(weighted_median(bias_r, bias_w), 2),
-            "frame_poses": poses, "local": [p for e in used for p in e.get("local", [])],
+            "frame_poses": poses, "local": _local_predictions(run),
             "dropped_objects": sorted({e["dropped_object"] for e in used if e.get("dropped_object") is not None}),
             "reason": None if q == "good" else "too few matching pairs, too few matching points, or pairs that disagree too much: the alignment is only a rough guide",
             "pair_estimates": [{"a": e["a"], "b": e["b"], "inliers": e["inliers"], "yaw": round(wrap180(-e["yaw"]), 2), "model": e["model"]} for e in sorted(used, key=lambda e: -e["inliers"])[:20]]}
+
+
+def _local_predictions(run: _Run) -> list[dict]:
+    """Local predictions of every frame pair that matched well, not only the pairs the offset was combined from: a prediction is fitted to the
+    static features around one object and says nothing about the scans' offset, so a pair that the offset estimate dropped (a large viewpoint
+    change makes its rotation disagree with the others) still measures how far each object is from where its surroundings put it."""
+    return [p for e in run.done.values() if e is not None and e["inliers"] >= MIN_PAIR_INLIERS for p in e.get("local", [])]
 
 
 def _frame_poses(used: list[dict], frames_b: dict[int, dict]) -> tuple[dict, list, list, list]:
