@@ -8,7 +8,7 @@ Everything the phone needs comes back as JSON events:
   scan_started   {scan_id}
   frame_queued   {seq, queued}            frame_rejected {seq, reason}
   frame_done     {seq, stored, names, kept, objects, ms, usd, errors}      frame_error {seq, error}
-  scan_summary   {objects, speech, coverage, frames, cost_usd}
+  scan_summary   {objects, speech, coverage, frames, cost_usd, scan_quality}
   find_result    {query, concept, found, speech, object, replay}
 """
 from __future__ import annotations
@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from app import anchoring as A
+from app import scan_quality
 from app.coverage import coverage
 from app.events import EventBus
 from app.resolver import semantic_find, semantic_find_rooms
@@ -255,8 +256,13 @@ class ScanSession:
             rp = wm.replay(o["id"])
             return {"frame_id": rp["frame_id"], "box": rp["box"], "width": rp["width"], "height": rp["height"]} if rp else None
 
+        try:  # advice for a scan that will be compared later; never blocks saving
+            quality = await asyncio.to_thread(scan_quality.assess, wm, sid)
+        except Exception:  # noqa: BLE001  a check that fails must not lose the scan
+            log.exception("scan quality check failed for scan %s", sid)
+            quality = None
         summary = {"type": "scan_summary", "scan_id": sid, "room_id": self.room["id"], "room_name": self.room["name"], "status": "draft",
-                   "speech": speech, "coverage": cov, "cost_usd": round(self.usd, 4),
+                   "speech": speech, "coverage": cov, "cost_usd": round(self.usd, 4), "scan_quality": quality,
                    "seconds": round(time.perf_counter() - self.t0, 1), "timed_out": timed_out,
                    "frames": {k: self.stats[k] for k in ("received", "stored", "failed", "rejected")},
                    "objects": [{"id": o["id"], "label": o["label"], "yaw": round(o["yaw"], 1), "pitch": round(o["pitch"], 1),

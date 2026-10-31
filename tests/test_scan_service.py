@@ -203,6 +203,8 @@ def test_websocket_scan_find_and_frame_route(client):
         summary = got[-1]
         assert summary["frames"]["stored"] == 3 and summary["objects"][0]["label"] == "mug"
         assert summary["status"] == "draft" and summary["room_name"] == "Test" and summary["objects"][0]["replay"]["frame_id"]
+        q = summary["scan_quality"]                                     # three frames: advice to take more, never a refusal
+        assert q["ok"] is False and any("more shots" in t for t in q["tips"]) and {c["id"] for c in q["checks"]} >= {"frames", "overlap"}
         assert sum(m["type"] == "frame_done" for m in got) == 3
         save_drafts(client.svc)
 
