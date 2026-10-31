@@ -1,16 +1,20 @@
 # Reality OS
 
-An agent that watches the physical world through a phone camera, remembers it, guides and verifies real-world tasks, and exposes that world to other agents through an API.
+A phone camera pans around a room; Muse Spark and SAM 3.1 turn what it sees into objects, each remembered as a compass direction (never a distance). On that memory: find something and be guided to it, see what changed between two scans, rewind a room, ask it questions, leave notes in places, a caregiver view on a laptop, and a Reality API (MCP) so other agents can ask about the room.
 
-Entry for the Meta Global AI Developer Hackathon (Indie track, solo). Experimental prototype; no medical or safety-critical claims.
+Entry for the Meta Global AI Developer Hackathon (Indie track, solo). Experimental prototype; no medical or safety-critical claims. It is a memory of what the last scans saw, not live tracking, and never a safety check.
 
-> Status: **M0 (de-risk)**. See `docs/decisions.md` for scope decisions and `docs/measurements.md` for measured results.
+> Status: built and tested in code and on synthetic scenes; partly tried on one Android phone. What is measured, and what is not, is in `docs/measurements.md`; why things are as they are, in `docs/decisions.md`. Task planning and verification (`backend/app/programs/`) is not built.
 
 ## What was built when
 
 | Date | Built |
 |---|---|
 | 2026-10-27 | Repo skeleton, FastAPI HTTPS server with phone camera page + WebSocket frame echo, M0 measurement scripts |
+| 2026-10-28 | Room scan (Spark names, SAM masks, World Model of directions), find and guide, what changed, laptop dashboard, Reality API (MCP) |
+| 2026-10-29 | Rooms, first run and camera lifecycle, objects inspector and corrections, the calm overlay, the visual system |
+| 2026-10-30 | Notes in places, Ask the room, Rewind, caregiver view; scans aligned from their pictures, parallax-aware change classes, rescan assist |
+| 2026-10-31 | Near-field (desk) alignment, local evidence for moves, evidence rules for gone and new, "moved, low confidence", scan quality advice, the caregiver demo in demo mode |
 
 ## Run (Windows)
 
@@ -64,7 +68,16 @@ Get-Content data\server.err.log -Wait -Tail 20          # one line per scan fram
 .\.venv\Scripts\python.exe scripts\replay_scan.py --only 1301   # replay saved frames through the same WebSocket (no phone)
 ```
 
-Tests: `pytest tests` (server, plus the phone page in headless Chrome or Edge when one is installed: `tests/test_entry_flow.py`; set `CHROME_BIN` if it is not found), `node --test tests/js/*.test.mjs` (auto-capture, guidance and projection maths checked against the Python versions, and the first-run, permission and camera-lifecycle logic).
+Tests: `pytest tests` (server, plus the phone page in headless Chrome or Edge when one is installed: `tests/test_entry_flow.py`; set `CHROME_BIN` if it is not found), `node --test tests/js/*.test.mjs` (auto-capture, guidance and projection maths checked against the Python versions, and the first-run, permission and camera-lifecycle logic). On Linux or macOS with Python 3.11:
+
+```bash
+python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python -m pytest -q
+node --test tests/js/*.test.mjs
+.venv/bin/python scripts/eval_alignment.py --synthetic      # alignment and change classes on the synthetic room and desk, about a minute
+```
+
+No test calls the network or the model API: Spark is replaced by a stand-in.
 
 The phone UI also runs without the backend: open `/?demo` for mock data, or `/?demo&screen=<id>&state=<state>` to jump to any state of any screen (for example `/?demo&screen=find&state=all-results`; the screens and states are in `docs/screens.md`). It falls back to demo mode by itself when the server is not reachable.
 
@@ -101,9 +114,22 @@ The Reality API (MCP) gains `ask_room`, `list_notes` and `leave_note`, so anothe
 
 ### Scanning the same place twice
 
-Two scans of a room made from slightly different spots, or with a different start heading, used to look like moved objects. Now the scans are aligned from their pictures (`app/align.py`: SIFT features, RANSAC, a rotation fit and the essential matrix, combined by an inlier-weighted median) with a quality of good, weak or failed. Each object pair is then judged against how far a change of viewpoint alone could move it (`app/scale.py`: Spark gives a typical size per label, the box gives a distance, a 15 cm viewpoint error is assumed and configurable with `VIEWPOINT_ERROR_CM`): **unchanged**, **possibly moved**, **moved**, **new**, **removed**, or **can't compare**. When the alignment is weak or failed nothing is called moved.
+Two scans of a room made from slightly different spots, or with a different start heading, used to look like moved objects. Now:
 
-Before a rescan the phone shows the first scan's keyframe as a faded outline over the camera and says how to line up ("Turn left 8 degrees, move slightly right."). **Start anyway** is always there. Changes and the dashboard show the alignment (matches, start-heading difference) and keep Moved, Possibly moved and Can't compare apart. `python scripts/eval_alignment.py --synthetic` checks the maths on a rendered room; the protocol for measuring it on real scans is in `docs/measurements.md`.
+1. **The scans are aligned from their pictures** (`app/align.py`): SIFT features (kept on detected objects too, but a pair carried by one object is refitted without it, so a moved thing cannot pull the result), every frame pair for small scans, a rotation fit and the essential matrix, combined by an inlier-weighted median. Quality is good, weak or failed; the standard error counts distinct frames, not pairs. Each frame of the later scan also gets its pose in the earlier scan's frame from the images, which removes its compass noise and a tilt bias.
+2. **Each object is judged two ways** (`app/changes.py`). The texture right around it, at about its depth, says where it should appear from the new viewpoint: that is a measurement in pixels, with no sensor pose (local evidence). And a viewpoint model (`app/scale.py`): Spark gives a typical size per label, the box a distance, and a change of viewpoint (15 cm assumed, `VIEWPOINT_ERROR_CM`, or what the objects that stayed put show, if more) can shift it by so much. The classes are **unchanged**, **possibly moved**, **moved**, **new**, **removed** and **can't compare** (with the reason). A move is called only when both agree.
+3. **Gone and new need evidence**: the object seen in at least two frames, and the other scan having looked at that spot. One missed detection is "can't compare: seen only once", not "gone".
+4. **When the alignment is weak or failed nothing is called moved, new or removed**, with one exception the owner can switch off (`MOVED_LOW_CONFIDENCE=0`): **moved, low confidence**, its own amber group, for a unique object that moved far beyond anything the viewpoint explains while the images agree with the compass.
+
+Before a rescan the phone shows the first scan's keyframe as a faded outline over the camera and says how to line up ("Turn left 8 degrees, move slightly right."). **Start anyway** is always there. After a scan, the review shows a **scan quality** card: take at least 5 shots, keep each thing in two shots, tilt up so the wall behind the desk is in view, hold still; it never blocks Save. Changes and the dashboard show the alignment and keep Moved, Moved (low confidence), Possibly moved and Can't compare apart. `python scripts/eval_alignment.py --synthetic` measures all of it on a rendered room and on a desk rendered with depth (real parallax); the protocol for real scans is in `docs/measurements.md`.
+
+### Honest limits
+
+- **Not verified on a phone**: the near-field alignment, the local evidence, "moved, low confidence" and the scan quality thresholds were set and measured on synthetic scenes only (rendered boxes, exact poses, boxes from visible pixels). Real SAM boxes jitter more; the controlled protocol in `docs/measurements.md` (same spot, 20 cm sideways, heading rotated 90 degrees, two objects moved) has not been run.
+- **Real desk scans aligned only weakly before this change** (1 of 12 frame pairs matched); they have not been re-run with it.
+- **Ask** has not been measured against real Spark (target: 8 of 10 questions judged right). Its answers come from object names and directions only; it cannot know whether a stove is on or a blade exposed, and says so.
+- **Directions, not positions**: everything is a direction from roughly where the scans were made. Notes and ghosts are right from about there. The memory can split a near object into two when the hand drifts between shots.
+- **The caregiver view** shows what each room's last scan saw, when, and a photo. It is not tracking, and the consent switch is a gate in this app, not a login.
 
 ### Calibrate the camera
 
@@ -125,7 +151,7 @@ Coverage (the ring on the phone, the scan summary, the "not seen" answer) is one
 
 ## Laptop dashboard
 
-Open `http://127.0.0.1:8000/dashboard` on the laptop while the phone scans. It shows the room map filling in (compass, north up), counters (frames, objects, seconds, cost), a log of everything the phone and any agent does, the last Reality API call with the photo it was shown, and a compare panel (pick two scans, "What changed?") with before and after photos. A dashboard opened mid-scan catches up from the last 200 events. `/dashboard?demo` plays scripted data without the backend. The page needs the same `MODEL_API_KEY` setup as scanning, because it reads the same server state.
+Open `http://127.0.0.1:8000/dashboard` on the laptop while the phone scans. It shows the room map filling in (compass, north up), counters (frames, objects, seconds, cost), a log of everything the phone and any agent does, the last Reality API call with the photo it was shown, and a compare panel (pick two scans, "What changed?") with before and after photos. A dashboard opened mid-scan catches up from the last 200 events. `/dashboard?demo` plays scripted data without the backend, and its **Care** button shows the caregiver view with made-up data (pills last seen in the kitchen, keys not seen). The page needs the same `MODEL_API_KEY` setup as scanning, because it reads the same server state.
 
 ## Reality API (for other agents)
 
@@ -136,7 +162,7 @@ The scanned room is also an MCP server, so another agent can ask about it. It is
 | `list_rooms()` | the rooms, which one is active, how many objects each remembers, when it was last scanned |
 | `where_is(query, room?)` | where something is, from a name or a description ("the thing I charge my laptop with"): compass direction, direction from the scan start, neighbours, a photo reference, last seen, confidence. `status` is `found`, `not_seen` (with how much of the room the latest scan covered) or `unresolved` |
 | `list_objects(label?, scan_id?, room?)`, `scan_summary(scan_id?, room?)` | what a scan found, counts per kind, coverage and gaps |
-| `what_changed(scan_before?, scan_after?, room?)` | added, removed and moved objects between two scans, plus `unverified` objects in directions only one scan looked at |
+| `what_changed(scan_before?, scan_after?, room?)` | moved, possibly moved, added and removed objects between two scans, how well the scans lined up, `moved_low_confidence` (check it), and `cant_compare` with a reason each (also served as `unverified`) |
 | `guide_user_to(query, room?)` | the one action: the connected phone shows the answer and starts the direction arrow |
 | `get_frame(frame_id)` | the stored photo (may show people: turn it off with `REALITY_API_FRAMES=0`) |
 
