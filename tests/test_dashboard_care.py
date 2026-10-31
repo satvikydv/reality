@@ -55,3 +55,18 @@ def test_with_consent_it_shows_the_room_the_photo_the_age_and_alerts_and_answers
     p.wait("document.getElementById('careans').textContent.includes('Kitchen')", what="the answer")
     assert "not live" in p.text("#careans") and p.eval("document.querySelectorAll('#careans canvas').length") == 1
     assert p.errors == []
+
+
+def test_the_dashboard_demo_shows_the_caregiver_view_without_a_server(site, clean):
+    p = site.page({})
+    p.call("Page.navigate", url=site.base + "/dashboard?demo")
+    p.call("Emulation.setDeviceMetricsOverride", width=1440, height=900, deviceScaleFactor=1, mobile=False)
+    p.wait("!!window.__care", what="the dashboard")
+    p.tap("#carebtn")
+    p.wait("document.querySelectorAll('#careitems .citem').length===3", what="the demo items")
+    assert "ON" in p.text("#careconsent") and "usually lives in Bedroom" in p.text("#careitems") and "Not seen" in p.text("#careitems")
+    p.eval("document.getElementById('careq').value='where are the pills?'")
+    p.tap("#careask")
+    p.wait("!!document.querySelector('#careans .ans')", what="the answer")
+    assert "not live" in p.text("#careans") and p.errors == []
+

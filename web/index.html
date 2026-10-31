@@ -82,6 +82,7 @@
       <h1 id="sumtext">I found 14 objects.</h1>
       <div class="gtiles" id="sumtiles"></div>
       <div class="thumbs" id="sumdetail" hidden></div>
+      <div class="sumq panel" id="sumq" hidden><h2 id="sumqtitle"></h2><ul id="sumqtips"></ul></div>
       <div class="meta"><div><span class="label">Frames</span><b id="mf">–</b></div><div><span class="label">Seconds</span><b id="ms">–</b></div><div><span class="label">Cover</span><b id="mc">–</b></div><div><span class="label">Cost</span><b id="mu">–</b></div></div>
       <div class="row"><button class="btn ghost" data-act="discard-review">Discard</button><button class="btn" data-act="save-review" id="sumsave">Save</button></div>
       <button class="plainbtn" data-act="inspect-scan" id="sumobjs">Review objects</button>
@@ -170,8 +171,8 @@
 <section class="scr" id="s-changes">
   <header class="top"><span class="pill panel mono" id="chgpill">WHAT CHANGED</span><button class="roomsw pill panel" data-act="switcher" aria-label="Switch room"><span class="dot"></span><span class="rn">No room</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button></header>
   <div class="body">
-    <div class="picker panel" data-show="default nothing-changed"><label>Before<select id="chbefore" aria-label="Earlier scan"></select></label><label>After<select id="chafter" aria-label="Later scan"></select></label></div>
-    <div class="chg" id="chg" data-show="default nothing-changed"></div>
+    <div class="picker panel" data-show="default nothing-changed weak-alignment"><label>Before<select id="chbefore" aria-label="Earlier scan"></select></label><label>After<select id="chafter" aria-label="Later scan"></select></label></div>
+    <div class="chg" id="chg" data-show="default nothing-changed weak-alignment"></div>
     <div class="statecard panel" data-show="loading slow"><div class="spin"></div><h2 id="chgloadtitle">Comparing your scans…</h2><p id="chgloadtext">This usually takes a second.</p></div>
     <div class="statecard panel" data-g="!" data-show="need-two error offline no-room"><h2 id="chgtitle"></h2><p id="chgtext"></p><button class="plainbtn" id="chgact" data-act="changes-act"></button></div>
   </div>
@@ -309,6 +310,7 @@
     <div class="askstate panel" id="askrbusy" data-show="busy error" role="status"><div class="spin" id="askrspin"></div><span id="askrmsg"></span></div>
     <div id="askexamples" data-show="idle error">
       <button class="chip qrow" data-act="ask-example" data-q="What is charging?">What is charging?</button>
+      <button class="chip qrow" data-act="ask-example" data-q="What here might be unsafe?">What here might be unsafe?</button>
       <button class="chip qrow" data-act="ask-example" data-q="What here is fragile?">What here is fragile?</button>
       <button class="chip qrow" data-act="ask-example" data-q="What should I take with me when I leave?">What should I take with me when I leave?</button>
       <button class="chip qrow" data-act="ask-example" data-q="When did something last move or go missing?">When did something last move or go missing?</button>

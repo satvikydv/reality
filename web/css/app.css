@@ -181,6 +181,8 @@ body.dbg.cam #dev{display:block}
 #s-summary[data-state=stalled] .procrow{color:var(--amber)}
 #s-summary .row .btn{flex:1}#s-summary .plainbtn{width:100%}
 .gtiles{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s-2)}
+.sumq{padding:12px 14px;border-radius:var(--r-lg)}.sumq h2{margin:0 0 6px;font:600 var(--t-sm)/1.4 var(--sans)}.sumq ul{margin:0;padding-left:18px;color:var(--dim);font:400 var(--t-sm)/1.5 var(--sans)}
+.sumq.ok h2{color:var(--green)}.sumq.tips{border-color:var(--amber-line)}
 .gtile{display:flex;flex-direction:column;gap:6px;padding:8px;position:relative;text-align:left;min-height:var(--tap);color:var(--ink);border-radius:var(--r-md)}
 .gtile canvas{width:100%;aspect-ratio:4/3;border-radius:var(--r-sm);background:var(--surface);display:block}
 .gtile b{font:600 var(--t-sm) var(--sans);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

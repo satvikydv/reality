@@ -21,7 +21,11 @@ export const OBJECTS = [["laptop", -20, 5], ["laptop", 35, 0], ["laptop", 200, 8
 const recent = () => OBJECTS.slice(0, 5).map((o, i) => ({ ...o, last_seen: t(600 * (i + 1)), room: ref(R(1)) }));
 
 const SUMMARY = () => ({ type: "scan_summary", scan_id: 7, room_id: 1, room_name: "Living Room", status: "draft", speech: "I found 14 objects: 3 laptops, 3 cables, 2 water bottles, a charger, a mug, keys and a phone.",
-  coverage: { covered_deg: 349, gaps: [[100, 110]] }, frames: { received: 42, stored: 42, failed: 0, rejected: 0 }, seconds: 31, cost_usd: 0.084, objects: OBJECTS });
+  coverage: { covered_deg: 349, gaps: [[100, 110]] }, frames: { received: 42, stored: 42, failed: 0, rejected: 0 }, seconds: 31, cost_usd: 0.084, objects: OBJECTS,
+  scan_quality: { ok: false, words: "Saved scans can still be compared, but a later comparison will be surer if next time you:",
+    tips: ["Pan slower so each thing is in at least two shots: only 9 of 14 were. Something seen once cannot be called gone later.",
+      "Tilt up a little so the far wall is in view: the shots are mostly the desk and the things on it, which leaves little to line a later scan up with."],
+    checks: [{ id: "frames", ok: true, value: 42, target: 5, tip: null }, { id: "seen_twice", ok: false, value: "9 of 14", target: "60%", tip: "Pan slower so each thing is in at least two shots." }] } });
 
 const scans = () => [
   { id: 7, status: "draft", baseline: 0, started_at: t(300), ended_at: t(260), n_objects: 14, n_frames: 42, room_id: 1 },
@@ -48,10 +52,23 @@ const CHANGES = () => ({ status: "ok", room: ref(R(1)), scan_before: 2, scan_aft
   summary: "The mug moved. The charger may have moved. A water bottle is new. 1 object could not be compared.",
   alignment: { quality: "good", method: "pose prior", offset_deg: 37.2, offset_used_deg: 37.2, offset_source: "images", inliers: 214, pairs: 6, spread_deg: 0.4, viewpoint_cm: 15, parallax_deg: 1.1 },
   moved: [{ label: "mug", key: "moved:10:11", review: null, shift: { yaw_deg: 40, pitch_deg: 0, words: "40° to the right" }, from: { replay: SHOT }, to: { replay: SHOT }, speech: "The mug moved.", tolerance_deg: 8.2 }],
+  moved_low_confidence: [],
   possibly_moved: [{ label: "charger", key: "possibly_moved:15:16", review: null, shift: { yaw_deg: 12, pitch_deg: 0, words: "12° to the right" }, from: { replay: SHOT }, to: { replay: SHOT }, speech: "The charger may have moved.", tolerance_deg: 8.2 }],
   removed: [{ label: "keys", key: "removed:12", review: "confirmed", replay: SHOT, speech: "The keys are gone; they were 150 degrees right, near the door." }],
   added: [{ label: "bottle", key: "added:13", review: "dismissed", replay: SHOT, speech: "A bottle is new, 40 degrees right, on the desk." }],
   cant_compare: [{ label: "phone", key: "cant_compare:14", was: "removed?", reason: "that direction was not rescanned" }], unchanged_count: 10 });
+
+// a desk rescanned from 3 frames: the pictures line up only roughly, so the only claim is a move far beyond what the viewpoint explains
+const WEAK_CHANGES = () => {
+  const cant = [{ label: "laptop", key: "cant_compare:21", was: "moved?", reason: "the two scans only lined up roughly, so this cannot be called a move" },
+    { label: "cup", key: "cant_compare:22", was: "removed?", reason: "the two scans only lined up roughly, so this cannot be called a move" }];
+  return { ...CHANGES(), summary: "The two scans lined up only roughly, so I can only point out a change too big to be the viewpoint. The mouse seems to have moved: it was 40° right, now 25° right. The two scans only lined up roughly, so check it. 2 objects could not be compared.",
+    alignment: { quality: "weak", method: "all pairs", offset_deg: 0.6, offset_used_deg: 0.6, offset_source: "images", inliers: 84, pairs: 1, spread_deg: 0, offset_sem_deg: 1.3, viewpoint_cm: 15, parallax_deg: 0.4, low_confidence_enabled: true },
+    moved: [], possibly_moved: [], removed: [], added: [],
+    moved_low_confidence: [{ label: "mouse", key: "moved_low_confidence:30:31", review: null, low_confidence: true, shift: { yaw_deg: -16, pitch_deg: 27, words: "16° to the left and 27° up" },
+      from: { replay: SHOT }, to: { replay: SHOT }, speech: "The mouse seems to have moved.", tolerance_deg: 9.0, sep_deg: 30.1 }],
+    cant_compare: cant, unverified: cant, unchanged_count: 3 };
+};
 
 const settingsRooms = () => rooms();
 
@@ -127,7 +144,8 @@ export const FIXTURES = {
     offline: () => ({ room: R(1), message: "The server is not reachable. Reality OS keeps trying to reconnect by itself." }),
     slow: () => ({ room: R(1), message: "The server is slower than usual. You can wait, or go back and try later." }),
     "no-room": () => ({ room: null, rooms: rooms() }),
-    "nothing-changed": () => ({ room: R(1), data: { ...CHANGES(), moved: [], removed: [], added: [], unverified: [], summary: "Nothing changed." } }),
+    "nothing-changed": () => ({ room: R(1), data: { ...CHANGES(), moved: [], moved_low_confidence: [], possibly_moved: [], removed: [], added: [], cant_compare: [], unverified: [], summary: "Nothing changed." } }),
+    "weak-alignment": () => ({ room: R(1), data: WEAK_CHANGES() }),
   },
   settings: { default: () => ({ rooms: settingsRooms() }), loading: () => ({}), error: () => ({ message: "The server answered with an error (500)." }) },
   roomsettings: { default: () => ({ room: R(1), scans: scans() }), error: () => ({ room: R(1), scans: scans(), message: "There is already a room called Desk." }) },

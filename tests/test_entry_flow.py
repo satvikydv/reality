@@ -982,6 +982,29 @@ def test_ask_the_room_draws_only_the_objects_the_answer_names(site, clean):
     assert p.text("#askrmsg") and p.eval("document.getElementById('s-ask').classList.contains('on')") is True and p.errors == []
 
 
+def test_the_caregiver_story_runs_in_demo_mode_without_a_server(site, clean):
+    p = site.page(READY).open("/?demo&screen=explore")
+    p.wait("document.body.dataset.screen==='explore'")
+    p.tap("#s-explore [data-act=open-ask]")
+    p.tap("#s-ask [data-act=ask-example][data-q='What here might be unsafe?']")
+    p.wait("document.getElementById('askbar').classList.contains('on')", what="the answer bar")
+    assert "not a safety check" in p.text("#askbartext")
+    asked = p.eval("[...window.__ui.world.asked.keys()].map(id=>window.__ui.world.objects.find(o=>o.id===id).label).sort()")
+    assert asked == ["cable", "pills", "stove"]
+    p.tap("#askbar [data-act=clear-ask]")
+    p.tap("#s-explore [data-act=open-history]")
+    p.wait("document.getElementById('s-history').dataset.state==='default'")
+    p.tap("#histlist [data-act=pick-then]")
+    p.wait("window.__ui.world.ghosts.length===2", what="the ghosts")
+    assert p.eval("window.__ui.world.ghosts.map(g=>g.label+':'+g.kind).join()") == "pills:moved,keys:gone" and "pills" in p.text("#thenbartext")
+    p.tap("#thenbar [data-act=clear-then]")
+    p.tap("#s-explore [data-act=open-note]")
+    p.eval("document.getElementById('notetext').value='Turn the stove off after cooking'")
+    p.tap("#s-note [data-act=save-note]")
+    p.wait("window.__ui.world.notes.some(n=>n.text==='Turn the stove off after cooking')", what="the note")
+    assert p.errors == []
+
+
 def test_rewind_shows_what_an_earlier_scan_had_as_ghosts_and_clears(site, clean):
     rid = site.room("Study", active=True, label="mug", ts=100.0)
     site.scan_in(rid, "lamp", 0.0, 200.0)                              # the mug is gone, a lamp is there now
@@ -1063,6 +1086,18 @@ def test_changes_shows_the_alignment_and_keeps_possibly_moved_and_cant_compare_a
     assert p.eval("document.querySelectorAll('#chg .chgcard[data-kind=possibly_moved]').length") == 1
     card = p.text("#chg .chgcard[data-kind=possibly_moved]")
     assert "may have moved" in card and " m " not in card and "meter" not in card
+
+
+def test_a_weak_alignment_shows_only_the_low_confidence_move_in_its_own_group(site, clean):
+    p = site.page(READY).open("/?demo&screen=changes&state=weak-alignment")
+    p.wait("document.getElementById('s-changes').dataset.state==='weak-alignment'")
+    p.settle(0.5)
+    assert p.eval("!!document.querySelector('#chg .align.weak')") and "marked low confidence" in p.text("#chg .align")
+    heads = p.eval("[...document.querySelectorAll('#chg h2')].map(h=>h.textContent)")
+    assert any(h.startswith("↔?Moved, low confidence") for h in heads) and not any(h.startswith("↔Moved") for h in heads)
+    assert not any(h.startswith(("−Removed", "+New")) for h in heads) and any(h.startswith("?Can’t compare") for h in heads)
+    card = p.text("#chg .chgcard[data-kind=moved_low_confidence]")
+    assert "seems to have moved" in card and "check it" in card and " cm" not in card
 
 
 def test_a_weak_alignment_is_explained_and_no_move_is_shown(site, clean):
