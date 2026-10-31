@@ -86,9 +86,9 @@ async function loadScans() {
   }
 }
 
-const GROUPS = [['moved', '↔', 'var(--accent)', 'Moved'], ['possibly_moved', '≈', 'var(--amber)', 'Possibly moved'], ['removed', '−', 'var(--red)', 'Removed'], ['added', '+', 'var(--green)', 'Added'],
+const GROUPS = [['moved', '↔', 'var(--accent)', 'Moved'], ['moved_low_confidence', '↔?', 'var(--amber)', 'Moved, low confidence'], ['possibly_moved', '≈', 'var(--amber)', 'Possibly moved'], ['removed', '−', 'var(--red)', 'Removed'], ['added', '+', 'var(--green)', 'Added'],
   ['cant_compare', '?', 'var(--dim)', 'Can’t compare']];
-const two = kind => kind === 'moved' || kind === 'possibly_moved';
+const two = kind => kind === 'moved' || kind === 'possibly_moved' || kind === 'moved_low_confidence';
 const textOf = e => e.speech || (e.reason ? `${e.label}: ${e.reason}.` : '');
 let shown = [], at = -1; // the changes of the last comparison, and which one the viewer shows
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -155,9 +155,10 @@ async function compare() {
   if (r.status !== 'ok') { clearResults(r.message || r.detail || r.status); return; }
   const al = r.alignment || {}, q = al.quality || 'failed';
   $('chalign').textContent = `Alignment ${q}` + (al.inliers ? ` · ${al.inliers} matches from ${al.pairs} frame pairs · start heading differs by ${Math.round((al.offset_used_deg || 0) * 10) / 10}° (±${al.spread_deg ?? 0}°)` : '')
-    + (q === 'good' ? ` · a move counts beyond what ${al.viewpoint_cm || 15} cm of viewpoint change explains` : ' · nothing is called moved, new or removed');
+    + (q === 'good' ? ` · a move counts beyond what ${Math.round(al.viewpoint_cm_used || al.viewpoint_cm || 15)} cm of viewpoint change explains`
+      : q === 'weak' && al.low_confidence_enabled ? ' · nothing is called moved, new or removed except moves marked low confidence' : ' · nothing is called moved, new or removed');
   $('chalign').className = 'al-' + q;
-  $('chsum').textContent = `${r.moved.length} moved, ${(r.possibly_moved || []).length} possibly moved, ${r.removed.length} removed, ${r.added.length} added, ${r.unchanged_count} unchanged, ${(r.cant_compare || []).length} can’t compare`;
+  $('chsum').textContent = `${r.moved.length} moved, ${(r.moved_low_confidence || []).length} moved (low confidence), ${(r.possibly_moved || []).length} possibly moved, ${r.removed.length} removed, ${r.added.length} added, ${r.unchanged_count} unchanged, ${(r.cant_compare || []).length} can’t compare`;
   shown = GROUPS.flatMap(([k]) => (r[k] || []).map(e => ({kind: k, e})));
   $('cards').replaceChildren(...(shown.length ? shown.map((x, i) => card(x.kind, x.e, i)) : [el('div', 'empty', 'Nothing changed between these two scans.')]));
   $('clr').hidden = false;

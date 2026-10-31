@@ -312,12 +312,15 @@ RENDER.summary=(state,d={})=>{
     const {tiles,others}=summaryTiles(m.objects);
     const oth=others&&(()=>{const b=groupTile(others,false);b.classList.add('others');b.replaceChildren(mk('b',null,'Others'),mk('span','n',String(others.count)));return b})();
     $('sumtiles').replaceChildren(...tiles.map(g=>groupTile(g,false)),...(oth?[oth]:[]));
-    $('sumdetail').hidden=true;paintThumbs($('sumtiles'));
+    $('sumdetail').hidden=true;paintThumbs($('sumtiles'));scanQuality(m.scan_quality);
     txt('mf',frames);txt('ms',Math.round(m.seconds));txt('mc',Math.round((cover||0)*100)+'%');txt('mu',m.cost_usd==null?'–':'$'+m.cost_usd.toFixed(3));
     $('sumsave').disabled=state==='empty';
     if(scrn!=='summary'){go('summary');speak(m.speech);buzz([20,40,20])}}
   else{const p=d.progress||{fraction:0,text:'Starting…',level:'ok'};txt('proctxt',p.text);$('procbar').style.width=Math.round(p.fraction*100)+'%';txt('procpct',Math.round(p.fraction*100)+'%');if(scrn!=='summary')go('summary')}
   setState('summary',state)};
+function scanQuality(q){ // advice for comparing this scan later; it never blocks Save
+  const box=$('sumq');box.hidden=!q;if(!q)return;box.className='sumq panel '+(q.ok?'ok':'tips');
+  txt('sumqtitle',q.words||(q.ok?'A good scan to compare against later.':'Next time:'));$('sumqtips').replaceChildren(...(q.tips||[]).map(t=>mk('li',null,t)))}
 function toggleTile(label){ // tap a tile: its objects open below; tap again to close. "Others" holds the rest.
   if(!summary)return;const {others}=summaryTiles(summary.objects),isOthers=label==='Others'&&others;
   const objs=isOthers?others.objects:summary.objects.filter(o=>o.label===label);
@@ -530,11 +533,16 @@ async function noteAct(kind,id){
 
 RENDER.ask=(state,d={})=>{setState('ask',state);txt('askrmsg',state==='busy'?'Thinking about this room…':(d.message||''));$('askrspin').style.display=state==='busy'?'':'none'};
 function openAsk(){if(exRoom()==null)return;RENDER.ask('idle');section('ask').classList.add('on');$('askq').value=''}
-function demoAsk(){const m=world.objects.filter(o=>/laptop|cable|charger|phone/.test(o.label)).slice(0,3);
+function demoAsk(q){ // demo answers follow the question a little, so the caregiver story can be shown without a server
+  const pick=re=>world.objects.filter(o=>re.test(o.label));
+  if(/unsafe|safe|danger|hazard|hurt|fire|burn|sharp/i.test(q)){const why={stove:'heat: check it is off',pills:'medicine, within reach',cable:'a cable low down'};
+    const m=[...pick(/stove/),...pick(/pills/),...pick(/cable/).slice(0,1)];
+    return{status:'ok',answer:'The stove, the pills and a cable low down might need a look. This comes from the names in the last scan only; it is not a safety check. (demo)',matches:m.map(o=>({object_id:o.id,label:o.label,reason:why[o.label]}))}}
+  const m=pick(/laptop|cable|charger|phone/).slice(0,3);
   return{status:'ok',answer:'These are probably plugged in or charging (demo).',matches:m.map(o=>({object_id:o.id,label:o.label,reason:'a cable or charger is near it'}))}}
 async function askGo(q){
   q=(q||$('askq').value).trim();if(!q)return;$('askq').value=q;RENDER.ask('busy');
-  const r=demo?{ok:true,data:demoAsk()}:await api.ask(exRoom(),q);
+  const r=demo?{ok:true,data:demoAsk(q)}:await api.ask(exRoom(),q);
   if(!r.ok)return RENDER.ask('error',{message:describeFailure(r,'answer that').text});
   const d=r.data;if(d.status!=='ok')return RENDER.ask('error',{message:d.message||d.answer||'There was no answer.'});
   closeSwitcher();world.setAsk(d.matches);txt('askbartext',d.answer);$('askbar').classList.add('on');speak(d.answer)}
@@ -547,8 +555,11 @@ async function openHistory(){
   if(!r.ok)return RENDER.history('error',{message:describeFailure(r,'load the scans').text});
   const earlier=r.data.scans.filter(s=>s.status==='saved').slice(1); // newest first: the first saved scan is the room's memory, the rest is history
   RENDER.history(earlier.length?'default':'empty',{scans:earlier})}
-function demoRewind(){const o=world.objects.filter(x=>x.label==='mug'||x.label==='keys').slice(0,2);
-  return{status:'ok',then:{id:2,started_at:Date.now()/1000-90000},summary:'The mug and the keys were there then.',ghosts:o.map((x,i)=>({label:x.label,yaw:x.yaw,pitch:x.pitch,kind:'gone',unsure:i===1}))}}
+function demoRewind(){ // the pills were by the mug yesterday and are by the window now; the keys were in a direction today's scan did not cover
+  const mug=world.objects.find(x=>x.label==='mug'),keys=world.objects.find(x=>x.label==='keys');
+  const ghosts=[...(mug?[{label:'pills',yaw:mug.yaw+8,pitch:mug.pitch-6,kind:'moved',unsure:false,text:'The pills moved: they were near the mug then.'}]:[]),
+    ...(keys?[{label:'keys',yaw:keys.yaw,pitch:keys.pitch,kind:'gone',unsure:true,text:'The keys were there then; that direction was not rescanned, so they may still be.'}]:[])];
+  return{status:'ok',then:{id:2,started_at:Date.now()/1000-90000},summary:'The pills were near the mug then and have moved since. The keys were there too, but that direction was not rescanned.',ghosts}}
 async function pickThen(id){
   closeSwitcher();const r=demo?{ok:true,data:demoRewind()}:await api.rewind(exRoom(),id);
   if(!r.ok)return toast(describeFailure(r,'rewind this room').text);
@@ -569,10 +580,10 @@ function fillPicker(d){
 RENDER.changes=(state,d={})=>{
   const room=d.room;chgRoom=room?.id??null;setState('changes',state);
   txt('chgpill',room?room.name.toUpperCase():'WHAT CHANGED');
-  if(state==='default'||state==='nothing-changed'){
+  if(state==='default'||state==='nothing-changed'||state==='weak-alignment'){
     const c=d.data;fillPicker(c);
     const kids=[mk('div','grp panel sumline',c.summary),alignCard(c.alignment||{})];
-    for(const[k,icon,color,name]of[['moved','↔','var(--accent)','Moved'],['possibly_moved','≈','var(--amber)','Possibly moved'],['removed','−','var(--red)','Removed'],['added','+','var(--green)','New']]){
+    for(const[k,icon,color,name]of[['moved','↔','var(--accent)','Moved'],['moved_low_confidence','↔?','var(--amber)','Moved, low confidence'],['possibly_moved','≈','var(--amber)','Possibly moved'],['removed','−','var(--red)','Removed'],['added','+','var(--green)','New']]){
       if(!(c[k]||[]).length)continue;const g=mk('div','grp panel'),h=mk('h2'),ic=mk('span','ic',icon);ic.style.background=color;h.append(ic,name,mk('span','n',c[k].length));g.append(h);
       for(const e of c[k])g.append(changeCard(k,e));kids.push(g)}
     const cant=c.cant_compare||c.unverified||[];
@@ -596,13 +607,13 @@ async function openChanges(roomId=null,{before,after}={}){
   const d=r.data;
   if(d.status==='need_two_scans')return RENDER.changes('need-two',{room,message:d.message});
   if(d.status!=='ok')return RENDER.changes('error',{room,message:d.message||d.status});
-  const empty=!d.moved.length&&!d.removed.length&&!d.added.length&&!d.unverified.length;
-  RENDER.changes(empty?'nothing-changed':'default',{room,data:d});speak(d.summary);buzz(25)}
+  const empty=!d.moved.length&&!(d.moved_low_confidence||[]).length&&!(d.possibly_moved||[]).length&&!d.removed.length&&!d.added.length&&!d.unverified.length;
+  RENDER.changes((d.alignment||{}).quality!=='good'?'weak-alignment':empty?'nothing-changed':'default',{room,data:d});speak(d.summary);buzz(25)}
 async function reviewChange(key,state){ // confirm or dismiss one change (an empty state clears the mark)
   const c=$('chg')._data;if(!c)return;
   if(!demo){const r=await api.review(chgRoom,c.scan_before,c.scan_after,key,state||null);if(!r.ok)return toast(describeFailure(r,'save that').text)}
-  for(const k of['moved','possibly_moved','removed','added'])for(const e of c[k]||[])if(e.key===key)e.review=state||null;
-  RENDER.changes('default',{room:roomById(S(),chgRoom),data:c})}
+  for(const k of['moved','moved_low_confidence','possibly_moved','removed','added'])for(const e of c[k]||[])if(e.key===key)e.review=state||null;
+  RENDER.changes((c.alignment||{}).quality!=='good'?'weak-alignment':'default',{room:roomById(S(),chgRoom),data:c})}
 
 /* Objects review (the simple phone version of the dashboard inspector): labels, then instances, then sightings */
 let insp={scanId:null,roomId:null,label:null,objectId:null,data:null,detail:null,picked:new Set()};
@@ -876,7 +887,7 @@ async function boot(){
 const demoBase=()=>{const b=fixture('home','default');store.set({rooms:b.rooms,recent:b.recent,activeId:1,roomsLoaded:true})};
 function demoWorld(){ // what the overlay shows in demo mode; /?demo&screen=explore&objects=60 makes a crowded room for measuring
   const blob=(rx,ry)=>Array.from({length:40},(_,i)=>{const a=i/40*Math.PI*2;return[270+Math.cos(a)*rx*(1+.12*Math.sin(a*3)+.03*Math.sin(a*11)),480+Math.sin(a)*ry*(1+.12*Math.cos(a*2)+.03*Math.cos(a*9))]});
-  const all=[['laptop',-20,5],['laptop',35,0],['laptop',200,8],['cable',60,-25],['cable',-75,-30],['cable',150,-20],['bottle',95,-5],['bottle',250,0],['charger',-60,-10],['mug',120,2],['keys',300,-15],['phone',10,-12],['monitor',-5,20],['lamp',330,35],['wall',20,0],['ceiling',90,70]];
+  const all=[['laptop',-20,5],['laptop',35,0],['laptop',200,8],['cable',60,-25],['cable',-75,-30],['cable',150,-20],['bottle',95,-5],['pills',250,-8],['charger',-60,-10],['mug',120,2],['keys',300,-15],['phone',10,-12],['monitor',-5,20],['stove',330,-20],['wall',20,0],['ceiling',90,70]];
   const kinds=['laptop','cable','bottle','mug','keys','phone','book','pen','lamp','plant','remote','wall'],want=+P.get('objects')||0;
   for(let k=all.length;k<want;k++)all.push([kinds[k%kinds.length],(k*47)%360-180,((k*29)%50)-25]);
   world.apply({hfov_deg:P.has('fov')?+P.get('fov'):60,fov_calibrated:false,scan_id:3,notes:DEMO.notes,objects:all.map(([label,yaw,pitch],i)=>({id:i+1,label,yaw:(yaw+360)%360,pitch,uncertainty_deg:i===5?30:i%4,n_obs:3,confidence:i%6===4?.35:i<16?.9:.5+((i*13)%50)/100,
