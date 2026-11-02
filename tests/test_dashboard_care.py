@@ -69,4 +69,5 @@ def test_the_dashboard_demo_shows_the_caregiver_view_without_a_server(site, clea
     p.tap("#careask")
     p.wait("!!document.querySelector('#careans .ans')", what="the answer")
     assert "not live" in p.text("#careans") and p.errors == []
+    assert p.eval("document.querySelectorAll('#care canvas').length") == 0      # a sighting with no photo draws no empty box
 

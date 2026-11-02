@@ -72,7 +72,7 @@ function card(it, hidden) {
   if (hidden) { c.append(el("p", "hide", "Places and photos are hidden until sharing is on.")); return c; }
   const best = it.seen[0];
   if (best) {
-    c.append(photo(best.replay));
+    if (best.replay) c.append(photo(best.replay));
     c.append(el("div", "where", `${best.room.name} · ${ago(best.age_seconds)}`));
     if (best.where) c.append(el("div", "hide", best.where));
     if (it.seen.length > 1) c.append(el("div", "hide", "Also seen in " + it.seen.slice(1).map((s) => `${s.room.name} (${ago(s.age_seconds)})`).join(", ")));
@@ -116,7 +116,7 @@ async function ask() {
   try {
     const d = await call("POST", "/api/care/ask", { question: q });
     const kids = [el("p", "ans", d.answer || d.message)];
-    if (d.seen && d.seen[0]) kids.push(photo(d.seen[0].replay));
+    if (d.seen && d.seen[0] && d.seen[0].replay) kids.push(photo(d.seen[0].replay));
     $("careans").replaceChildren(...kids);
   } catch (e) { $("careans").replaceChildren(el("p", "hide", e.message)); }
 }
