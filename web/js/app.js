@@ -465,7 +465,7 @@ RENDER.result=(state,m)=>{
     world.highlight(null);img=null;rt=0;go('result');speak(m.speech);buzz(25);return}
   const o=m.object||{},off=m.from_scan_start,dd=dirTxt(off?off.dyaw:(o.yaw||0),off?off.dpitch:(o.pitch||0));txt('dyaw',dd.yaw);txt('dpit',dd.pit);
   txt('dseen',o.n_obs!=null?`${o.n_obs} sighting${o.n_obs===1?'':'s'} · last ${ago(o.age_s??0)}${o.uncertainty_deg>0?' · ±'+Math.round(o.uncertainty_deg)+'°':''}`:'–');
-  world.highlight(o.id);txt('rtag',((m.concept||'')+' · FRAME '+(m.replay?.frame_id??'–')).toUpperCase());txt('gobj',m.concept||'Object');
+  world.highlight(o.id);txt('rtag',(m.concept||'')+' · frame '+(m.replay?.frame_id??'–'));txt('gobj',m.concept||'Object');
   img=null;if(m.replay&&!demo){img=new Image();img.src='/world/frame/'+m.replay.frame_id+'.jpg'}
   rt=0;go('result');speak(m.speech);buzz(25)};
 async function guideMe(){
@@ -586,7 +586,7 @@ function fillPicker(d){
   for(const[id,val]of[['chbefore',d.scan_before],['chafter',d.scan_after]]){const sel=$(id);sel.replaceChildren(...d.scans.map(s=>{const o=new Option(label(s),s.id);return o}));sel.value=String(val)}}
 RENDER.changes=(state,d={})=>{
   const room=d.room;chgRoom=room?.id??null;setState('changes',state);
-  txt('chgpill',room?room.name.toUpperCase():'WHAT CHANGED');
+  txt('chgpill','Changes');
   if(state==='default'||state==='nothing-changed'||state==='weak-alignment'){
     const c=d.data;fillPicker(c);
     const kids=[mk('div','grp panel sumline',c.summary),alignCard(c.alignment||{})];
@@ -629,7 +629,7 @@ RENDER.labels=(state,d={})=>{
   if(state==='error'||state==='offline'){txt('lberrtitle',state==='offline'?'Server not reachable':'Could not load the objects');txt('lberr',d.message||'')}
   if(state==='default'||state==='empty'){
     const c=d.data;insp.data=c;insp.scanId=c.scan.id;insp.roomId=c.scan.room_id;
-    txt('lbpill',((c.scan.room_name||'Objects')+' · #'+c.scan.id).toUpperCase());
+    txt('lbpill',(c.scan.room_name||'Objects')+' · #'+c.scan.id);
     txt('lbsum',`${c.instances} object${c.instances===1?'':'s'} · ${c.sightings} sightings${c.scan.status==='draft'?' · unsaved scan':''}`);
     $('lbrows').replaceChildren(...c.labels.map(labelRow));
     $('lbhidden').replaceChildren(...(c.hidden_labels.length?[mk('h2','sec','Not an object in this room'),...c.hidden_labels.map(h=>{const r=mk('div','srow'),t=mk('div');t.append(h.label,mk('small',null,h.sightings+' sightings hidden'));r.append(t,mk('button','mini','Restore',{'data-act':'unmark-object','data-label':h.label}));return r})]:[]));
@@ -654,7 +654,7 @@ RENDER.instances=(state,d={})=>{
   if(state==='error')txt('inerr',d.message||'');
   if(state!=='default')return;
   insp.picked=new Set([...insp.picked].filter(id=>g.objects.some(o=>o.id===id)));
-  txt('inpill',(insp.label||'').toUpperCase());txt('insum',`${g.instances} instance${g.instances===1?'':'s'} · ${g.sightings} sightings. Tick two or more to merge them into one object.`);
+  txt('inpill',insp.label||'');txt('insum',`${g.instances} instance${g.instances===1?'':'s'} · ${g.sightings} sightings. Tick two or more to merge them into one object.`);
   $('mergebtn').textContent=`Merge selected (${insp.picked.size})`;$('mergebtn').disabled=insp.picked.size<2;
   txt('notobjbtn',`“${g.label}” is not an object here`);
   $('inrows').replaceChildren(...g.objects.map(o=>instanceRow(o,insp.picked.has(o.id))));paintThumbs($('inrows'))};
@@ -667,7 +667,7 @@ RENDER.sightings=(state,d={})=>{
   if(state==='error')txt('sierr',d.message||'');
   if(state!=='default')return;
   const x=d.detail;insp.detail=x;insp.objectId=x.object.id;const o=x.object;
-  txt('sipill',(o.label+' #'+o.id).toUpperCase());
+  txt('sipill',o.label+' #'+o.id);
   $('sifacts').replaceChildren(...[['Direction',`${Math.round(o.yaw)}° / ${Math.round(o.pitch)}°`],['Uncertainty',`±${o.uncertainty_deg}°`],['Sightings',x.sightings.length],['Confidence',Math.round(o.avg_confidence*100)+'%']].map(([k,v])=>{const c=mk('div');c.append(mk('span','label',k),mk('b',null,String(v)));return c}));
   $('sirows').replaceChildren(...x.sightings.map(s=>sightingCard(s,x.sightings.length>1)));paintThumbs($('sirows'))};
 async function openSightings(objectId){

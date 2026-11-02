@@ -167,7 +167,7 @@ Find in the active room (or any room named from Room details), or in all rooms (
 
 | State | Shows |
 |---|---|
-| `idle` | scope toggle (This room / All rooms), Quick ask, the input |
+| `idle` | scope toggle (This room / All rooms), the input, a line saying what to type, Quick ask |
 | `busy` | "Looking for …" with Cancel |
 | `slow` | "Still looking, slower than usual" with Cancel |
 | `error` | what went wrong with Try again |
