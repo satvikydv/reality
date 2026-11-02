@@ -273,6 +273,25 @@ The scans are in the owner's `data/` (a person's room), not in the repo, so thes
 - **Office room, 27 and 34 objects:** weak (19 pairs, 1654 matches, standard error 2.6 degrees, over the 1.5 limit), offset -0.74 (the code of 2026-10-30 gave good and -4.09); no claims: 22 unchanged, 15 can't compare, nothing moved, new or gone. At a 3 degree limit it comes out good but then says "the laptop is gone" and flags three cables as possibly moved; what really changed in that room is not known, so that is not adopted.
 - **What this does not show.** One desk, one phone, one moved object. The fix was found by looking at these same scans, so this is a repaired failure, not an independent test: the controlled protocol above (same spot, 20 cm sideways, heading rotated 90, two objects moved) is still the test.
 
+## Ask the room on a real scan (2026-11-02, real Muse Spark, the Bedroom scan: 48 objects)
+
+Ten questions asked through `POST /api/rooms/3/ask` of the real Bedroom scan (scan 10: 1 laptop, 1 phone, 2 phone chargers, 4 suitcases, 4 water bottles, 11 cables, 18 clothing, 1 television, no keys, no piano). Labels and directions only: no image is sent. The pass rule for each question was written before the run (the ids it must match, what the answer must say); I scored the answers myself.
+
+| Question | What a right answer is | First run | After the prompt fix |
+|---|---|---|---|
+| Where is the laptop? | the one laptop | pass | pass |
+| Where are the phone chargers? | both chargers | pass | pass |
+| How many suitcases are there? | four | pass | pass |
+| Is there a television in this room? | yes, the television | pass | pass |
+| Where is the piano? | not there, no matches | pass | pass |
+| What here might be unsafe? | "might need a look", never "safe", the safety note | pass (low cables) | pass |
+| What should I take with me when I leave? | at least the phone and laptop | pass | pass |
+| What is next to the shoe? | the backpack and a suitcase, with the right above/below | **fail: said the backpack is above the shoe and the suitcase below, the reverse of the data** (backpack -49, shoe -38, suitcase -25) | pass |
+| When did something last move or go missing? | consistent with the comparison of scans 9 and 10 (weak alignment, 34 objects can't be compared) | pass: says nothing was confirmed and the scans lined up roughly | pass |
+| Where are my keys? | none, no matches | pass | pass |
+
+First run 9 of 10; after the fix 10 of 10. The fix was one sentence in the prompt ("pitch is up positive, so a more negative pitch is lower, compare the numbers before you say above or below, and say near when they differ by less than 10 degrees"), written after seeing the failure, so the second run is not an independent test. Wall time per question 2 to 11 seconds (the model's own time 1.8 to 10.8 s), about 2,800 input and 200 to 1,500 output tokens each. Limits: one room, ten questions, one run each, scored by the author; "in the same direction as a backpack" for the laptop is loose (they are about 40 degrees apart) and was passed.
+
 ## Results
 
 ### Phone camera / HTTPS
