@@ -785,7 +785,7 @@ const ACT={
   'toggle-group':b=>toggleTile(b.dataset.label),noop:()=>{},
   'proc-check':recoverSummary,'proc-home':()=>{openHome();toast('The scan keeps processing on the server. Its result shows in the room.');poll?.retryNow()},
   'find-room':()=>openFind({roomId:S().viewRoomId}),rescan:()=>openWizard({roomId:rescanTarget()}),
-  'changes-room':()=>openChanges(S().viewRoomId),'explore-room':()=>openExplore(S().viewRoomId),'room-settings':()=>openRoomSettings(S().viewRoomId),
+  'changes-room':()=>openChanges(S().viewRoomId),'explore-room':()=>openExplore(S().viewRoomId),'ask-room':()=>{openExplore(S().viewRoomId);if(scrn==='explore')openAsk()},'room-settings':()=>openRoomSettings(S().viewRoomId),
   'activate-this':async()=>{if(await setActive(S().viewRoomId)){if(scrn==='room')openRoom(S().viewRoomId);else RENDER.roomsettings('default',{})}},
   'save-scan':b=>scanAction('save-scan',+b.dataset.scan),'discard-scan':b=>scanAction('discard-scan',+b.dataset.scan),'delete-scan':b=>scanAction('delete-scan',+b.dataset.scan),
   'set-baseline':b=>scanAction('set-baseline',+b.dataset.scan),'clear-baseline':b=>scanAction('clear-baseline',+b.dataset.scan),

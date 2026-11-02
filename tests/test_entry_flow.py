@@ -1121,3 +1121,20 @@ def test_save_and_discard_are_on_screen_after_a_scan_whatever_the_phone_and_howe
     r = p.eval("(() => { const b = a => document.querySelector(`#s-summary [data-act=${a}]`).getBoundingClientRect(); return {save: [b('save-review').top, b('save-review').bottom], discard: [b('discard-review').top, b('discard-review').bottom], h: innerHeight}; })()")
     assert r["save"][0] >= 0 and r["save"][1] <= r["h"] and r["discard"][1] <= r["h"], (size, r)
     p.close()
+
+
+def test_ask_this_room_on_the_room_screen_opens_explore_with_the_ask_sheet_in_one_tap(site):
+    p = site.page().open("/?demo&screen=room&state=default")
+    p.settle(0.5)
+    assert p.eval("document.querySelector('#s-room [data-act=ask-room]').offsetParent !== null") is True
+    p.tap("#s-room [data-act=ask-room]")
+    p.wait("document.getElementById('s-ask').classList.contains('on')", what="the Ask sheet")
+    assert p.screen() == "explore" and p.media() == [] and p.errors == []
+    p.close()
+
+
+def test_ask_this_room_is_not_offered_for_a_room_that_was_never_scanned(site):
+    p = site.page().open("/?demo&screen=room&state=empty")
+    p.settle(0.5)
+    assert p.eval("document.querySelector('#s-room [data-act=ask-room]').offsetParent") is None
+    p.close()

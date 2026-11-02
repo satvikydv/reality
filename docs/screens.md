@@ -149,7 +149,7 @@ The scan quality card says whether this scan will compare well later and, if not
 
 ### `room`
 
-Room details. Name and active badge; Find in this room, Rescan, View changes, Explore (AR), Make active, Room settings; info (objects, coverage, last scan, saved scans); recent objects; scan history with a mark for the memory scan, the baseline and an unsaved draft, and per-scan Save / Discard / Set baseline / Delete.
+Room details. Name and active badge; Find in this room, Rescan, View changes, Ask this room (opens Explore with the Ask sheet over it, so the answer is read out and shown on the camera; not offered for a room that was never scanned), Explore (AR), Make active, Room settings; info (objects, coverage, last scan, saved scans); recent objects; scan history with a mark for the memory scan, the baseline and an unsaved draft, and per-scan Save / Discard / Set baseline / Delete.
 
 | State | Shows |
 |---|---|
