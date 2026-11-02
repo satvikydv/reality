@@ -406,9 +406,16 @@ async function openFind({roomId=null,scope=null}={}){
   store.set({findRoomId:roomId,scope:scope||S().scope});go('find');findDone();
   RENDER.find('idle',{labels:[],scope:S().scope});idleFind();
   const r=findRoom();
-  if(r?.scan_id&&!demo){const d=await api.room(r.id);if(d.ok&&scrn==='find')fillQuick(Object.keys(d.data.labels).slice(0,12))}}
+  if(demo)return;
+  // what the caregiver watches for comes first, and is looked for in every room: the pills may be in another room than the one open
+  const[rd,cd]=await Promise.all([r?.scan_id?api.room(r.id):null,api.care()]);
+  if(scrn!=='find')return;
+  fillQuick(rd?.ok?Object.keys(rd.data.labels).slice(0,12):[],cd?.ok?(cd.data.items||[]).map(i=>i.label):[])}
 // Quick ask: what the room contains, as tap-to-ask names in a bottom sheet over Find (not a row of chips on the screen)
-function fillQuick(labels){$('quicklist').replaceChildren(...labels.map(l=>mk('button','chip qrow',`Where is my ${l}?`,{'data-act':'find-chip','data-label':l})));setState('quick',labels.length?'default':'empty')}
+function fillQuick(labels,watched=[]){
+  const rows=[...watched.map(l=>mk('button','chip qrow watch',`Where are my ${l}?`,{'data-act':'find-chip','data-label':l,'data-all':'1'})),
+    ...labels.filter(l=>!watched.includes(l)).map(l=>mk('button','chip qrow',`Where is my ${l}?`,{'data-act':'find-chip','data-label':l}))];
+  $('quicklist').replaceChildren(...rows);setState('quick',rows.length?'default':'empty')}
 function findDone(){findPending=false;findTimers.forEach(clearTimeout);findTimers=[]}
 function doFind(label,all=null){
   const q=(typeof label==='string'?label:$('q').value).trim();if(!q&&!demo)return;
@@ -790,7 +797,7 @@ const ACT={
   'save-scan':b=>scanAction('save-scan',+b.dataset.scan),'discard-scan':b=>scanAction('discard-scan',+b.dataset.scan),'delete-scan':b=>scanAction('delete-scan',+b.dataset.scan),
   'set-baseline':b=>scanAction('set-baseline',+b.dataset.scan),'clear-baseline':b=>scanAction('clear-baseline',+b.dataset.scan),
   scope:b=>{store.set({scope:b.dataset.v});findDone();$('fgroups').replaceChildren();RENDER.find('idle',{labels:[],scope:b.dataset.v});idleFind()},
-  'find-chip':b=>{closeSwitcher();$('q').value=b.dataset.label;doFind(b.dataset.label)},'open-quick':()=>section('quick').classList.add('on'),'find-go':()=>doFind(),mic:startMic,'ask-act':()=>askRun&&askRun(),
+  'find-chip':b=>{closeSwitcher();$('q').value=b.dataset.label;doFind(b.dataset.label,b.dataset.all?true:null)},'open-quick':()=>section('quick').classList.add('on'),'find-go':()=>doFind(),mic:startMic,'ask-act':()=>askRun&&askRun(),
   'open-group':b=>openGroupResult(+b.dataset.room),
   'find-all-rooms':()=>{const q=find?.query||'';openFind({scope:'all'});$('q').value=q;if(q)doFind(q,true)},'find-again':()=>openFind(),
   'guide-me':guideMe,'guide-end':()=>{stopGuide();go('result')},'guide-done':()=>{stopGuide();world.highlight(null);openHome()},'toggle-ar':()=>setAr(!arOn),

@@ -305,6 +305,7 @@ body.dbg.cam #dev{display:block}
 .sheet2 h2{margin:0 0 4px;font:600 var(--t-lg) var(--sans)}
 #quicklist{display:flex;flex-direction:column;gap:0}
 #quicklist .chip.qrow{display:flex;align-items:center;justify-content:space-between;width:100%;min-height:56px;padding:0 4px;border:0;border-bottom:1px solid var(--line);border-radius:0;background:none;font:500 var(--t-md) var(--sans);color:var(--ink);text-align:left;white-space:normal}
+#quicklist .chip.qrow.watch{color:var(--accent)}
 #quicklist .chip.qrow:after{content:"";width:18px;height:18px;flex:none;background:var(--faint);-webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 5l7 7-7 7'/%3E%3C/svg%3E") center/contain no-repeat;mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 5l7 7-7 7'/%3E%3C/svg%3E") center/contain no-repeat}
 .toast{position:absolute;left:var(--s-4);right:var(--s-4);bottom:calc(var(--b) + var(--bar-h) + var(--s-2));padding:14px 16px 14px 40px;font:500 var(--t-sm)/1.4 var(--sans);display:none;z-index:8;border-radius:var(--r-md);background:var(--panel-solid);border:1px solid var(--line-strong)}
 .toast:before{content:"";position:absolute;left:16px;top:50%;width:8px;height:8px;margin-top:-4px;border-radius:50%;background:var(--green)}

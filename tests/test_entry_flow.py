@@ -1138,3 +1138,17 @@ def test_ask_this_room_is_not_offered_for_a_room_that_was_never_scanned(site):
     p.settle(0.5)
     assert p.eval("document.querySelector('#s-room [data-act=ask-room]').offsetParent") is None
     p.close()
+
+
+def test_quick_ask_lists_what_the_caregiver_watches_first_and_looks_in_every_room_for_it(site, clean):
+    site.room("Study", active=True, label="mug")
+    site.svc_.wm.add_watch("pills")
+    p = booted(site)
+    p.tap("#nav [data-nav=find]")
+    p.wait("document.querySelectorAll('#quicklist .chip').length>=2", what="the watched thing and the room's names")
+    rows = p.eval("[...document.querySelectorAll('#quicklist .chip')].map(b => [b.textContent.trim(), b.dataset.label, b.dataset.all || ''])")
+    assert rows[0] == ["Where are my pills?", "pills", "1"] and ["Where is my mug?", "mug", ""] in rows
+    p.tap("#quickbtn")
+    p.tap("#quicklist .chip")
+    p.wait("document.body.dataset.screen==='result' || document.getElementById('s-find').dataset.state==='all-results' || document.getElementById('s-find').dataset.state==='all-none'", what="a search of every room")
+    assert p.eval("document.getElementById('s-find').dataset.state") != "room-empty"

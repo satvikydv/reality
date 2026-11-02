@@ -310,7 +310,7 @@ Objects review, step 3: one instance and every sighting that made it: the stored
 
 ### `quick`
 
-Quick ask: a bottom sheet over Find listing what the room contains as tap-to-ask questions ("Where is my keys?" rows with a chevron; it replaces a row of chips on the Find screen). Choosing one runs the search.
+Quick ask: a bottom sheet over Find listing what the room contains as tap-to-ask questions ("Where is my keys?" rows with a chevron; it replaces a row of chips on the Find screen). Choosing one runs the search. The things the caregiver watches for (the caregiver view's list, `GET /api/care`) come first, in the accent colour, as "Where are my pills?": those are looked for in every room, because they may be in another room than the one open.
 
 | State | Shows |
 |---|---|
