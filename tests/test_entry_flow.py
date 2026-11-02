@@ -1148,7 +1148,9 @@ def test_quick_ask_lists_what_the_caregiver_watches_first_and_looks_in_every_roo
     p.wait("document.querySelectorAll('#quicklist .chip').length>=2", what="the watched thing and the room's names")
     rows = p.eval("[...document.querySelectorAll('#quicklist .chip')].map(b => [b.textContent.trim(), b.dataset.label, b.dataset.all || ''])")
     assert rows[0] == ["Where are my pills?", "pills", "1"] and ["Where is my mug?", "mug", ""] in rows
+    p.eval("window.__sent=[];const o=WebSocket.prototype.send;WebSocket.prototype.send=function(d){window.__sent.push(String(d));return o.call(this,d)}")
     p.tap("#quickbtn")
-    p.tap("#quicklist .chip")
-    p.wait("document.body.dataset.screen==='result' || document.getElementById('s-find').dataset.state==='all-results' || document.getElementById('s-find').dataset.state==='all-none'", what="a search of every room")
-    assert p.eval("document.getElementById('s-find').dataset.state") != "room-empty"
+    p.tap("#quicklist .chip")                                     # the first row: the watched pills
+    p.wait("window.__sent.some(m=>m.includes('\"find\"'))", what="the search")
+    msg = json.loads(p.eval("window.__sent.find(m=>m.includes('\"find\"'))"))
+    assert msg["query"] == "pills" and msg.get("all_rooms") is True and "room_id" not in msg
