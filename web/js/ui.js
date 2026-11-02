@@ -50,17 +50,23 @@ export function drawMap(c,objs,o={}){
   [['E',90],['S',180],['W',270]].forEach(([t,d])=>x.fillText(t,cx+Math.cos(rad(d))*(R+(big?22:14)),cy+Math.sin(rad(d))*(R+(big?22:14))));
   // sweep wedge
   if(o.yaw!=null){x.beginPath();x.moveTo(cx,cy);x.arc(cx,cy,R,rad(o.yaw-30),rad(o.yaw+30));x.closePath();x.fillStyle=rgba(A,.12);x.fill()}
-  const placed=[];x.textBaseline='middle';
-  objs.forEach(ob=>{
-    const r=R*Math.max(.18,Math.min(.95,.62-(ob.pitch||0)/110)),a=rad(ob.yaw),px=cx+Math.cos(a)*r,py=cy+Math.sin(a)*r;
+  const at=ob=>{const r=R*Math.max(.18,Math.min(.95,.62-(ob.pitch||0)/110)),a=rad(ob.yaw);return[a,cx+Math.cos(a)*r,cy+Math.sin(a)*r]};
+  const dr=big?8:6,placed=objs.map(ob=>{const[,px,py]=at(ob);return[px-dr,py-dr,px+dr,py+dr]}); // the dots, then the names already written: a name that would land on either is moved down, and left out when there is no room
+  x.textBaseline='middle';
+  [...objs].sort((p,q)=>(q.hl?1:0)-(p.hl?1:0)).forEach(ob=>{
+    const[a,px,py]=at(ob),r=Math.hypot(px-cx,py-cy);
     const k=ob.hl?1:Math.min(1,(ob.age??1)),hl=ob.hl;
     x.globalAlpha=k;
     if(k<1||o.ping){x.beginPath();x.arc(px,py,(big?7:5)+(1-k)*22,0,TAU);x.strokeStyle=A;x.globalAlpha=1-k;x.stroke();x.globalAlpha=k}
     x.beginPath();x.arc(px,py,hl?(big?9:7):(big?6:4.5),0,TAU);x.fillStyle=hl?A:G;x.fill();
     if(hl){x.beginPath();x.arc(px,py,(big?18:13),0,TAU);x.strokeStyle=A;x.lineWidth=1.5;x.stroke();x.lineWidth=1}
-    const right=Math.cos(a)>=0,lx=px+(right?1:-1)*(big?16:10);let ly=py;
-    for(const p of placed)if(Math.abs(p-ly)<(big?20:13))ly+=(big?20:13);placed.push(ly);
-    x.textAlign=right?'left':'right';x.font=`${hl?700:400} ${big?17:11}px Sora,sans-serif`;x.fillStyle=hl?A:'#f2f4f3';x.fillText(ob.label,lx,ly);x.globalAlpha=1;
+    const right=Math.cos(a)>=0,lx=px+(right?1:-1)*(big?16:10),fs=big?17:11,th=fs+3;let ly=Math.max(th/2,Math.min(h-th/2,py));
+    x.font=`${hl?700:400} ${fs}px Sora,sans-serif`;const tw=x.measureText(ob.label).width;
+    const box=()=>[right?lx:lx-tw,ly-th/2,right?lx+tw:lx,ly+th/2],hit=b=>placed.some(p=>b[0]<p[2]&&b[2]>p[0]&&b[1]<p[3]&&b[3]>p[1]);
+    for(let i=0;i<3&&hit(box());i++)ly=Math.min(h-th/2,ly+th);
+    if(hit(box())&&!hl){x.globalAlpha=1;return}
+    placed.push(box());
+    x.textAlign=right?'left':'right';x.fillStyle=hl?A:'#f2f4f3';x.fillText(ob.label,lx,ly);x.globalAlpha=1;
   });
 }
 

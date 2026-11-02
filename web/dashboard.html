@@ -13,8 +13,8 @@ header{display:flex;align-items:center;gap:22px}
 .brand i{width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 16px var(--accent)}
 .pill{display:inline-flex;align-items:center;gap:8px;height:30px;padding:0 12px;border-radius:99px;font:500 12px var(--mono);letter-spacing:.06em;white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 8px var(--red)}.dot.ok{background:var(--green);box-shadow:0 0 8px var(--green)}
-#phase{font:500 13px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim)}
-.cnt{display:flex;gap:12px;margin-left:auto}
+#phase{font:500 13px var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--dim);flex:1 1 0;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cnt{display:flex;gap:12px;margin-left:auto;flex:none}
 .cnt>div{padding:10px 18px;min-width:118px}.cnt b{display:block;font:600 28px/1 var(--mono);margin-top:9px}
 main{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(380px,1fr);gap:16px;min-height:0}
 .col{display:grid;gap:16px;min-height:0;min-width:0}
@@ -29,6 +29,9 @@ main{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(380px,1fr);gap:16
 .map .label{position:absolute;left:20px;top:18px;z-index:1}.map .big{position:absolute;right:22px;top:14px;font:700 34px var(--mono);color:var(--green);z-index:1}
 .hist{padding:14px 16px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:hidden}
 .bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.bar select{flex:1 1 230px;min-width:0;text-overflow:ellipsis}
+#log:empty:before{content:"Events from the phone and from any connected agent appear here.";color:var(--dim);font:400 13px/1.5 var(--sans)}
+.ag .prev code{font:500 12px var(--mono);color:var(--ink);background:var(--fill-1);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 8px;word-break:break-all;display:block}
 select,button.small{font:600 13px var(--sans);color:var(--ink);background:var(--fill-1);border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:0 16px;min-height:var(--tap-min)}
 select{font-family:var(--mono);font-weight:500;padding:0 12px}select option{color:#000}
 button.small{cursor:pointer}button.small.go{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:700}
@@ -77,10 +80,10 @@ button.small:disabled{opacity:.35;cursor:default}
 <div id="app">
 <header>
   <div class="brand"><i></i>Reality OS</div>
-  <span id="phase">Waiting for a scan</span>
   <button class="small go" id="objbtn" title="Review and correct what the memory believes">Objects</button>
   <button class="small" id="carebtn" title="Where a person's important things were last seen">Care</button>
   <span class="pill panel"><span class="dot" id="conn"></span><span id="connt">connecting…</span></span>
+  <span id="phase">Waiting for a scan</span>
   <div class="cnt">
     <div class="panel"><span class="label">Frames</span><b id="cf">0</b></div>
     <div class="panel"><span class="label">Objects</span><b id="co" style="color:var(--accent)">0</b></div>
@@ -134,7 +137,7 @@ button.small:disabled{opacity:.35;cursor:default}
   </div>
 </section>
 <section id="care" role="dialog" aria-modal="true" aria-label="Caregiver view">
-  <div class="ih"><h1>Care</h1><span class="badge2 off" id="careconsent">…</span><span class="hide">What the last scan of each room saw, not live.</span>
+  <div class="ih"><h1>Care</h1><span class="badge2 off" id="careconsent">…</span><span class="hide">What the last scan of each room saw, not live.</span><span id="caresum" class="hide" role="status"></span>
     <span id="caremsg" role="status" style="font:500 13px var(--mono);color:var(--accent)"></span><button class="small grow" id="careclose">Close ✕</button></div>
   <div class="cm">
     <div class="pane">
@@ -142,6 +145,7 @@ button.small:disabled{opacity:.35;cursor:default}
       <div id="carealerts"></div>
       <h2>Watch for</h2>
       <div class="cadd"><input id="carelabel" type="text" maxlength="60" placeholder="pills, glasses, keys…" aria-label="What to watch"><select id="careroom" aria-label="Usual room"></select><button class="small go" id="careadd">Add</button></div>
+      <div class="csug" id="caresug" aria-label="Quick add"></div>
       <h2 id="careasked">Ask</h2>
       <div class="cadd"><input id="careq" type="text" maxlength="300" placeholder="Where did Mum put her pills?" aria-label="Ask where something is"><button class="small go" id="careask">Ask</button></div>
       <div id="careans"></div>

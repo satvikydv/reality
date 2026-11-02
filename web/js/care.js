@@ -53,6 +53,7 @@ const call = (method, url, body) => (DEMO ? demoApi(method, url, body) : send(me
 const ago = (s) => (s < 90 ? "just now" : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`);
 const msg = (t) => { $("caremsg").textContent = t; };
 let rooms = [], timer = null;
+const SUGGEST = ["pills", "glasses", "keys", "wallet", "phone"];
 
 function photo(replay) {
   const cv = el("canvas");
@@ -88,7 +89,14 @@ async function load() {
   const on = d.consent.on;
   $("careconsent").textContent = on ? `Sharing is ON since ${new Date(d.consent.since * 1000).toLocaleString()}` : "Sharing is OFF. The person turns it on in Settings on their phone.";
   $("careconsent").className = "badge2 " + (on ? "on" : "off");
-  $("carealerts").replaceChildren(...(d.alerts || []).map((a) => el("div", "calert " + a.code, `${a.label}: ${a.message}`)));
+  const alerts = d.alerts || [];
+  // "all clear" is only said when places could be checked: with sharing off nothing is known, which is not the same as nothing wrong
+  $("caresum").textContent = !d.items.length ? "" : !on ? `${d.items.length} watched · sharing is off` : `${alerts.length ? `${alerts.length} need${alerts.length === 1 ? "s" : ""} attention` : "All clear"} · ${d.items.length} watched`;
+  $("carealerts").replaceChildren(...(alerts.length ? alerts.map((a) => el("div", "calert " + a.code, `${a.label}: ${a.message}`))
+    : !d.items.length ? [] : !on ? [el("div", "calert", "Sharing is off, so nothing can be checked until the person turns it on in Settings on their phone.")]
+    : [el("div", "calert clear", "All clear: everything on the list was seen in the last scan of a room, where it usually is.")]));
+  const have = new Set(d.items.map((i) => i.label.toLowerCase()));
+  $("caresug").replaceChildren(...SUGGEST.filter((l) => !have.has(l)).map((l) => { const b = el("button", "small", "+ " + l); b.onclick = () => { $("carelabel").value = l; add(); }; return b; }));
   $("careitems").replaceChildren(...(d.items.length ? d.items.map((it) => card(it, !on)) : [el("p", "empty", "Nothing on the list yet. Add the things you want to keep an eye on: pills, glasses, keys.")]));
   $("careask").disabled = !on;
   $("careasked").hidden = !on;

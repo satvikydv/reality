@@ -71,3 +71,46 @@ def test_the_dashboard_demo_shows_the_caregiver_view_without_a_server(site, clea
     assert "not live" in p.text("#careans") and p.errors == []
     assert p.eval("document.querySelectorAll('#care canvas').length") == 0      # a sighting with no photo draws no empty box
 
+
+
+def test_sharing_off_never_says_all_clear(site, clean):
+    site.room("Bedroom", active=True, label="pills", ts=time.time())
+    site.svc_.wm.add_watch("pills")
+    p = dashboard(site)
+    p.wait("document.querySelectorAll('#careitems .citem').length===1")
+    assert "sharing is off" in p.text("#caresum") and "All clear" not in p.text("#caresum") + p.text("#carealerts")
+    assert "nothing can be checked" in p.text("#carealerts")
+
+
+def test_all_clear_is_said_only_when_everything_is_where_it_belongs(site, clean):
+    now = time.time()
+    bed = site.room("Bedroom", active=True, label="pills", ts=now - 3600)
+    site.svc_.wm.add_watch("pills", bed)
+    care.set_consent(site.svc_, True)
+    p = dashboard(site)
+    p.wait("document.querySelectorAll('#careitems .citem').length===1")
+    assert "All clear" in p.text("#caresum") and "All clear" in p.text("#carealerts")
+    site.svc_.wm.add_watch("wallet")                                           # not seen anywhere: no longer all clear
+    p.wait("document.querySelectorAll('#careitems .citem').length===2", timeout=15)
+    assert "1 needs attention" in p.text("#caresum") and "All clear" not in p.text("#carealerts")
+
+
+def test_quick_add_suggestions_add_a_watch_in_one_click_and_hide_what_is_already_watched(site, clean):
+    site.svc_.wm.add_watch("keys")
+    p = dashboard(site)
+    p.wait("document.querySelectorAll('#caresug button').length>0")
+    assert "keys" not in p.text("#caresug") and "+ pills" in p.text("#caresug")
+    p.tap("#caresug button")
+    p.wait("document.querySelectorAll('#careitems .citem').length===2")
+    assert "pills" in [w["label"] for w in site.svc_.wm.list_watches()]
+
+
+def test_the_idle_dashboard_shows_the_active_rooms_last_scan_and_how_to_connect_an_agent(site, clean):
+    site.room("Study", active=True, label="mug", ts=time.time() - 600)
+    p = site.page({})
+    p.call("Page.navigate", url=site.base + "/dashboard")
+    p.call("Emulation.setDeviceMetricsOverride", width=1440, height=900, deviceScaleFactor=1, mobile=False)
+    p.wait("!!window.__care", what="the dashboard")
+    p.wait("document.getElementById('co').textContent==='1'", what="the room's objects on the map")
+    assert "Study" in p.text("#phase") and "last scan" in p.text("#phase") and p.text("#cs") == "–" and p.text("#cu") == "–"
+    assert "claude mcp add" in p.text("#prev") and "Scan a room twice" in p.text("#chsum") and p.errors == []

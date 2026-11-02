@@ -3,7 +3,7 @@
 // Text from the model (object names, answers) is only ever put in with textContent.
 import {drawMap, drawPhoto} from './ui.js';
 const $ = id => document.getElementById(id), P = new URLSearchParams(location.search);
-const S = {frames: 0, objects: [], seconds: 0, cost: 0, covDeg: 0, live: false, t0: 0, hl: null, calls: []};
+const S = {frames: 0, objects: [], seconds: 0, cost: 0, covDeg: 0, live: false, t0: 0, hl: null, calls: [], memory: false};
 const born = new Map(); // object id -> when it first appeared on the map (ping animation)
 const clock = ts => new Date((ts || Date.now() / 1000) * 1000).toLocaleTimeString([], {hour12: false});
 
@@ -38,7 +38,7 @@ function showAgent(c) {
 export function handle(m) {
   const t = m.type, ts = m.ts;
   if (t === 'scan_started') {
-    Object.assign(S, {frames: 0, objects: [], seconds: 0, cost: 0, covDeg: 0, live: true, t0: performance.now(), hl: null});
+    Object.assign(S, {frames: 0, objects: [], seconds: 0, cost: 0, covDeg: 0, live: true, t0: performance.now(), hl: null, memory: false});
     born.clear(); $('phase').textContent = 'Scanning';
     log(ts, 'phone', `scan ${m.scan_id} started`);
   } else if (t === 'world_update') {
@@ -52,7 +52,7 @@ export function handle(m) {
   } else if (t === 'frame_rejected' || t === 'frame_error') {
     log(ts, 'phone', `frame ${m.seq}: ${m.reason || m.error}`, 'bad');
   } else if (t === 'scan_summary') {
-    S.live = false; S.objects = m.objects; S.covDeg = m.coverage.covered_deg; S.frames = m.frames.stored;
+    S.live = false; S.memory = false; S.objects = m.objects; S.covDeg = m.coverage.covered_deg; S.frames = m.frames.stored;
     S.seconds = m.seconds; S.cost = m.cost_usd;
     $('phase').textContent = 'Scan complete';
     log(ts, 'phone', m.speech, 'good');
@@ -79,9 +79,10 @@ async function loadScans() {
     const r = await fetch('/api/scans'); if (!r.ok) return;
     scans = (await r.json()).scans.filter(s => s.n_frames > 0 && s.status !== 'draft');
   } catch { return; }
+  if (!$('cards').children.length) $('chsum').textContent = scans.length < 2 ? 'Scan a room twice (and save both) to see what moved, appeared or disappeared.' : 'Pick two scans to see what moved, appeared or disappeared.';
   for (const [id, pick] of [['sa', scans[1]], ['sb', scans[0]]]) {
     const sel = $(id), keep = sel.value;
-    sel.replaceChildren(...scans.map(s => new Option(`${s.room_name ? s.room_name + ' · ' : ''}#${s.id} · ${new Date(s.started_at * 1000).toLocaleTimeString([], {hour12: false})} · ${s.n_objects} objects`, s.id)));
+    sel.replaceChildren(...scans.map(s => new Option(`#${s.id} · ${new Date(s.started_at * 1000).toLocaleString([], {month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false})} · ${s.n_objects} objects${s.room_name ? ' · ' + s.room_name : ''}`, s.id)));
     sel.value = keep && scans.some(s => String(s.id) === keep) ? keep : (pick ? pick.id : '');
   }
 }
@@ -168,13 +169,29 @@ $('clr').onclick = () => clearResults();
 $('cmp').onclick = compare;
 clearResults();
 
+/* ---------- the room's memory, while no scan is running ---------- */
+const ago = ts => { const s = Date.now() / 1000 - ts; return s < 90 ? 'just now' : s < 5400 ? `${Math.round(s / 60)} min ago` : s < 172800 ? `${Math.round(s / 3600)} h ago` : `${Math.round(s / 86400)} days ago`; };
+async function showMemory() {
+  if (S.live || S.objects.length) return;
+  try {
+    const rs = await (await fetch('/api/rooms')).json();
+    const room = rs.rooms.find(r => r.id === rs.active_id && r.scan_id) || rs.rooms.find(r => r.scan_id);
+    if (!room) return;
+    const d = await (await fetch(`/api/scans/${room.scan_id}/objects`)).json();
+    if (S.live || S.objects.length) return;
+    S.objects = d.labels.flatMap(l => l.objects.map(o => ({id: o.id, label: o.label, yaw: o.yaw, pitch: o.pitch})));
+    S.covDeg = (room.coverage_pct || 0) * 3.6; S.frames = d.scan.n_frames || 0; S.memory = true;
+    $('phase').textContent = `${room.name} · last scan ${ago(room.last_scanned)}`;
+  } catch { /* the map stays empty: the server may be starting */ }
+}
+
 /* ---------- render loop ---------- */
 function frame() {
   if (S.live) S.seconds = (performance.now() - S.t0) / 1000;
-  $('cf').textContent = S.frames; $('co').textContent = S.objects.length; $('cs').textContent = Math.round(S.seconds);
-  $('cu').textContent = '$' + S.cost.toFixed(3); $('cp').textContent = Math.round(S.covDeg / 3.6) + '%';
+  $('cf').textContent = S.frames; $('co').textContent = S.objects.length; $('cs').textContent = S.memory ? '–' : Math.round(S.seconds);
+  $('cu').textContent = S.memory ? '–' : '$' + S.cost.toFixed(3); $('cp').textContent = Math.round(S.covDeg / 3.6) + '%';
   const now = performance.now();
-  drawMap($('mapc'), S.objects.map(o => ({...o, age: Math.min(1, (now - (born.get(o.id) ?? 0)) / 700), hl: o.id === S.hl})), {big: 1, pad: 64});
+  drawMap($('mapc'), S.objects.map(o => ({...o, age: Math.min(1, (now - (born.get(o.id) ?? 0)) / 700), hl: o.id === S.hl})), {big: 1, pad: 52});
   requestAnimationFrame(frame);
 }
 frame();
@@ -182,7 +199,7 @@ frame();
 /* ---------- live feed ---------- */
 function connect() {
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws/events`);
-  ws.onopen = () => { $('conn').classList.add('ok'); $('connt').textContent = 'live'; loadScans(); };
+  ws.onopen = () => { $('conn').classList.add('ok'); $('connt').textContent = 'live'; loadScans(); showMemory(); };
   ws.onmessage = e => { try { handle(JSON.parse(e.data)); } catch (err) { console.warn(err); } };
   ws.onclose = () => { $('conn').classList.remove('ok'); $('connt').textContent = 'disconnected, retrying'; setTimeout(connect, 1500); };
 }
@@ -210,3 +227,10 @@ function demo() {
   }
 }
 if (P.has('demo')) demo(); else connect();
+
+// until an agent calls in, say how to connect one
+{
+  const hint = document.createElement('code');
+  hint.textContent = `claude mcp add --transport http reality-os ${location.origin}/mcp`;
+  $('prev').replaceChildren(document.createTextNode('Connect an agent to ask this room questions:'), hint);
+}

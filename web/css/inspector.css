@@ -90,3 +90,8 @@
 #care .empty{color:var(--dim);font:400 var(--t-sm) var(--sans)}
 #care button.small{min-height:var(--tap-min)}
 #care button.small.go{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+
+#care .csug{display:flex;flex-wrap:wrap;gap:var(--s-2)}
+#care .csug button{min-height:36px;padding:0 12px;border-radius:var(--r-pill);font:500 var(--t-sm) var(--sans)}
+#care .calert.clear{background:var(--green-fill);border-color:var(--green-line);color:var(--green)}
+#care .ih .hide#caresum{color:var(--ink);font:500 var(--t-sm) var(--mono)}
