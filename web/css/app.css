@@ -180,6 +180,8 @@ body.dbg.cam #dev{display:block}
 .procact{display:flex;gap:var(--s-3)}.procact button{flex:1;min-height:52px;border-radius:var(--r-md);background:var(--fill-1);border:1px solid var(--line-strong);font:600 var(--t-sm) var(--sans)}
 #s-summary[data-state=stalled] .procrow{color:var(--amber)}
 #s-summary .row .btn{flex:1}#s-summary .plainbtn{width:100%}
+/* Save and Discard stay on screen however long the summary is (the scan quality card and the object tiles push them down on a small phone) */
+#s-summary .after .row{position:sticky;bottom:-18px;z-index:2;margin:0 -18px -18px;padding:12px 18px 18px;background:var(--surface);border-top:1px solid var(--line)}
 .gtiles{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s-2)}
 .sumq{padding:12px 14px;border-radius:var(--r-lg)}.sumq h2{margin:0 0 6px;font:600 var(--t-sm)/1.4 var(--sans)}.sumq ul{margin:0;padding-left:18px;color:var(--dim);font:400 var(--t-sm)/1.5 var(--sans)}
 .sumq.ok h2{color:var(--green)}.sumq.tips{border-color:var(--amber-line)}

@@ -1108,3 +1108,16 @@ def test_a_weak_alignment_is_explained_and_no_move_is_shown(site, clean):
            "c.changes('default',{room:{id:1,name:'Living Room'},data:d})})()")
     assert p.eval("!!document.querySelector('#chg .align.weak')") and "nothing is called moved" in p.text("#chg .align")
     assert p.eval("[...document.querySelectorAll('#chg h2')].some(h=>/Moved|Removed|New/.test(h.textContent))") is False
+
+
+@pytest.mark.parametrize("size", [(412, 760), (360, 640)])
+def test_save_and_discard_are_on_screen_after_a_scan_whatever_the_phone_and_however_long_the_summary(site, size):
+    p = site.page().open("/?demo")
+    p.call("Emulation.setDeviceMetricsOverride", width=size[0], height=size[1], deviceScaleFactor=2, mobile=True)
+    p.eval("window.__ui.go('summary')")
+    p.eval(f"location.href='/?demo&screen=summary&state=review'")
+    p.wait("!!window.__ui && document.getElementById('s-summary').dataset.state==='review'")
+    p.settle(0.5)
+    r = p.eval("(() => { const b = a => document.querySelector(`#s-summary [data-act=${a}]`).getBoundingClientRect(); return {save: [b('save-review').top, b('save-review').bottom], discard: [b('discard-review').top, b('discard-review').bottom], h: innerHeight}; })()")
+    assert r["save"][0] >= 0 and r["save"][1] <= r["h"] and r["discard"][1] <= r["h"], (size, r)
+    p.close()
