@@ -27,17 +27,42 @@ export function thumb(o, { act = "open-object", caption = o.label } = {}) {
   return b;
 }
 
+// The compass ring: 36 ticks, one per 10 degrees around where the scan stood; the directions the scan covered are lit. The same
+// ring as the app icon, here as data: which way this room has been looked at.
+const SVGNS = "http://www.w3.org/2000/svg";
+export function compassRing(bins, pct, size = 56) {
+  const s = document.createElementNS(SVGNS, "svg");
+  s.setAttribute("viewBox", "0 0 56 56"); s.setAttribute("width", size); s.setAttribute("height", size); s.setAttribute("class", "ring");
+  s.setAttribute("role", "img"); s.setAttribute("aria-label", `${pct}% of the room covered`);
+  for (let i = 0; i < 36; i++) {
+    const a = (i * 10 - 90) * Math.PI / 180, major = i % 9 === 0, r0 = major ? 20 : 22, r1 = 26.5;
+    const l = document.createElementNS(SVGNS, "line");
+    l.setAttribute("x1", 28 + r0 * Math.cos(a)); l.setAttribute("y1", 28 + r0 * Math.sin(a));
+    l.setAttribute("x2", 28 + r1 * Math.cos(a)); l.setAttribute("y2", 28 + r1 * Math.sin(a));
+    l.setAttribute("class", bins && bins[i] ? "on" : "off");
+    s.append(l);
+  }
+  const t = document.createElementNS(SVGNS, "text");
+  t.setAttribute("x", "28"); t.setAttribute("y", "28"); t.setAttribute("class", "pct"); t.textContent = `${pct}%`;
+  s.append(t);
+  return s;
+}
+
 export function roomCard(r) {
-  const b = el("button", "rcard panel" + (r.active ? " active" : ""), null, { "data-act": "open-room", "data-id": r.id });
+  const b = el("button", "rcard panel" + (r.active ? " active" : "") + (r.scan_id ? "" : " empty"), null, { "data-act": "open-room", "data-id": r.id });
+  const pic = el("div", "rc-pic");
+  if (r.cover_frame_id != null) { const img = el("img", null, null, { alt: "", loading: "lazy", decoding: "async" }); img.src = `/world/frame/${r.cover_frame_id}.jpg`; pic.append(img); }
+  const text = el("div", "rc-text");
   const head = el("div", "rc-head");
   head.append(el("h3", null, r.name));
   if (r.active) head.append(el("span", "badge", "ACTIVE"));
   const meta = el("div", "rc-meta");
-  if (r.scan_id) meta.append(el("span", null, `${r.n_objects} object${r.n_objects === 1 ? "" : "s"}`), el("span", null, `${r.coverage_pct}% covered`), el("span", null, since(r.last_scanned)));
+  if (r.scan_id) meta.append(el("span", null, `${r.n_objects} object${r.n_objects === 1 ? "" : "s"}`), el("span", null, since(r.last_scanned)));
   else meta.append(el("span", null, "Not scanned yet"));
   if (r.n_drafts) meta.append(el("span", "warn", "unsaved scan"));
-  b.append(head, meta);
-  if (r.scan_id) { const bar = el("div", "bar"), fill = el("i"); fill.style.width = `${Math.max(0, Math.min(100, r.coverage_pct))}%`; bar.append(fill); b.append(bar); } // style set by the DOM, never from text
+  text.append(head, meta);
+  b.append(pic, text);
+  if (r.scan_id) b.append(compassRing(r.coverage_bins, Math.max(0, Math.min(100, r.coverage_pct))));
   return b;
 }
 

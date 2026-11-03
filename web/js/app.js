@@ -380,7 +380,7 @@ RENDER.room=(state,d={})=>{
   if(state==='error')txt('rerr',d.message||'');
   if(state==='loading'||state==='error'||!room){renderSwitchers();return}
   txt('rname',room.name);$('ractive').hidden=!room.active;$('ractbtn').hidden=room.active;
-  const info=[['Objects',room.n_objects],['Covered',room.coverage_pct+'%'],['Last scan',room.last_scanned?since(room.last_scanned):'never'],['Saved scans',room.n_scans]];
+  const info=[['Objects',room.n_objects],['Covered',room.coverage_pct+'%'],['Last scan',room.last_scanned?since(room.last_scanned):'never'],['Scans',room.n_scans]];
   $('rinfo').replaceChildren(...info.map(([k,v])=>{const x=mk('div');x.append(mk('span','label',k),mk('b',null,v));return x}));
   $('rrecent').replaceChildren(...(d.recent_objects||[]).map(o=>thumb({...o,room:{id:room.id,name:room.name}})));paintThumbs($('rrecent'));
   const scans=d.scans||[],mem=scans.find(s=>s.status==='saved');

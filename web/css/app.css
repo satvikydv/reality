@@ -481,3 +481,106 @@ body.dbg #dev{display:block}
 .lktext .lkwhy:empty{display:none}
 @keyframes lkpeek{0%,100%{transform:translateX(0)}50%{transform:translateX(8px)}}
 @media (prefers-reduced-motion:reduce){.lkpair canvas{transition:none;animation:none!important}}
+
+/* ===== Shape and material system (2026-11-03). One rule: what you press is a capsule, what holds content is a rounded
+   rectangle, an icon on its own is a circle. Controls are solid graphite (not see-through, so they never take on the colour
+   behind them) with a hairline of light on the top edge; the primary action is lit from above. Two heights: 52 for the
+   buttons that move you on, 44 for everything smaller. The AR overlay is drawn on the canvas and is not affected. ===== */
+.btn,.plainbtn,.dangerbtn,#dlg .navrow button{height:52px;min-height:52px;border-radius:var(--r-pill);font:600 16px var(--sans);letter-spacing:-.01em;padding:0 22px}
+.mini,.srow button,.procact button,.askstate button,.askbar button,.notice button,.chip,.seg,.seg button,.tog{border-radius:var(--r-pill)}
+.mini,.srow button,.procact button,.askstate button,.askbar button,.notice button{min-height:44px;height:44px;padding:0 18px;font:600 15px var(--sans)}
+.btn.ghost,.plainbtn,.dangerbtn,.mini,.srow button,.procact button,.askstate button,.askbar button,.notice button,#dlg .navrow button,.chip{background:var(--ctl);color:var(--ink);box-shadow:var(--ctl-edge);border:0}
+.btn:not(.ghost):not(.red),#dlg .navrow button.go,.mini.on{background:var(--lit);color:#0A1030;box-shadow:inset 0 1px 0 rgba(255,255,255,.38),0 10px 26px -12px rgba(138,164,255,.6)}
+.btn.red{background:linear-gradient(180deg,#FF6A61 0%,#FF453A 60%,#E8352B 100%);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 10px 26px -12px rgba(255,69,58,.55)}
+.dangerbtn,.mini.danger{background:var(--ctl);color:var(--red)}
+.btn:disabled,.plainbtn:disabled,.mini:disabled{background:var(--ctl);color:var(--dim);box-shadow:var(--ctl-edge);opacity:.55}
+.btn.ghost:active,.plainbtn:active,.mini:active,.chip:active,.srow button:active,.tile:active i{background:var(--ctl-press)}
+.chip{min-height:44px;padding:0 18px;font:500 15px var(--sans)}
+.chip.on{background:rgba(138,164,255,.16);color:var(--accent);box-shadow:inset 0 0 0 1px rgba(138,164,255,.35)}
+.seg{padding:3px;gap:0;background:#17191D;box-shadow:inset 0 .5px 0 rgba(0,0,0,.4)}
+.seg button{min-height:var(--tap-min);background:transparent;box-shadow:none;color:var(--dim)}
+.seg button[aria-pressed=true],.seg button.on{background:var(--ctl-press);color:var(--ink);box-shadow:var(--ctl-edge),0 3px 10px rgba(0,0,0,.35)}
+.find,.search,#wzname,#rsname,.picker select,.setgrp select{border-radius:var(--r-pill);background:var(--ctl);box-shadow:var(--ctl-edge);border:0}
+.find button{border-radius:50%}
+.badge{letter-spacing:0;font:600 12px var(--sans);height:24px;padding:0 10px}
+.iconbtn{flex:none;width:44px;height:44px;min-height:44px;padding:0;border-radius:50%;display:grid;place-items:center;background:var(--ctl);color:var(--ink);box-shadow:var(--ctl-edge)}
+.iconbtn svg{width:20px;height:20px}
+.iconbtn:active{background:var(--ctl-press);transform:scale(.94)}
+/* the room's actions: one primary button, then four round actions in a row, like the actions on an iOS contact card */
+#s-room .actions{display:flex;flex-direction:column;gap:18px}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.tile{display:flex;flex-direction:column;align-items:center;gap:8px;min-height:84px;padding:0;background:none;border-radius:var(--r-md);font:500 13px var(--sans);color:var(--ink)}
+.tile i{display:grid;place-items:center;width:60px;height:60px;border-radius:50%;background:var(--ctl);box-shadow:var(--ctl-edge);color:var(--accent);transition:background .15s,transform .15s}
+.tile i svg{width:24px;height:24px}
+.tile:active i{transform:scale(.94)}
+.tile:focus-visible{outline:none}.tile:focus-visible i{outline:2px solid var(--accent);outline-offset:3px}
+/* numbers line up in columns */
+.stats b,.meta b,#s-room #rinfo b,.lkrow small,#pct{font-variant-numeric:tabular-nums}
+/* Spacing rhythm: 28 between blocks, 12 inside a group, and a section heading sits 12 above what it names (it belongs to
+   what follows, not to what came before). Everything on the 4 px grid. */
+.body{gap:28px;padding:var(--s-2) 0 var(--s-6)}
+.body>div[data-show]:not([class]){display:flex;flex-direction:column;gap:28px} /* a screen's content wrapper: same rhythm as the body */
+.body>div[data-show][hidden]{display:none}
+.sec{margin:0;font:600 20px/1.2 var(--sans);letter-spacing:-.02em;color:var(--ink)}
+div>.sec+*{margin-top:12px}
+.body>div[data-show]:not([class])>.sec+*,.body>.sec+*{margin-top:-16px}
+.rhead{gap:10px;min-height:44px}
+.rhead h1{font:700 30px/1.1 var(--sans);letter-spacing:-.03em}
+#rinfo{padding:18px 6px;gap:0;grid-template-columns:.9fr 1fr 1.3fr .8fr}
+#rinfo div{gap:6px;padding:0 12px;min-width:0}
+#rinfo div+div{box-shadow:inset .5px 0 0 var(--line)}
+#rinfo .label{font:500 13px var(--sans);color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#rinfo b{font:600 20px var(--sans);letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.thumbs{gap:12px}
+.thumb{gap:8px}
+.thumb .cap{font:500 14px var(--sans);color:var(--ink);padding:0 2px}
+.hrow{padding:16px 0;gap:10px}
+.hrow .mini,.hrow button{min-height:44px;height:44px}
+/* the two button heights win over older per-screen rules */
+.scr .btn,.scr .btn.ghost,.scr .plainbtn,.scr .dangerbtn,#dlg .navrow button{height:52px;min-height:52px;border-radius:var(--r-pill)}
+.scr .skip{border-radius:var(--r-pill)}
+/* 4 px grid: every gap and padding inside the screens is a multiple of 4 (tests/test_design_system.py checks it) */
+button{padding-block:0}input{padding-block:0}
+.btn,.plainbtn,.dangerbtn,.camstop,.tog,.brand,.find,.sublinks,.hacts,.gtile,label{gap:8px}
+.rcard,.sheet,#sumsheet,#chg,.setbody,.chk,.srow2,#wzactive{gap:12px}
+.rc-head,.rhead,h2{column-gap:8px;row-gap:8px}
+.rc-meta{column-gap:16px}
+#rinfo div{gap:4px}
+.lkrow{gap:16px}.lktext{gap:4px}.lkbox{gap:8px}.lkbox #lksub{margin-bottom:8px}
+.seg{padding:4px}
+.thumb{padding:0}
+.meta div{gap:8px}
+.ht{gap:4px}.badges{gap:8px}.hrow{gap:12px}
+.scr .hacts{gap:8px}
+.picker label{gap:8px}
+#s-summary .sublinks,#s-summary .after .savebar{gap:8px}
+#s-room .actions{gap:16px}
+#wzname,#rsname{height:52px;min-height:52px}
+.chg h2,.chgcard h2,.grp h2{column-gap:8px;row-gap:8px}
+.dgrid{row-gap:12px;column-gap:16px}
+.setgrp select,#langsel{height:52px;min-height:52px}
+/* phones scroll by touch: no scrollbar line over the cards' edges */
+.body,.sheet,.sheet2,.thumbs{scrollbar-width:none}
+.body::-webkit-scrollbar,.sheet::-webkit-scrollbar{display:none}
+/* Over the live camera, no backdrop blur: the video changes every frame, so a blurred panel is re-blurred every frame. Measured
+   on the demo phone (Realme 6, Explore, 10 s each): blur on 48 fps, 95th-percentile frame 33 ms; blur off 60 fps, 16.7 ms.
+   Camera screens get the same panels as dark tinted glass instead; static screens keep the blur, where it costs nothing. */
+body.cam .panel,body.cam .sheet,body.cam .sheet2,body.cam .pill,body.cam .back,body.cam .camstop,body.cam .tog,body.cam .askbar,body.cam .toast,body.cam #cap,body.cam .btn.ghost{
+  -webkit-backdrop-filter:none!important;backdrop-filter:none!important}
+body.cam .panel,body.cam .pill,body.cam .back,body.cam .camstop,body.cam .tog,body.cam .askbar{background:rgba(16,18,22,.78)}
+body.cam .sheet,body.cam .sheet2{background:rgba(22,25,30,.95)}
+/* Room cards: the room's own photo, its name, and the compass ring of what has been scanned */
+.rcard{flex-direction:row;align-items:center;gap:16px;padding:12px 16px 12px 12px;min-height:96px}
+.rc-pic{flex:none;width:72px;height:72px;border-radius:14px;overflow:hidden;background:var(--ctl) radial-gradient(circle at 50% 40%,rgba(138,164,255,.18),transparent 60%);box-shadow:var(--ctl-edge)}
+.rc-pic img{width:100%;height:100%;object-fit:cover;display:block}
+.rcard.empty .rc-pic{display:grid;place-items:center}
+.rcard.empty .rc-pic:after{content:"";width:28px;height:28px;border-radius:50%;border:1.5px dashed rgba(255,255,255,.28)}
+.rc-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
+.rc-head h3{margin:0;font:600 18px/1.2 var(--sans);letter-spacing:-.015em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rc-meta{font:400 14px var(--sans);color:var(--dim);column-gap:12px}
+.ring{flex:none;overflow:visible}
+.ring line{stroke-width:2.2;stroke-linecap:round}
+.ring line.on{stroke:var(--accent)}
+.ring line.off{stroke:rgba(255,255,255,.14)}
+.ring .pct{fill:var(--ink);font:600 12px var(--sans);text-anchor:middle;dominant-baseline:central;font-variant-numeric:tabular-nums}
+.badge{line-height:24px;flex:none}.rc-head{align-items:center}

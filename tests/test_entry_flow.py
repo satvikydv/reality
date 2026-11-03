@@ -362,6 +362,7 @@ def test_first_run_intro_then_primer_then_the_browser_prompts_in_that_order(site
 
 def test_the_intro_is_shown_once_and_can_be_skipped(site, clean):
     p = site.page().open()
+    p.wait("document.body.dataset.screen==='welcome'", what="the intro (the page starts on Home until startup decides)")
     p.tap("[data-act=intro-skip]")
     assert p.screen() == "home" and p.media() == []
     p.call("Page.reload")
@@ -632,6 +633,7 @@ def test_room_settings_rename_conflict_and_delete_with_warning(site, clean):
     p.tap("#nav [data-nav=settings]")
     p.wait("document.querySelectorAll('#setrooms .srow').length===2")
     p.tap(f"#setrooms [data-id='{b}']")
+    p.wait("document.body.dataset.screen==='roomsettings'", what="room settings (opened after the room is loaded)")
     assert p.screen() == "roomsettings" and p.eval("document.getElementById('rsname').value") == "Desk"
     p.eval("document.getElementById('rsname').value='Living Room'")
     p.tap("[data-act=rename-room]")
