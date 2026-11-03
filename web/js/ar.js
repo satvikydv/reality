@@ -7,7 +7,7 @@ import {overlayConfig,showsHud} from './overlay-config.js';
 import {selectLabels} from './calm.js';
 import {cachedOutline} from './simplify.js';
 import {directionToPixel} from './guide.js';
-const A=ACCENT,G='#5EE6A0',MONO='JetBrains Mono,monospace',SANS='Sora,sans-serif';
+const A=ACCENT,G='#5EE6A0',MONO='JetBrains Mono,monospace',SANS='Inter,-apple-system,sans-serif';
 export const nd=d=>((d%360)+540)%360-180;
 const rr=(x,a,b,w,h,r)=>{x.beginPath();x.roundRect?x.roundRect(a,b,w,h,r):x.rect(a,b,w,h)};
 const ease=t=>1-Math.pow(1-Math.min(1,Math.max(0,t)),3);
@@ -31,11 +31,30 @@ function bubble(x,text,cx,y,col,{above=false,maxW=210}={}){
   rr(x,bx,top,W,H,12);x.fillStyle='rgba(7,9,11,.86)';x.fill();x.lineWidth=1.5;x.strokeStyle=col;x.stroke();
   x.fillStyle='#f2f4f3';x.textAlign='left';x.textBaseline='middle';L.forEach((l,i)=>x.fillText(l,bx+10,top+15+i*16));return H}
 
-// Notes people left in the room, at the direction they were left (or on the object they were left on).
+// Notes people left in the room, drawn as paper sticky notes (see-through, so the room shows behind them) pinned above the
+// direction they were left in, or the object they were left on. Each note's screen box goes in noteHits so a tap can open it.
+export const noteHits=[];
+const NOTE_W=148,NOTE_PAD=11,NOTE_LH=17;
+function wrap(x,text,maxW,maxLines){const lines=[];let line='';
+  for(const w of String(text).split(/\s+/)){const t=line?line+' '+w:w;if(x.measureText(t).width>maxW&&line){lines.push(line);line=w}else line=t}
+  if(line)lines.push(line);const L=lines.slice(0,maxLines);if(lines.length>maxLines)L[maxLines-1]=L[maxLines-1].replace(/.{0,2}$/,'…');return L}
 function notes(x,w,s,at){
+  noteHits.length=0;
   for(const o of s.notes||[]){const p=at(o.yaw,o.pitch);if(!p||p[0]<24||p[0]>w-24||p[1]<s.top+30||p[1]>s.h-s.bot)continue;
-    x.fillStyle=AMBER;x.beginPath();x.arc(p[0],p[1],5,0,7);x.fill();x.strokeStyle='rgba(7,9,11,.85)';x.lineWidth=2;x.stroke();
-    bubble(x,(o.author?o.author+': ':'')+o.text,Math.min(w-110,Math.max(110,p[0])),p[1]-12,AMBER,{above:true})}}
+    const sel=s.noteSel===o.id;x.font=`600 14px ${SANS}`;const L=wrap(x,o.text,NOTE_W-2*NOTE_PAD,4);
+    const H=NOTE_PAD*2+L.length*NOTE_LH+(o.author?18:0),cx=Math.min(w-NOTE_W/2-8,Math.max(NOTE_W/2+8,p[0])),top=Math.max(s.top,p[1]-18-H),bx=cx-NOTE_W/2;
+    const tilt=(((o.id*7)%5)-2)*.012,fold=14; // a slight, steady tilt per note, so a few of them read as separate pieces of paper
+    x.save();x.strokeStyle='rgba(255,213,79,.85)';x.lineWidth=1.5;x.beginPath();x.moveTo(cx,top+H);x.lineTo(p[0],p[1]);x.stroke(); // the string to where it was left
+    x.fillStyle=AMBER;x.beginPath();x.arc(p[0],p[1],4,0,7);x.fill();
+    x.translate(cx,top+H/2);x.rotate(tilt);x.translate(-cx,-(top+H/2));
+    x.shadowColor='rgba(0,0,0,.35)';x.shadowBlur=10;x.shadowOffsetY=3;
+    x.beginPath();x.moveTo(bx+4,top);x.lineTo(bx+NOTE_W-4,top);x.quadraticCurveTo(bx+NOTE_W,top,bx+NOTE_W,top+4);x.lineTo(bx+NOTE_W,top+H-fold);x.lineTo(bx+NOTE_W-fold,top+H);x.lineTo(bx+4,top+H);x.quadraticCurveTo(bx,top+H,bx,top+H-4);x.lineTo(bx,top+4);x.quadraticCurveTo(bx,top,bx+4,top);x.closePath();
+    x.fillStyle=sel?'rgba(255,221,110,.82)':'rgba(255,213,79,.58)';x.fill();x.shadowColor='transparent';x.shadowOffsetY=0;
+    if(sel){x.lineWidth=2;x.strokeStyle='rgba(255,255,255,.9)';x.stroke()}
+    x.fillStyle='rgba(120,88,0,.55)';x.beginPath();x.moveTo(bx+NOTE_W,top+H-fold);x.lineTo(bx+NOTE_W-fold,top+H-fold);x.lineTo(bx+NOTE_W-fold,top+H);x.closePath();x.fill(); // the turned-up corner
+    x.fillStyle='#2a2000';x.textAlign='left';x.textBaseline='top';x.font=`600 14px ${SANS}`;L.forEach((l,i)=>x.fillText(l,bx+NOTE_PAD,top+NOTE_PAD+i*NOTE_LH));
+    if(o.author){x.font=`500 11px ${SANS}`;x.fillStyle='rgba(42,32,0,.72)';x.fillText(o.author,bx+NOTE_PAD,top+NOTE_PAD+L.length*NOTE_LH+3)}
+    x.restore();noteHits.push({id:o.id,x0:bx-6,y0:top-6,x1:bx+NOTE_W+6,y1:top+H+6})}}
 
 // Ghosts: what an earlier scan had in a direction where the room's memory has nothing now.
 function ghosts(x,w,s,at){
@@ -70,6 +89,22 @@ function ladder(x,w,s){const lx=w-14,ppd=s.ppd;
   x.fillStyle=A;x.beginPath();x.moveTo(lx-20,s.cy);x.lineTo(lx-30,s.cy-5);x.lineTo(lx-30,s.cy+5);x.fill()}
 
 const bbox=pts=>{let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9;for(const[a,b]of pts){if(a<x0)x0=a;if(a>x1)x1=a;if(b<y0)y0=b;if(b>y1)y1=b}return{x0,y0,x1,y1}};
+// How an object is marked over the camera. Outside the scan, a rounded box around the projected mask with brighter corners: a box
+// still looks right when the pose is a few degrees off, where a traced outline visibly slides off the object's edge. While scanning,
+// the traced outline (what the scan just found).
+function mark(x,s,pr,col,{fill,lw=2,shadow=true}={}){
+  const dash=pr.source==='footprint'?[6,5]:[];x.lineJoin='round';
+  if(s.mode==='scan'){x.beginPath();pr.outline.forEach(([px,py],i)=>i?x.lineTo(px,py):x.moveTo(px,py));x.closePath();
+    if(fill){x.fillStyle=fill;x.fill()}x.lineWidth=lw;x.strokeStyle=col;x.setLineDash(dash);if(shadow){x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=5}x.stroke();x.setLineDash([]);x.shadowBlur=0;return}
+  const b=bbox(pr.outline),pad=5,X=b.x0-pad,Y=b.y0-pad,W=b.x1-b.x0+2*pad,H=b.y1-b.y0+2*pad,r=Math.max(4,Math.min(14,W/4,H/4)),L=Math.min(Math.max(r+6,22),W/2,H/2);
+  rr(x,X,Y,W,H,r);if(fill){x.fillStyle=fill;x.fill()}
+  x.save();x.globalAlpha*=.45;x.lineWidth=1.25;x.strokeStyle=col;x.setLineDash(dash);x.stroke();x.restore();
+  if(shadow){x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=5}x.lineWidth=lw+.5;x.lineCap='round';x.strokeStyle=col;x.beginPath();
+  x.moveTo(X,Y+L);x.arcTo(X,Y,X+L,Y,r);x.lineTo(X+L,Y);
+  x.moveTo(X+W-L,Y);x.arcTo(X+W,Y,X+W,Y+L,r);x.lineTo(X+W,Y+L);
+  x.moveTo(X+W,Y+H-L);x.arcTo(X+W,Y+H,X+W-L,Y+H,r);x.lineTo(X+W-L,Y+H);
+  x.moveTo(X+L,Y+H);x.arcTo(X,Y+H,X,Y+H-L,r);x.lineTo(X,Y+H-L);
+  x.stroke();x.shadowBlur=0}
 
 // Outlines of the remembered objects, locked to the world. Returns how many were drawn and how many were hidden.
 function world(x,w,s,cur,fitv,t){
@@ -85,9 +120,7 @@ function world(x,w,s,cur,fitv,t){
     const col=o.hl||fresh?A:(s.mode==='scan'?G:'rgba(255,255,255,.92)');
     x.save();x.globalAlpha=pr.alpha*(fresh?.4+.6*ease(born):(o.hl?1:hasHl?.45:1));
     if(pr.outline&&s.detail!=='labels'){ // "labels only" (Settings, overlay detail) skips the outlines
-      x.beginPath();pr.outline.forEach(([px,py],i)=>i?x.lineTo(px,py):x.moveTo(px,py));x.closePath();
-      x.fillStyle=col===A?rgba(A,fresh?.16*(1-born):.10):'rgba(255,255,255,.07)';x.fill();
-      x.lineJoin='round';x.lineWidth=o.hl?3:2;x.strokeStyle=col;x.setLineDash(pr.source==='footprint'?[6,5]:[]);if(soft){x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=5}x.stroke();x.setLineDash([]);x.shadowBlur=0;
+      mark(x,s,pr,col,{fill:col===A?rgba(A,fresh?.16*(1-born):.10):'rgba(255,255,255,.07)',lw:o.hl?3:2,shadow:soft});
     }
     if(o.hl){const p=(t*1.4)%1;x.strokeStyle=A;x.globalAlpha*=1-p;x.lineWidth=2;x.beginPath();x.arc(ax,ay,30+p*40,0,7);x.stroke();x.globalAlpha=pr.alpha}
     if(pr.anchor){x.fillStyle=col;x.beginPath();x.arc(ax,ay,o.hl?3.5:2.5,0,7);x.fill()}
@@ -113,9 +146,7 @@ function calmWorld(x,w,s,cur,fitv,t){
     const o=s.world.find(q=>q.id===r.outlineId);
     if(o){const o2=o.mask&&o.mask.poly?{...o,mask:{...o.mask,poly:cachedOutline(o.id,o.mask.poly,cfg.outline)}}:o,pr=projectObject(o2,cur,fitv,{maxUncertainty:999});
       if(pr&&pr.outline){const col=o.hl?A:'rgba(255,255,255,.95)';
-        x.save();x.globalAlpha=pr.alpha;x.beginPath();pr.outline.forEach(([px,py],i)=>i?x.lineTo(px,py):x.moveTo(px,py));x.closePath();
-        x.fillStyle=o.hl?rgba(A,.12):'rgba(255,255,255,.06)';x.fill();x.lineJoin='round';x.lineWidth=o.hl?3:2;x.strokeStyle=col;x.setLineDash(pr.source==='footprint'?[6,5]:[]);
-        x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=5;x.stroke();x.restore()}
+        x.save();x.globalAlpha=pr.alpha;mark(x,s,pr,col,{fill:o.hl?rgba(A,.12):'rgba(255,255,255,.06)',lw:o.hl?3:2});x.restore()}
       if(o.hl&&pr&&pr.anchor){const p=(t*1.4)%1;x.save();x.strokeStyle=A;x.globalAlpha=1-p;x.lineWidth=2;x.beginPath();x.arc(pr.anchor[0],pr.anchor[1],30+p*40,0,7);x.stroke();x.restore()}}}
   return{drawn:r.shown,hidden:s.world.length-r.shown,labels:r.labels.length,hiddenBy:r.hidden,calm:r};
 }
@@ -128,8 +159,7 @@ function askedWorld(x,w,s,cur,fitv,t){
     const pr=projectObject(o,cur,fitv,{maxUncertainty:999}),dx=nd(o.yaw-s.yaw),dy=o.pitch-s.pitch;
     const on=pr&&pr.anchor&&pr.anchor[0]>0&&pr.anchor[0]<w&&pr.anchor[1]>s.top&&pr.anchor[1]<s.h-s.bot;
     if(!on){edge(x,w,s,dx,dy,A,o.label,Math.hypot(dx,dy),t);continue}
-    if(pr.outline){x.save();x.globalAlpha=pr.alpha;x.beginPath();pr.outline.forEach(([px,py],i)=>i?x.lineTo(px,py):x.moveTo(px,py));x.closePath();
-      x.fillStyle=rgba(A,.14);x.fill();x.lineJoin='round';x.lineWidth=3;x.strokeStyle=A;x.shadowColor='rgba(0,0,0,.55)';x.shadowBlur=5;x.stroke();x.restore()}
+    if(pr.outline){x.save();x.globalAlpha=pr.alpha;mark(x,s,pr,A,{fill:rgba(A,.14),lw:3});x.restore()}
     const[ax,ay]=pr.anchor,cx=Math.min(w-60,Math.max(60,ax)),ly=Math.min(ay+14,s.h-s.bot-CHIP_H-70);
     x.fillStyle=A;x.beginPath();x.arc(ax,ay,3.5,0,7);x.fill();
     chip(x,o.label,'',cx,ly,A);if(reason)bubble(x,reason,cx,ly+CHIP_H+6,'rgba(138,164,255,.48)');

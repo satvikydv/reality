@@ -56,6 +56,7 @@ class McpEndpoint:
         await inner(scope, receive, send)
 
 
+NO_CACHE = {"Cache-Control": "no-cache"}  # served files are revalidated on every load, so a reload always gets the current code
 app = FastAPI(title="Reality OS", lifespan=lifespan)
 app.add_middleware(AccessTokenMiddleware)
 
@@ -84,12 +85,12 @@ app.router.routes.append(Route("/mcp", McpEndpoint()))
 
 @app.get("/")
 async def index():
-    return FileResponse(WEB / "index.html")
+    return FileResponse(WEB / "index.html", headers=NO_CACHE)
 
 
 @app.get("/dashboard")
 async def dashboard():
-    return FileResponse(WEB / "dashboard.html")
+    return FileResponse(WEB / "dashboard.html", headers=NO_CACHE)
 
 
 @app.get("/debug")
@@ -764,5 +765,15 @@ async def ws_events(sock: WebSocket):
                 await sock.close()
 
 
-app.mount("/js", StaticFiles(directory=WEB / "js"), name="js")
-app.mount("/css", StaticFiles(directory=WEB / "css"), name="css")
+class _Revalidated(StaticFiles):
+    """The page's scripts and styles, which the browser must check again on every load (a cheap 304 when unchanged).
+    Without a Cache-Control header a phone browser may keep an old module for hours, so a reload shows stale code."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers.update(NO_CACHE)
+        return response
+
+
+app.mount("/js", _Revalidated(directory=WEB / "js"), name="js")
+app.mount("/css", _Revalidated(directory=WEB / "css"), name="css")

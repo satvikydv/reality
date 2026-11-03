@@ -1,5 +1,5 @@
 import {drawRing,drawReplay} from './ui.js';
-import {drawAR,drawBearing,nd} from './ar.js';
+import {drawAR,drawBearing,nd,noteHits} from './ar.js';
 import {guide} from './guide.js';
 import {WorldLayer} from './world.js';
 import {diffCalibration} from './camera-lock.js';
@@ -29,6 +29,7 @@ const buzz=ms=>{try{navigator.vibrate&&navigator.vibrate(ms)}catch{}};
 // Every spoken reply is also shown as text. Screens that already print the reply do not need the bar.
 const SELF_CAPTIONED=new Set(['result','summary','changes','guide','explore']);let capT=null;
 function caption(t){const c=$('cap');if(!t||SELF_CAPTIONED.has(scrn)){c.style.display='none';return}$('captext').textContent=t;c.style.display='block';clearTimeout(capT);capT=setTimeout(()=>c.style.display='none',9000)}
+const hush=()=>{try{speechSynthesis.cancel()}catch{}}; // leaving a screen or closing an answer stops the voice
 const speak=t=>{caption(t);try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang=prefs.voiceLang();u.rate=1;speechSynthesis.speak(u)}catch{}};
 const toast=(m,ms=3500)=>{const e=$('toast');e.textContent=m;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',ms)};
 const section=id=>$(sectionId(id)),setState=(id,state)=>{if(!hasState(id,state))console.warn('unknown state',id,state);applyState(section(id),state)};
@@ -42,6 +43,7 @@ addEventListener('resize',measure);
 const hist=[];
 function go(id,{back=false}={}){
   const was=scrn;if(!SCREENS[id])throw new Error('no screen '+id);
+  if(was!==id)hush();
   if(was!==id&&!back)hist.push(was);while(hist.length>20)hist.shift();
   scrn=id;body.dataset.screen=id;
   for(const sid of ids())if(!SCREENS[sid].sheet)section(sid).classList.toggle('on',sid===id);
@@ -51,7 +53,7 @@ function go(id,{back=false}={}){
   if(was!==id&&isCamera(was)&&!isCamera(id))stopCamera('left the '+was+' screen'); // the camera is on only while a camera screen is showing
   if(was==='guide'&&id!=='guide')stopGuide();
   if(was==='scan'&&id!=='scan')stopAlign();
-  if(was==='explore'&&id!=='explore')clearOverlayAnswers();
+  if(was==='explore'&&id!=='explore'){clearOverlayAnswers();closeNotePop()}
   if(was==='summary'&&id!=='summary')stopProc();
   if(id==='result')rt=0;
   syncWorld();renderSwitchers();requestAnimationFrame(measure)}
@@ -537,6 +539,18 @@ async function noteAct(kind,id){
   if(demo){DEMO.notes=DEMO.notes.filter(n=>n.id!==id);world.notes=DEMO.notes}
   else{const r=kind==='delete'?await api.deleteNote(id):await api.noteDone(id,true);if(!r.ok)return toast(describeFailure(r,'change the note').text);world.refresh()}
   RENDER.note('default',{notes:await loadNotes()})}
+// Tapping a sticky note over the camera opens it, with Done and Delete on the note itself (no trip through the Notes sheet).
+let noteSel=null;
+function openNotePop(id){const n=(world.notes||[]).find(q=>q.id===id);if(!n)return closeNotePop();noteSel=id;
+  txt('notepoptext',n.text);txt('notepopby',[n.author,n.label?'on the '+n.label:null].filter(Boolean).join(', '));$('notepop').hidden=false}
+function closeNotePop(){noteSel=null;$('notepop').hidden=true}
+async function notePopAct(kind){const id=noteSel;if(id==null)return;
+  if(kind==='delete'&&!await confirmDlg({title:'Delete this note?',body:'Nobody in this room will see it again. This cannot be undone.',yes:'Delete',no:'Keep it'}))return;
+  closeNotePop();await noteAct(kind,id);toast(kind==='delete'?'Note deleted':'Note marked done')}
+addEventListener('click',e=>{
+  if(scrn!=='explore'||e.target.closest('button,input,textarea,select,a,.sheet,.sheet2,#notepop,#dlg'))return;
+  const h=noteHits.find(r=>e.clientX>=r.x0&&e.clientX<=r.x1&&e.clientY>=r.y0&&e.clientY<=r.y1);
+  if(h)openNotePop(h.id);else if(noteSel!=null)closeNotePop()});
 
 RENDER.ask=(state,d={})=>{setState('ask',state);txt('askrmsg',state==='busy'?'Thinking about this room…':(d.message||''));$('askrspin').style.display=state==='busy'?'':'none'};
 function openAsk(){if(exRoom()==null)return;RENDER.ask('idle');section('ask').classList.add('on');$('askq').value=''}
@@ -553,7 +567,7 @@ async function askGo(q){
   if(!r.ok)return RENDER.ask('error',{message:describeFailure(r,'answer that').text});
   const d=r.data;if(d.status!=='ok')return RENDER.ask('error',{message:d.message||d.answer||'There was no answer.'});
   closeSwitcher();world.setAsk(d.matches);txt('askbartext',d.answer);$('askbar').classList.add('on');speak(d.answer)}
-function clearAsk(){world.setAsk([]);$('askbar').classList.remove('on')}
+function clearAsk(){hush();world.setAsk([]);$('askbar').classList.remove('on')}
 
 RENDER.history=(state,d={})=>{setState('history',state);if(state==='error')txt('histerr',d.message||'');if(state==='default')$('histlist').replaceChildren(...d.scans.map(thenRow))};
 async function openHistory(){
@@ -572,10 +586,10 @@ async function pickThen(id){
   if(!r.ok)return toast(describeFailure(r,'rewind this room').text);
   const d=r.data;if(d.status!=='ok')return toast(d.message||'Cannot rewind to that scan.');
   world.setGhosts(d.ghosts,d.then.started_at);txt('thenbartext',`Then, ${whenText(d.then.started_at)}: ${d.summary}`);$('thenbar').classList.add('on');speak(d.summary)}
-function clearThen(){world.setGhosts([]);$('thenbar').classList.remove('on')}
+function clearThen(){hush();world.setGhosts([]);$('thenbar').classList.remove('on')}
 function clearOverlayAnswers(){clearAsk();clearThen()}
-$('notetext').onkeydown=e=>e.key==='Enter'&&saveNote();
-$('askq').onkeydown=e=>e.key==='Enter'&&askGo();
+$('notetext').onkeydown=e=>{if(e.key==='Enter')saveNote()}; // a block body: returning false from onkeydown would cancel every other key, Backspace included
+$('askq').onkeydown=e=>{if(e.key==='Enter')askGo()};
 
 /* What changed: one room, two of its saved scans */
 let chgRoom=null,chgRun=null;
@@ -807,14 +821,14 @@ const ACT={
   'replay-intro':()=>openIntro(true),'delete-all':deleteAll,'open-room-settings':b=>openRoomSettings(+b.dataset.id),'rename-room':renameRoom,'delete-room':deleteRoom,
   'inspect-scan':b=>openLabels(+(b.dataset.scan||summary?.scan_id)||null),'open-label':b=>openInstances(b.dataset.label),'open-instance':b=>openSightings(+b.dataset.id),
   'pick-instance':b=>{const id=+b.dataset.id;insp.picked.has(id)?insp.picked.delete(id):insp.picked.add(id);RENDER.instances('default',{})},
-  'open-note':openNote,'save-note':saveNote,'mic-note':()=>dictate($('notetext'),$('notemic')),'note-done':b=>noteAct('done',+b.dataset.id),'note-delete':b=>noteAct('delete',+b.dataset.id),
+  'open-note':openNote,'save-note':saveNote,'mic-note':()=>dictate($('notetext'),$('notemic')),'note-done':b=>noteAct('done',+b.dataset.id),'note-delete':b=>noteAct('delete',+b.dataset.id),'note-pop-done':()=>notePopAct('done'),'note-pop-delete':()=>notePopAct('delete'),'note-pop-close':closeNotePop,
   'open-ask':openAsk,'ask-go':()=>askGo(),'ask-example':b=>askGo(b.dataset.q),'mic-ask':()=>dictate($('askq'),$('askmic'),()=>askGo()),'clear-ask':clearAsk,
   'open-history':openHistory,'history-retry':openHistory,'pick-then':b=>pickThen(+b.dataset.scan),'clear-then':clearThen,care:b=>setCare(b.dataset.v==='1'),
   'merge-picked':mergePicked,'not-object':notObjectHere,'unmark-object':b=>restoreLabel(b.dataset.label),'delete-object':deleteObjectHere,'detach-sighting':b=>detachHere(+b.dataset.id),
   debug:b=>{prefs.set('debug',b.dataset.v==='1');applyDebug()},
 };
 document.addEventListener('click',e=>{const b=e.target.closest('[data-act]');if(!b||b.disabled)return;const f=ACT[b.dataset.act];if(f){e.preventDefault();f(b)}});
-$('q').onkeydown=e=>e.key==='Enter'&&doFind();
+$('q').onkeydown=e=>{if(e.key==='Enter')doFind()};
 $('langsel').onchange=e=>{prefs.set('lang',e.target.value);toast('Voice language: '+e.target.selectedOptions[0].textContent)};
 $('chbefore').onchange=$('chafter').onchange=()=>openChanges(chgRoom,{before:+$('chbefore').value,after:+$('chafter').value});
 $('cap').onclick=()=>$('cap').style.display='none';
@@ -849,7 +863,7 @@ function frame(now){
   cur.pulse=Math.max(0,cur.pulse-dt*2.5);cur.shutter+=dt/.5;
   if(isCamera(scrn)){
     const ar=$('ar'),tg=guideTarget(),sc=scrn==='scan',t0=performance.now(),objs=world.objects;
-    const s={mode:scrn==='explore'?'home':scrn,now,yaw:cur.yaw,pitch:cur.pitch,roll:cur.roll,view:{...viewSize(),hfov:world.hfov},world:objs,notes:world.notes,asked:world.asked,ghosts:world.ghosts,showWorld:arOn&&!camAlarm,detail:prefs.get('detail'),
+    const s={mode:scrn==='explore'?'home':scrn,now,yaw:cur.yaw,pitch:cur.pitch,roll:cur.roll,view:{...viewSize(),hfov:world.hfov},world:objs,notes:world.notes,noteSel,asked:world.asked,ghosts:world.ghosts,showWorld:arOn&&!camAlarm,detail:prefs.get('detail'),
       bins:sc?cur.bins:null,gapBins:sc&&cur.gap?new Set(Array.from({length:cur.gap.len},(_,i)=>(cur.gap.start+i)%36)):null,gap:sc?cur.gap:null,
       markers:scrn==='guide'?(tg?[{yaw:tg.yaw,hl:true}]:[]):objs,target:tg,found,label:tg?.label,pulse:cur.pulse,shutter:cur.shutter,tapeY:M.tapeY,top:M.top,bot:M.bot};
     drawAR(ar,s);arStats=s.stats;drawMs+=((performance.now()-t0)-drawMs)*.1}

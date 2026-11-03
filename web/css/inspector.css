@@ -75,7 +75,7 @@
 #care .badge2{padding:6px 12px;border-radius:var(--r-pill);font:600 var(--t-xs) var(--sans);border:1px solid var(--line-strong)}
 #care .badge2.on{color:var(--green);border-color:var(--green-line);background:var(--green-fill)}
 #care .badge2.off{color:var(--amber);border-color:var(--amber-line);background:var(--amber-fill)}
-#care .cadd{display:flex;gap:var(--s-2)}
+#care .cadd{display:flex;gap:var(--s-2)}#care .cadd input{flex:1 1 0;min-width:0}#care .cadd select{flex:0 1 128px;min-width:0}#care .cadd button{flex:none}
 #care input,#care select{min-height:var(--tap-min);border-radius:var(--r-sm);background:var(--fill-1);color:var(--ink);border:1px solid var(--line-strong);font:500 var(--t-sm) var(--sans);padding:0 12px;min-width:0}
 #care input{flex:1}#care select option{color:#000}
 #care .citems{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:var(--s-4);align-content:start}

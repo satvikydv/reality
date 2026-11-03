@@ -84,9 +84,8 @@
       <div class="thumbs" id="sumdetail" hidden></div>
       <div class="sumq panel" id="sumq" hidden><h2 id="sumqtitle"></h2><ul id="sumqtips"></ul></div>
       <div class="meta"><div><span class="label">Frames</span><b id="mf">–</b></div><div><span class="label">Seconds</span><b id="ms">–</b></div><div><span class="label">Cover</span><b id="mc">–</b></div><div><span class="label">Cost</span><b id="mu">–</b></div></div>
-      <div class="row"><button class="btn ghost" data-act="discard-review">Discard</button><button class="btn" data-act="save-review" id="sumsave">Save</button></div>
-      <button class="plainbtn" data-act="inspect-scan" id="sumobjs">Review objects</button>
-      <button class="plainbtn" data-act="view-room">View in room</button>
+      <div class="sublinks"><button class="plainbtn" data-act="inspect-scan" id="sumobjs">Review objects</button><button class="plainbtn" data-act="view-room">View in room</button></div>
+      <div class="row savebar"><button class="btn ghost" data-act="discard-review">Discard</button><button class="btn" data-act="save-review" id="sumsave">Save</button></div>
     </div>
   </div>
 </section>
@@ -238,6 +237,7 @@
     <div class="statecard panel" data-g="○" data-show="no-memory"><h2>Nothing to show yet</h2><p>This room has not been scanned, so there is nothing to draw over the camera.</p><button class="btn" data-act="rescan">Scan this room</button></div>
     <div class="askbar panel" id="askbar" data-show="default"><span id="askbartext"></span><button data-act="clear-ask" aria-label="Clear the answer">Clear</button></div>
     <div class="askbar panel" id="thenbar" data-show="default"><span id="thenbartext"></span><button data-act="clear-then" aria-label="Back to now">Back to now</button></div>
+    <div class="notepop" id="notepop" role="dialog" aria-label="Note" hidden><button class="npx" data-act="note-pop-close" aria-label="Close the note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button><p id="notepoptext"></p><span id="notepopby"></span><div class="npact"><button data-act="note-pop-done">Done</button><button class="npdel" data-act="note-pop-delete">Delete</button></div></div>
     <div class="row tools" data-show="default"><button class="btn ghost" data-act="open-note">Note</button><button class="btn ghost" data-act="open-ask">Ask</button><button class="btn ghost" data-act="open-history">Rewind</button></div>
     <p class="note center" data-show="default">Point the camera around: remembered objects appear where they were.</p>
   </div>

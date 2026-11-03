@@ -135,8 +135,8 @@ function close() { $("care").classList.remove("on"); clearInterval(timer); timer
 $("carebtn").onclick = open;
 $("careclose").onclick = close;
 $("careadd").onclick = add;
-$("carelabel").onkeydown = (e) => e.key === "Enter" && add();
+$("carelabel").onkeydown = (e) => { if (e.key === "Enter") add(); }; // returning false would cancel every other key
 $("careask").onclick = ask;
-$("careq").onkeydown = (e) => e.key === "Enter" && ask();
+$("careq").onkeydown = (e) => { if (e.key === "Enter") ask(); };
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("care").classList.contains("on")) close(); });
 window.__care = { open, close, load };
