@@ -323,7 +323,7 @@ Quick ask: a bottom sheet over Find listing what the room contains as tap-to-ask
 
 ### `note`
 
-Notes: a bottom sheet over Explore. You leave a message in the room at the place you are looking: the object under the reticle (the note then stays on it) or the direction you face. Typed or spoken. The sheet also lists the room's open notes with Done and Delete. Notes belong to one room; they are shown over the camera, in that room, to everyone who uses it.
+Notes: a bottom sheet over Explore. You leave a message in the room at the place you are looking: the object under the reticle (the note then stays on it) or the direction you face. Typed or spoken. The sheet also lists the room's open notes with Done and Delete. Notes belong to one room; they are shown over the camera, in that room, to everyone who uses it. Over the camera a note is a see-through sticky note; tapping it opens it with Done and Delete. Tapping a remembered object's box or label opens this sheet with the note aimed at that object (a grouped label such as "3 cables" picks the one nearest the tap); a drag is not a tap.
 
 | State | Shows |
 |---|---|

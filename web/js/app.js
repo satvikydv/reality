@@ -1,5 +1,5 @@
 import {drawRing,drawReplay} from './ui.js';
-import {drawAR,drawBearing,nd,noteHits} from './ar.js';
+import {drawAR,drawBearing,nd,noteHits,objHits} from './ar.js';
 import {guide} from './guide.js';
 import {WorldLayer} from './world.js';
 import {diffCalibration} from './camera-lock.js';
@@ -550,8 +550,8 @@ RENDER.note=(state,d={})=>{
   txt('noteat',pendingNote?.label?`It will stay on the ${pendingNote.label}.`:'It will stay in the direction you are facing.');
   $('notelist').replaceChildren(...notes.map(noteRow))};
 async function loadNotes(){const r=demo?{ok:true,data:{notes:DEMO.notes}}:await api.notes(exRoom());return r.ok?r.data.notes:[]}
-async function openNote(){
-  if(exRoom()==null)return;pendingNote=noteTarget();RENDER.note('default',{notes:await loadNotes(),at:pendingNote});section('note').classList.add('on');$('notetext').value=''}
+async function openNote(at){ // at: {yaw, pitch, label} of a tapped object; else the object under the reticle
+  if(exRoom()==null)return;pendingNote=at&&at.yaw!=null?at:noteTarget();RENDER.note('default',{notes:await loadNotes(),at:pendingNote});section('note').classList.add('on');$('notetext').value=''}
 async function saveNote(){
   const text=$('notetext').value.trim();if(!text||!pendingNote)return;
   if(demo){DEMO.notes.unshift({id:DEMO.nextNote++,text,author:'You',...pendingNote,created_at:Date.now()/1000});world.notes=DEMO.notes}
@@ -572,8 +572,15 @@ async function notePopAct(kind){const id=noteSel;if(id==null)return;
   closeNotePop();await noteAct(kind,id);toast(kind==='delete'?'Note deleted':'Note marked done')}
 addEventListener('click',e=>{
   if(scrn!=='explore'||e.target.closest('button,input,textarea,select,a,.sheet,.sheet2,#notepop,#dlg'))return;
-  const h=noteHits.find(r=>e.clientX>=r.x0&&e.clientX<=r.x1&&e.clientY>=r.y0&&e.clientY<=r.y1);
-  if(h)openNotePop(h.id);else if(noteSel!=null)closeNotePop()});
+  if(Math.hypot(e.clientX-downAt[0],e.clientY-downAt[1])>10)return; // a drag to look around (demo), not a tap
+  const inR=r=>e.clientX>=r.x0&&e.clientX<=r.x1&&e.clientY>=r.y0&&e.clientY<=r.y1;
+  const h=noteHits.find(inR);if(h)return openNotePop(h.id);
+  if(noteSel!=null)return closeNotePop();
+  // a remembered object's box or label: leave a note on it (a grouped label resolves to the member nearest the tap)
+  let best=null,bd=Infinity;for(const r of objHits.filter(inR))for(const[id,px,py]of r.pts){const d=Math.hypot(px-e.clientX,py-e.clientY);if(d<bd){bd=d;best=id}}
+  const o=best!=null&&world.objects.find(q=>q.id===best);
+  if(o){buzz(10);openNote({yaw:o.yaw,pitch:o.pitch,label:o.label})}});
+let downAt=[0,0];addEventListener('pointerdown',e=>{downAt=[e.clientX,e.clientY]},true);
 
 RENDER.ask=(state,d={})=>{setState('ask',state);txt('askrmsg',state==='busy'?'Thinking about this room…':(d.message||''));$('askrspin').style.display=state==='busy'?'':'none'};
 function openAsk(){if(exRoom()==null)return;RENDER.ask('idle');section('ask').classList.add('on');$('askq').value=''}
@@ -844,7 +851,7 @@ const ACT={
   'replay-intro':()=>openIntro(true),'delete-all':deleteAll,'open-room-settings':b=>openRoomSettings(+b.dataset.id),'rename-room':renameRoom,'delete-room':deleteRoom,
   'inspect-scan':b=>openLabels(+(b.dataset.scan||summary?.scan_id)||null),'open-label':b=>openInstances(b.dataset.label),'open-instance':b=>openSightings(+b.dataset.id),
   'pick-instance':b=>{const id=+b.dataset.id;insp.picked.has(id)?insp.picked.delete(id):insp.picked.add(id);RENDER.instances('default',{})},
-  'open-note':openNote,'save-note':saveNote,'mic-note':()=>dictate($('notetext'),$('notemic')),'note-done':b=>noteAct('done',+b.dataset.id),'note-delete':b=>noteAct('delete',+b.dataset.id),'note-pop-done':()=>notePopAct('done'),'note-pop-delete':()=>notePopAct('delete'),'note-pop-close':closeNotePop,
+  'open-note':()=>openNote(),'save-note':saveNote,'mic-note':()=>dictate($('notetext'),$('notemic')),'note-done':b=>noteAct('done',+b.dataset.id),'note-delete':b=>noteAct('delete',+b.dataset.id),'note-pop-done':()=>notePopAct('done'),'note-pop-delete':()=>notePopAct('delete'),'note-pop-close':closeNotePop,
   'open-ask':openAsk,'ask-go':()=>askGo(),'ask-example':b=>askGo(b.dataset.q),'mic-ask':()=>dictate($('askq'),$('askmic'),()=>askGo()),'clear-ask':clearAsk,
   'open-history':openHistory,'history-retry':openHistory,'pick-then':b=>pickThen(+b.dataset.scan),'clear-then':clearThen,care:b=>setCare(b.dataset.v==='1'),
   'merge-picked':mergePicked,'not-object':notObjectHere,'unmark-object':b=>restoreLabel(b.dataset.label),'delete-object':deleteObjectHere,'detach-sighting':b=>detachHere(+b.dataset.id),

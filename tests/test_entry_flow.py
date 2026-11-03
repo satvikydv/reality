@@ -339,6 +339,7 @@ def test_the_camera_starts_from_a_tap_on_explore_and_on_guide_me(site, clean):
 
 def test_first_run_intro_then_primer_then_the_browser_prompts_in_that_order(site, clean):
     p = site.page().open()
+    p.wait("document.body.dataset.screen==='welcome'", what="the intro (the page starts on Home until startup decides)")
     assert p.screen() == "welcome" and "Find things in your room" in p.text("#introcard")
     assert p.text("#intronext") == "Next"
     p.tap("#intronext")
@@ -1154,3 +1155,22 @@ def test_quick_ask_lists_what_the_caregiver_watches_first_and_looks_in_every_roo
     p.wait("window.__sent.some(m=>m.includes('\"find\"'))", what="the search")
     msg = json.loads(p.eval("window.__sent.find(m=>m.includes('\"find\"'))"))
     assert msg["query"] == "pills" and msg.get("all_rooms") is True and "room_id" not in msg
+
+
+def test_tapping_a_remembered_object_opens_a_note_on_that_object_and_a_drag_does_not(site):
+    p = site.page().open("/?demo&screen=explore&state=default")
+    p.settle(1.0)
+    hit = p.eval("import('/js/ar.js').then(m=>m.objHits.map(h=>({x:(h.x0+h.x1)/2,y:(h.y0+h.y1)/2,ids:h.pts.map(q=>q[0])})))")
+    assert hit, "no object was drawn to tap"
+    x, y = hit[0]["x"], hit[0]["y"]
+    for t, dx in (("mousePressed", 0), ("mouseMoved", 40), ("mouseReleased", 40)):  # a drag to look around is not a tap
+        p.call("Input.dispatchMouseEvent", type=t, x=x + dx, y=y, button="left", clickCount=1)
+    p.settle(0.4)
+    assert p.eval("document.getElementById('s-note').classList.contains('on')") is False
+    hit = p.eval("import('/js/ar.js').then(m=>m.objHits.map(h=>({x:(h.x0+h.x1)/2,y:(h.y0+h.y1)/2,ids:h.pts.map(q=>q[0])})))")
+    x, y = hit[0]["x"], hit[0]["y"]
+    for t in ("mousePressed", "mouseReleased"):
+        p.call("Input.dispatchMouseEvent", type=t, x=x, y=y, button="left", clickCount=1)
+    p.wait("document.getElementById('s-note').classList.contains('on')", what="the note sheet")
+    assert p.text("#noteat").startswith("It will stay on the ") and p.errors == []
+    p.close()
