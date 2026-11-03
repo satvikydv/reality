@@ -54,6 +54,8 @@ Android only. No Wi-Fi, firewall rules, certificates or tunnels: `adb reverse` m
    With several devices attached, pass `-Serial <id>` (bash: the serial as the first argument).
 6. On the phone, open Chrome and go to **http://localhost:8000**. The page opens on Home without touching the camera. The first time, a three-card intro explains the app and leads to a permission primer; only then does the browser ask for the camera and motion sensors. `http://localhost:8000/probe` shows whether the camera and motion sensors work (results go in `docs/measurements.md`).
 
+7. Optional: Chrome menu, **Install app**. The installed Reality OS opens full screen in portrait (the portrait lock only holds in an installed app) with its own icon. It has no service worker: it needs the server, and it is tied to the address it was installed from, so install it from the one you use (`http://127.0.0.1:8000` works too, and is cached separately from `localhost`). Icons: `python scripts/make_icons.py`.
+
 If the port is already in use, set `PLAIN_HTTP_PORT` and change the port in `scripts/usb_connect.*` to match.
 
 ## Scan a room

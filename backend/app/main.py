@@ -88,6 +88,13 @@ async def index():
     return FileResponse(WEB / "index.html", headers=NO_CACHE)
 
 
+@app.get("/manifest.webmanifest")
+async def manifest():
+    """What makes the phone app installable (Chrome's "Install app"): full screen, portrait, the icons. There is no service
+    worker on purpose: the app needs the server for everything, and a cache of its files would bring back stale code."""
+    return FileResponse(WEB / "manifest.webmanifest", media_type="application/manifest+json", headers=NO_CACHE)
+
+
 @app.get("/dashboard")
 async def dashboard():
     return FileResponse(WEB / "dashboard.html", headers=NO_CACHE)
@@ -777,3 +784,4 @@ class _Revalidated(StaticFiles):
 
 app.mount("/js", _Revalidated(directory=WEB / "js"), name="js")
 app.mount("/css", _Revalidated(directory=WEB / "css"), name="css")
+app.mount("/icons", StaticFiles(directory=WEB / "icons"), name="icons")
