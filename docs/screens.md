@@ -141,11 +141,12 @@ The scan quality card says whether this scan will compare well later and, if not
 |---|---|
 | `processing` | progress bar and "Reading frames: n of m" |
 | `stalled` | the same in warning colour, "Check the server" and "Go home" |
+| `checking` | "Found n objects" and one row per look-alike pair being checked (two pictures, the name, then "Same laptop, counted once", "Two different laptops" or "Can't tell, kept as two" with the model's reason). Shown only when a scan has same-name objects geometry cannot tell apart |
 | `review` | the sentence, grouped tiles (tap one to see its objects), the scan quality card (green when good, else the tips), frames, seconds, coverage, cost, Discard / Save / View in room |
 | `empty` | nothing was found: the sentence and Discard (Save is disabled), View in room |
 
 - Data: progress (frames answered of frames sent), the summary with objects and thumbnails.
-- API: `WS scan_summary`, `POST /api/rooms/{id}/scans/{scan}/save`, `POST /api/rooms/{id}/scans/{scan}/discard`, `GET /api/status`.
+- API: `WS lookalike` (phase start, then one result per pair), `WS scan_summary`, `POST /api/rooms/{id}/scans/{scan}/save`, `POST /api/rooms/{id}/scans/{scan}/discard`, `GET /api/status`.
 
 ### `room`
 

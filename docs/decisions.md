@@ -221,3 +221,17 @@ Asked for a sleeker, iOS-like, premium look. Done in the stylesheets and the tok
 - **Status colours are iOS system tones** (green `#30D158`, red `#FF453A`).
 - **Two layout fixes found while looking:** the camera pill never shrinks (its Stop button was clipped on a 390 px phone), so the other pills of the scan bar wrap below it; the segmented control keeps the 44 px tap size a test enforces.
 - **Not done:** the AR labels and outlines are drawn on a canvas and keep their look; Inter is loaded from Google Fonts like the fonts before it, so with no network the system font is used. Seen in headless Chrome at 360, 390 and 412 px wide, not on the phone.
+
+## 2026-11-03: look-alikes are checked by the model after a scan, nearest pair only
+
+**Problem.** The memory merges sightings by direction and colour. One real laptop can still end up as two objects (its sightings drifted further apart than the 8° merge radius), and two real laptops are both just "laptop".
+
+**Decision** (`backend/app/lookalike.py`, run in `ScanSession.end` before the summary; `LOOKALIKES=0` turns it off):
+- **Geometry first, free.** Two same-name objects detected in one photo are two things. Two further apart than one object's sightings can drift (2.5 times their combined direction uncertainty, at least 15°, at most 35°) are two things. Neither costs a call.
+- **Nearest neighbour only.** Each object is paired with its closest same-name object, so n laptops give at most n-1 pairs, not n(n-1)/2. Closest pairs are asked first, at most 6 calls a scan; the rest are kept as they are and reported as not checked.
+- **The call carries the evidence:** a crop of each object's best sighting, both directions (yaw, pitch), how many photos each was in, the angle between them and the radius one object can spread over, and when the scan has one, a wider photo with both directions in view and A and B marked.
+- **Only a sure "same" acts** (confidence 0.7 or more): it merges through the correction log, the same path as a merge by hand, so every rebuild keeps it. "Different" is logged as a `distinct` correction; "unsure", a failed call or a timeout (30 s for the whole step) change nothing.
+- **Labels are never rewritten.** Changes and Find match on the label; "laptop-1" stored as a label would make the same laptop a different object in the next scan (its number depends on what else that scan saw). Objects carry a display name instead, numbered in the order the scan first saw them ("laptop 1", "laptop 2"), shown on the summary's object list and the AR labels.
+- **Phone:** a `checking` step in the summary shows each pair while it is compared; "same" slides the two pictures into one.
+
+**Not done / not known yet.** It cannot split one object that merged two real ones (two laptops side by side whose footprints overlap). The 0.7 threshold and the radius are set by reasoning, not measured; no real scan with look-alikes has been run through it yet. Each call sends two crops and maybe one wider photo of the room to the model API, like the scan itself does.

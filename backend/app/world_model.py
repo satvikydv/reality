@@ -895,9 +895,12 @@ class WorldModel:
     def overlay_objects(self, scan_id: int | None = None) -> list[dict]:
         """What the phone needs to draw a scan's objects over the live camera: the anchor, how sure it is, when it was
         last seen, the footprint, and the latest sighting that kept a mask outline together with the pose it was taken at."""
+        from app.lookalike import display_names
         with self.lock:
             out = []
-            for o in self.list_objects(scan_id):
+            objs = self.list_objects(scan_id)
+            names = display_names(objs)  # "laptop 1", "laptop 2" when a scan has more than one; the label itself is unchanged
+            for o in objs:
                 r = self.db.execute(
                     "SELECT ob.poly, f.yaw, f.pitch, f.roll, f.screen_angle, f.width, f.height, f.hfov_deg FROM observations ob"
                     " JOIN frames f ON f.id=ob.frame_id WHERE ob.object_id=? AND ob.poly IS NOT NULL ORDER BY ob.ts DESC, ob.id DESC LIMIT 1",
@@ -906,7 +909,7 @@ class WorldModel:
                 if r:
                     sighting = {"poly": json.loads(r["poly"]), "yaw": r["yaw"], "pitch": r["pitch"], "roll": A.image_roll(r["roll"], r["screen_angle"]),
                                 "width": r["width"], "height": r["height"], "hfov": r["hfov_deg"]}
-                out.append({"id": o["id"], "label": o["label"], "yaw": o["yaw"], "pitch": o["pitch"],
+                out.append({"id": o["id"], "label": o["label"], "name": names[o["id"]], "yaw": o["yaw"], "pitch": o["pitch"],
                             "uncertainty_deg": o["uncertainty_deg"] or o["spread_deg"], "spread_deg": o["spread_deg"], "fov_error_deg": o["fov_err_deg"],
                             "n_obs": o["n_obs"], "supporting_frames": o["n_obs"], "confidence": o["conf_best"], "last_seen": o["last_seen"],
                             "footprint": (o["state"] or {}).get("ext"), "mask": sighting})

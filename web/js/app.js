@@ -99,7 +99,7 @@ export function onChange(st,cov){
   if(st.sent<cur.sent)cur.sent=st.sent;
   const ph=st.phase,f=cur.frac;
   if(ph==='starting'||ph==='scanning'){if(scrn!=='scan'){if(demo&&scrn!=='home')return;go('scan')}setState('scan','live')}
-  if(ph==='finishing'){if(scrn!=='summary')go('summary');setState('summary','processing');startProc()}
+  if(ph==='finishing'&&!lk){if(scrn!=='summary')go('summary');setState('summary','processing');startProc()}
   if(ph==='done'&&scrn==='scan')go('summary');
   if(ph==='idle'&&scrn==='scan'&&!ready)openHome();
   if(ph==='error'){toast(st.error||'Error',st.error&&/Camera settings changed/.test(st.error)?60000:5000);if(scrn==='scan'||scrn==='summary')openHome();if(poll)poll.retryNow()}
@@ -118,7 +118,8 @@ export function onChange(st,cov){
 /* ---------- server events ---------- */
 export function handleEvent(m){
   const t=m.type||m.event;
-  if(t==='scan_summary'){summary=m;RENDER.summary('review',{summary:m});world.refresh()}
+  if(t==='scan_summary'){const wait=lk?Math.max(0,1400-(performance.now()-lk.at)):0; // let the last look-alike verdict be read
+    setTimeout(()=>{lk=null;summary=m;RENDER.summary('review',{summary:m});world.refresh()},wait)}
   if(t==='find_result')RENDER.result(null,m);
   if(t==='guide_request'){ // another app asked this phone to guide to an object: show it, but the camera starts only from a tap
     RENDER.result(null,m.result);toast('Another app sent you to this object. Tap Guide me to follow it.')}
@@ -303,7 +304,7 @@ let procT=null,openTile=null;
 function startProc(){stopProc();updateProc();procT=setInterval(updateProc,500)}
 function stopProc(){clearInterval(procT);procT=null}
 function updateProc(){
-  if(!ctl||demo)return;const s=ctl.st,now=performance.now(),p=processing(s,now-s.doneAt,now-s.progressAt);
+  if(!ctl||demo||lk)return;const s=ctl.st,now=performance.now(),p=processing(s,now-s.doneAt,now-s.progressAt);
   RENDER.summary(p.level==='stalled'||p.level==='late'?'stalled':'processing',{progress:p})}
 RENDER.summary=(state,d={})=>{
   if(state==='review'||state==='empty'){
@@ -318,8 +319,30 @@ RENDER.summary=(state,d={})=>{
     txt('mf',frames);txt('ms',Math.round(m.seconds));txt('mc',Math.round((cover||0)*100)+'%');txt('mu',m.cost_usd==null?'–':'$'+m.cost_usd.toFixed(3));
     $('sumsave').disabled=state==='empty';
     if(scrn!=='summary'){go('summary');speak(m.speech);buzz([20,40,20])}}
+  else if(state==='checking'){stopProc();paintLookalikes(d.lookalike);const rn=S().scan?roomLabel(S(),S().scan.roomId):'';txt('sumpill',(rn?rn+' · ':'')+'Checking look-alikes');if(scrn!=='summary')go('summary')}
   else{const p=d.progress||{fraction:0,text:'Starting…',level:'ok'};txt('proctxt',p.text);$('procbar').style.width=Math.round(p.fraction*100)+'%';txt('procpct',Math.round(p.fraction*100)+'%');if(scrn!=='summary')go('summary')}
   setState('summary',state)};
+/* Look-alikes: after the frames, the server checks same-name objects that might be one thing seen twice (app/lookalike.py).
+   Each pair shows both pictures; "same" slides them into one, "different" keeps them apart. */
+let lk=null; // {found, pairs: Map key -> card, at}: set while the check runs
+function onLookalike(m){
+  if(m.phase==='start'){lk={found:m.found,pairs:new Map(m.checking.map(c=>[c.key,c])),at:performance.now()};stopProc()}
+  else if(m.phase==='result'&&lk){lk.pairs.set(m.key,{...lk.pairs.get(m.key),...m});lk.at=performance.now()}
+  if(lk)RENDER.summary('checking',{lookalike:{found:lk.found,checking:[...lk.pairs.values()]}})}
+const LK_WORDS={same:l=>`Same ${l}, counted once`,different:l=>`Two different ${plural(2,l).replace(/^2 /,'')}`,unsure:()=>'Can’t tell, kept as two',skipped:()=>'Not checked, kept as two'};
+function lkRow(c){
+  const li=mk('li','lkrow');li.dataset.key=c.key;
+  const pair=mk('div','lkpair');for(const s of[c.a,c.b]){const cv=document.createElement('canvas');if(s?.replay)cv.dataset.replay=JSON.stringify(s.replay);pair.append(cv)}
+  const t=mk('div','lktext');t.append(mk('b',null,c.label),mk('span','lkv',''),mk('small','lkwhy',''));li.append(pair,t);return li}
+function paintLookalikes(d){
+  const list=$('lklist'),cards=d?.checking||[],left=cards.filter(c=>!c.verdict).length;
+  txt('lktitle',`Found ${plural(d?.found||0,'object')}`);
+  txt('lksub',left?`Checking ${plural(cards.length,'look-alike pair')}: one thing seen twice, or two things?`:'Done checking look-alikes.');
+  for(const c of cards){let li=list.querySelector(`[data-key="${c.key}"]`);
+    if(!li){li=lkRow(c);list.append(li);paintThumbs(li)}
+    li.dataset.v=c.verdict||'pending';li.querySelector('.lkv').textContent=c.verdict?LK_WORDS[c.verdict](c.label):'Comparing…';
+    li.querySelector('.lkwhy').textContent=c.verdict&&c.reason?c.reason:''}
+  for(const li of[...list.children])if(!cards.some(c=>c.key===li.dataset.key))li.remove()}
 function scanQuality(q){ // advice for comparing this scan later; it never blocks Save
   const box=$('sumq');box.hidden=!q;if(!q)return;box.className='sumq panel '+(q.ok?'ok':'tips');
   txt('sumqtitle',q.words||(q.ok?'A good scan to compare against later.':'Next time:'));$('sumqtips').replaceChildren(...(q.tips||[]).map(t=>mk('li',null,t)))}
@@ -327,7 +350,7 @@ function toggleTile(label){ // tap a tile: its objects open below; tap again to 
   if(!summary)return;const {others}=summaryTiles(summary.objects),isOthers=label==='Others'&&others;
   const objs=isOthers?others.objects:summary.objects.filter(o=>o.label===label);
   if(openTile===label){openTile=null;$('sumdetail').hidden=true}
-  else{openTile=label;$('sumdetail').replaceChildren(...objs.map(o=>thumb(o,{act:'noop'})));$('sumdetail').hidden=false;paintThumbs($('sumdetail'))}
+  else{openTile=label;$('sumdetail').replaceChildren(...objs.map(o=>thumb(o,{act:'noop',caption:o.name||o.label})));$('sumdetail').hidden=false;paintThumbs($('sumdetail'))}
   for(const b of $('sumtiles').children)b.classList.toggle('on',!!openTile&&(b.dataset.label===openTile||(b.classList.contains('others')&&openTile==='Others')))}
 async function saveReview(){
   const m=summary;if(!m)return;
@@ -894,6 +917,7 @@ async function boot(){
       if(r.type==='find_result'){if(!findPending)return;findDone();return onFindReply(r)}
       if(r.type==='align_hint')return onAlignHint(r);
       if(r.type==='guide_request')return handleEvent(r);
+      if(r.type==='lookalike')return onLookalike(r);
       if(r.type==='error'&&r.where==='find')return findFailed(r.message);
       if(r.type)return ctl.onEvent(r)},onSockState);
     ctl=new s.ScanController({video:$('v'),orient,sock,grabJpeg:c.grabJpeg,camera:camMeta,onChange,fov:()=>world.hfov,guard,policy:{minIntervalMs:prefs.minIntervalMs()}});
@@ -949,7 +973,11 @@ function demoScan(preview){
     const fr=b.filter(Boolean).length/36,show=n%3===0;cur.tyaw=y;
     onChange({phase:'scanning',sent:show?cur.sent+1:cur.sent,objects:Math.min(14,Math.floor(fr*16)),names:show?names[(n/3|0)%names.length]:[],hint:fr>.85?hints[4]:'',status:'frame '+cur.sent+' stored'},{bins:b,fraction:fr,bands:{low:{fraction:fr*.3},mid:{fraction:fr},high:{fraction:fr*.4}}});
     if(fr>=.98||preview&&n>100)clearInterval(st)},80)}
-function demoDone(){clearInterval(st);go('summary');RENDER.summary('processing',{progress:{fraction:.75,text:'Reading frames: 18 of 24',level:'ok'}});setTimeout(()=>RENDER.summary('review',fixture('summary','review')),1600)}
+function demoDone(){clearInterval(st);go('summary');RENDER.summary('processing',{progress:{fraction:.75,text:'Reading frames: 18 of 24',level:'ok'}});
+  const c=fixture('summary','checking').lookalike,pend={...c,checking:c.checking.map(x=>({...x,verdict:null}))};
+  setTimeout(()=>RENDER.summary('checking',{lookalike:pend}),1400);setTimeout(()=>RENDER.summary('checking',{lookalike:c}),2600);
+  setTimeout(()=>RENDER.summary('checking',{lookalike:{...c,checking:c.checking.map(x=>x.verdict?x:{...x,verdict:'different',reason:'One is a white USB-C cable, the other black.'})}}),3400);
+  setTimeout(()=>RENDER.summary('review',fixture('summary','review')),5000)}
 function demoFind(q,everywhere){
   const labels=fixture('home','default').recent.map(o=>o.label),l=labels.find(x=>q.toLowerCase().includes(x));
   if(everywhere){const f=fixture('find',l?'all-results':'all-none');return RENDER.find(l?'all-results':'all-none',{...f,query:q})}
