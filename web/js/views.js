@@ -155,9 +155,12 @@ export function historyRow(s, { memory = false } = {}) {
 export function alignWords(al) {
   const q = al.quality || "failed";
   if (q === "failed") return "The pictures of the two scans could not be matched, so nothing is called moved, new or removed.";
-  if (q === "weak") return `The scans lined up only roughly (${al.inliers} matching points from ${al.pairs} frame pair${al.pairs === 1 ? "" : "s"}), so nothing is called moved, new or removed.`;
+  if (q === "weak") return `The scans lined up only roughly (${al.inliers} matching points from ${al.pairs} frame pair${al.pairs === 1 ? "" : "s"}), so nothing is called moved, new or removed`
+    + (al.low_confidence_enabled ? ", except a move far beyond what standing somewhere else explains, marked low confidence." : ".");
   const off = Math.abs(Math.round((al.offset_used_deg ?? al.offset_deg ?? 0) * 10) / 10);
-  return `${al.inliers} matching points from ${al.pairs} frame pairs. The second scan's start heading differs by ${off}° (±${al.spread_deg ?? 0}°). A move counts only beyond what ${al.viewpoint_cm ?? 15} cm of viewpoint change could explain.`;
+  const vp = Math.round(al.viewpoint_cm_used ?? al.viewpoint_cm ?? 15);
+  return `${al.inliers} matching points from ${al.pairs} frame pairs. The second scan's start heading differs by ${off}° (±${al.offset_sem_deg ?? al.spread_deg ?? 0}°). A move counts only beyond what ${vp} cm of viewpoint change could explain`
+    + (al.viewpoint_cm_measured && vp > (al.viewpoint_cm ?? 15) ? " (measured from the objects that stayed put)." : ".");
 }
 
 export function alignCard(al) {
@@ -168,7 +171,7 @@ export function alignCard(al) {
 }
 
 export function changeCard(kind, e) {
-  const two = kind === "moved" || kind === "possibly_moved";
+  const two = kind === "moved" || kind === "possibly_moved" || kind === "moved_low_confidence";
   const card = el("div", "chgcard panel" + (e.review === "dismissed" ? " dismissed" : e.review === "confirmed" ? " confirmed" : ""), null, { "data-kind": kind });
   const pics = el("div", "pair" + (two ? "" : " one"));
   const slot = (label, rp) => { const s = el("div", "stripe"); if (rp) { const c = el("canvas"); c.dataset.replay = JSON.stringify(rp); s.append(c); } else s.append("—"); s.append(el("i", null, label)); return s; };
@@ -176,6 +179,7 @@ export function changeCard(kind, e) {
   else pics.append(slot(kind === "removed" ? "BEFORE" : "AFTER", e.replay));
   const label = e.label || e.to?.label || "";
   const words = kind === "moved" ? `The ${label} moved ${e.shift?.words || ""}.`
+    : kind === "moved_low_confidence" ? `The ${label} seems to have moved ${e.shift?.words || ""}, far more than standing somewhere else explains. The two scans lined up only roughly, so check it.`
     : kind === "possibly_moved" ? `The ${label} may have moved ${e.shift?.words || ""}. Standing in a slightly different spot could explain that (it allows ${e.tolerance_deg}° for this object).` : e.speech;
   const acts = el("div", "hacts");
   for (const [state, text] of [["confirmed", "Confirm"], ["dismissed", "Dismiss"]])

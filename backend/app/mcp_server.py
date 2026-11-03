@@ -111,7 +111,9 @@ def build_server(get_service: Callable[[], ScanService], allow_frames: bool | No
         Scans of different rooms are refused (status wrong_room). The two scans are first lined up from their pictures (`alignment`:
         quality good, weak or failed, with the offset and the matches behind it) and each pair of objects is judged against how far a change
         of viewpoint alone could move it: `moved`, `possibly_moved` (within that doubt), `removed`, `added`, and `cant_compare` for what the
-        alignment or the coverage cannot support. Nothing is called moved, removed or added when the alignment is weak or failed."""
+        alignment, the coverage or the evidence cannot support (an object seen only once is never called removed or added). Nothing is called
+        moved, removed or added when the alignment is weak or failed, except `moved_low_confidence`: a weak alignment that agrees with the
+        compass and an object far beyond anything the viewpoint explains (treat it as "check this", not as fact)."""
         return await traced("what_changed", {"scan_before": scan_before, "scan_after": scan_after, "room": room},
                             lambda svc: asyncio.to_thread(api.what_changed, svc, scan_before, scan_after, room))
 

@@ -140,3 +140,23 @@ def test_the_reference_outline_is_a_transparent_png_with_edges_only(wm):
     img = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_UNCHANGED)
     assert img.shape[2] == 4 and img[..., 3].max() == 255 and (img[..., 3] == 0).mean() > 0.4
     assert align.edges_png(b"not an image") is None
+
+
+# ------------------------------------------------------------------------------------------------ real sensors are noisy
+
+def test_noisy_phone_sensors_scatter_the_pairs_but_the_median_is_still_good_and_accurate(wm):
+    a = add_scan(wm, wm.room, PANO, YAWS, ts=1.0, noise_deg=3.0, noise_seed=1)
+    b = add_scan(wm, wm.room, PANO, YAWS, meta_yaw_shift=12.0, true_jitter=(9.0, 1.0), ts=500.0, noise_deg=3.0, noise_seed=2)
+    r = align.align_scans(wm, a, b)
+    assert r["quality"] == "good", r                                 # the spread is a few degrees, but what counts is how well the median is known
+    assert r["spread_deg"] > 1.5 and r["offset_sem_deg"] <= align.GOOD_SEM_DEG
+    assert abs(align.wrap180(r["offset_deg"] - 12.0)) <= 2.0, r
+
+
+def test_a_result_that_is_inconsistent_or_too_thin_is_weak_not_good():
+    assert align.quality_of(11, 555, 1.17, 3.1) == "good"
+    assert align.quality_of(2, 555, 0.5, 0.5) == "weak"                # two pairs
+    assert align.quality_of(6, 60, 0.5, 0.5) == "weak"                 # too few matching points
+    assert align.quality_of(6, 300, 2.5, 6.0) == "weak"                # the median is not well known
+    assert align.quality_of(6, 300, 1.0, 9.0) == "weak"                # pairs disagree wildly
+    assert align.quality_of(0, 0, 0.0) == "failed"

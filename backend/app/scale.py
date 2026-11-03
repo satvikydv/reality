@@ -27,7 +27,8 @@ MIN_DISTANCE_CM = 25.0
 # Typical longest side in centimetres, used when Spark gave no size for a label. Rough, on purpose.
 DEFAULT_SIZE_CM = {
     "mug": 10, "cup": 10, "glass": 12, "bottle": 24, "water bottle": 24, "can": 12, "plate": 25, "bowl": 15, "laptop": 34, "keyboard": 44, "mouse": 11,
-    "monitor": 55, "phone": 15, "charger": 8, "cable": 100, "headphones": 20, "remote": 18, "remote control": 18, "keys": 8, "wallet": 11, "glasses": 14,
+    "monitor": 55, "phone": 15, "charger": 8, "cable": 40, "power adapter": 10, "marker": 14, "glue stick": 10, "jar": 12, "hoodie": 60, "jeans": 80, "shirt": 65,
+    "television": 90, "paper": 30, "headphones": 20, "remote": 18, "remote control": 18, "keys": 8, "wallet": 11, "glasses": 14,
     "book": 24, "notebook": 25, "pen": 14, "pencil": 18, "scissors": 18, "bag": 40, "backpack": 45, "box": 30, "lamp": 40, "clock": 20, "plant": 35,
     "pillow": 45, "towel": 70, "shoe": 28, "jacket": 65, "umbrella": 80, "tablet": 25, "speaker": 20, "camera": 12, "toothbrush": 18, "pills": 8,
 }

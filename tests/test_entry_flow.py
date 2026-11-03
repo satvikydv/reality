@@ -982,6 +982,29 @@ def test_ask_the_room_draws_only_the_objects_the_answer_names(site, clean):
     assert p.text("#askrmsg") and p.eval("document.getElementById('s-ask').classList.contains('on')") is True and p.errors == []
 
 
+def test_the_caregiver_story_runs_in_demo_mode_without_a_server(site, clean):
+    p = site.page(READY).open("/?demo&screen=explore")
+    p.wait("document.body.dataset.screen==='explore'")
+    p.tap("#s-explore [data-act=open-ask]")
+    p.tap("#s-ask [data-act=ask-example][data-q='What here might be unsafe?']")
+    p.wait("document.getElementById('askbar').classList.contains('on')", what="the answer bar")
+    assert "not a safety check" in p.text("#askbartext")
+    asked = p.eval("[...window.__ui.world.asked.keys()].map(id=>window.__ui.world.objects.find(o=>o.id===id).label).sort()")
+    assert asked == ["cable", "pills", "stove"]
+    p.tap("#askbar [data-act=clear-ask]")
+    p.tap("#s-explore [data-act=open-history]")
+    p.wait("document.getElementById('s-history').dataset.state==='default'")
+    p.tap("#histlist [data-act=pick-then]")
+    p.wait("window.__ui.world.ghosts.length===2", what="the ghosts")
+    assert p.eval("window.__ui.world.ghosts.map(g=>g.label+':'+g.kind).join()") == "pills:moved,keys:gone" and "pills" in p.text("#thenbartext")
+    p.tap("#thenbar [data-act=clear-then]")
+    p.tap("#s-explore [data-act=open-note]")
+    p.eval("document.getElementById('notetext').value='Turn the stove off after cooking'")
+    p.tap("#s-note [data-act=save-note]")
+    p.wait("window.__ui.world.notes.some(n=>n.text==='Turn the stove off after cooking')", what="the note")
+    assert p.errors == []
+
+
 def test_rewind_shows_what_an_earlier_scan_had_as_ghosts_and_clears(site, clean):
     rid = site.room("Study", active=True, label="mug", ts=100.0)
     site.scan_in(rid, "lamp", 0.0, 200.0)                              # the mug is gone, a lamp is there now
@@ -1065,6 +1088,18 @@ def test_changes_shows_the_alignment_and_keeps_possibly_moved_and_cant_compare_a
     assert "may have moved" in card and " m " not in card and "meter" not in card
 
 
+def test_a_weak_alignment_shows_only_the_low_confidence_move_in_its_own_group(site, clean):
+    p = site.page(READY).open("/?demo&screen=changes&state=weak-alignment")
+    p.wait("document.getElementById('s-changes').dataset.state==='weak-alignment'")
+    p.settle(0.5)
+    assert p.eval("!!document.querySelector('#chg .align.weak')") and "marked low confidence" in p.text("#chg .align")
+    heads = p.eval("[...document.querySelectorAll('#chg h2')].map(h=>h.textContent)")
+    assert any(h.startswith("↔?Moved, low confidence") for h in heads) and not any(h.startswith("↔Moved") for h in heads)
+    assert not any(h.startswith(("−Removed", "+New")) for h in heads) and any(h.startswith("?Can’t compare") for h in heads)
+    card = p.text("#chg .chgcard[data-kind=moved_low_confidence]")
+    assert "seems to have moved" in card and "check it" in card and " cm" not in card
+
+
 def test_a_weak_alignment_is_explained_and_no_move_is_shown(site, clean):
     p = site.page(READY).open("/?demo&screen=changes&state=default")
     p.wait("document.getElementById('s-changes').dataset.state==='default'")
@@ -1073,3 +1108,49 @@ def test_a_weak_alignment_is_explained_and_no_move_is_shown(site, clean):
            "c.changes('default',{room:{id:1,name:'Living Room'},data:d})})()")
     assert p.eval("!!document.querySelector('#chg .align.weak')") and "nothing is called moved" in p.text("#chg .align")
     assert p.eval("[...document.querySelectorAll('#chg h2')].some(h=>/Moved|Removed|New/.test(h.textContent))") is False
+
+
+@pytest.mark.parametrize("size", [(412, 760), (360, 640)])
+def test_save_and_discard_are_on_screen_after_a_scan_whatever_the_phone_and_however_long_the_summary(site, size):
+    p = site.page().open("/?demo")
+    p.call("Emulation.setDeviceMetricsOverride", width=size[0], height=size[1], deviceScaleFactor=2, mobile=True)
+    p.eval("window.__ui.go('summary')")
+    p.eval(f"location.href='/?demo&screen=summary&state=review'")
+    p.wait("!!window.__ui && document.getElementById('s-summary').dataset.state==='review'")
+    p.settle(0.5)
+    r = p.eval("(() => { const b = a => document.querySelector(`#s-summary [data-act=${a}]`).getBoundingClientRect(); return {save: [b('save-review').top, b('save-review').bottom], discard: [b('discard-review').top, b('discard-review').bottom], h: innerHeight}; })()")
+    assert r["save"][0] >= 0 and r["save"][1] <= r["h"] and r["discard"][1] <= r["h"], (size, r)
+    p.close()
+
+
+def test_ask_this_room_on_the_room_screen_opens_explore_with_the_ask_sheet_in_one_tap(site):
+    p = site.page().open("/?demo&screen=room&state=default")
+    p.settle(0.5)
+    assert p.eval("document.querySelector('#s-room [data-act=ask-room]').offsetParent !== null") is True
+    p.tap("#s-room [data-act=ask-room]")
+    p.wait("document.getElementById('s-ask').classList.contains('on')", what="the Ask sheet")
+    assert p.screen() == "explore" and p.media() == [] and p.errors == []
+    p.close()
+
+
+def test_ask_this_room_is_not_offered_for_a_room_that_was_never_scanned(site):
+    p = site.page().open("/?demo&screen=room&state=empty")
+    p.settle(0.5)
+    assert p.eval("document.querySelector('#s-room [data-act=ask-room]').offsetParent") is None
+    p.close()
+
+
+def test_quick_ask_lists_what_the_caregiver_watches_first_and_looks_in_every_room_for_it(site, clean):
+    site.room("Study", active=True, label="mug")
+    site.svc_.wm.add_watch("pills")
+    p = booted(site)
+    p.tap("#nav [data-nav=find]")
+    p.wait("document.querySelectorAll('#quicklist .chip').length>=2", what="the watched thing and the room's names")
+    rows = p.eval("[...document.querySelectorAll('#quicklist .chip')].map(b => [b.textContent.trim(), b.dataset.label, b.dataset.all || ''])")
+    assert rows[0] == ["Where are my pills?", "pills", "1"] and ["Where is my mug?", "mug", ""] in rows
+    p.eval("window.__sent=[];const o=WebSocket.prototype.send;WebSocket.prototype.send=function(d){window.__sent.push(String(d));return o.call(this,d)}")
+    p.tap("#quickbtn")
+    p.tap("#quicklist .chip")                                     # the first row: the watched pills
+    p.wait("window.__sent.some(m=>m.includes('\"find\"'))", what="the search")
+    msg = json.loads(p.eval("window.__sent.find(m=>m.includes('\"find\"'))"))
+    assert msg["query"] == "pills" and msg.get("all_rooms") is True and "room_id" not in msg
