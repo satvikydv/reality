@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Awaitable, Callable
 
 from app import anchoring as A
-from app import scan_quality
+from app import lookalike, scan_quality
 from app.coverage import coverage
 from app.events import EventBus
 from app.resolver import semantic_find, semantic_find_rooms
@@ -60,6 +60,7 @@ class ScanService:
     workers: int = 3
     max_queue: int = 32
     drain_timeout_s: float = 120.0
+    lookalikes: bool = field(default_factory=lambda: os.environ.get("LOOKALIKES", "1") != "0")  # after a scan, check same-name objects (app/lookalike.py)
     bus: EventBus = field(default_factory=EventBus)
 
     def _group(self, room: dict, scan_id: int | None, concept: str, found: dict | None) -> dict:
@@ -247,7 +248,16 @@ class ScanSession:
         wm, sid = self.svc.wm, self.scan_id
         wm.end_scan(sid, ts=time.time())
         wm.rebuild(sid)
+        merged = 0
+        if self.svc.lookalikes:
+            try:  # one thing seen twice, or two things? Never blocks the summary: a failure keeps the objects as they are
+                lk = await lookalike.run(wm, self.svc.reasoner, sid, self.emit)
+                self.usd += lk["usd"]
+                merged = lk["merged"]
+            except Exception:  # noqa: BLE001
+                log.exception("look-alike check failed for scan %s", sid)
         objs = wm.list_objects(sid)
+        names = lookalike.display_names(objs)
         cov =yaw_coverage(wm.list_frames(sid))
         speech = f"I found {count_phrase([o['label'] for o in objs])}." if objs else "I did not find any objects."
         if cov["gaps"] and cov["covered_deg"] < 340:
@@ -263,9 +273,9 @@ class ScanSession:
             quality = None
         summary = {"type": "scan_summary", "scan_id": sid, "room_id": self.room["id"], "room_name": self.room["name"], "status": "draft",
                    "speech": speech, "coverage": cov, "cost_usd": round(self.usd, 4), "scan_quality": quality,
-                   "seconds": round(time.perf_counter() - self.t0, 1), "timed_out": timed_out,
+                   "seconds": round(time.perf_counter() - self.t0, 1), "timed_out": timed_out, "merged_lookalikes": merged,
                    "frames": {k: self.stats[k] for k in ("received", "stored", "failed", "rejected")},
-                   "objects": [{"id": o["id"], "label": o["label"], "yaw": round(o["yaw"], 1), "pitch": round(o["pitch"], 1),
+                   "objects": [{"id": o["id"], "label": o["label"], "name": names[o["id"]], "yaw": round(o["yaw"], 1), "pitch": round(o["pitch"], 1),
                                 "n_obs": o["n_obs"], "conf_best": round(o["conf_best"], 2), "replay": thumb(o)} for o in objs]}
         self.scan_id = None
         log.info("scan %s ended: %d objects, frames %s, coverage %d deg, $%.3f", sid, len(objs), dict(self.stats), cov["covered_deg"], self.usd)

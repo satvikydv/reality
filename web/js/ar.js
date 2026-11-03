@@ -125,7 +125,7 @@ function world(x,w,s,cur,fitv,t){
     if(o.hl){const p=(t*1.4)%1;x.strokeStyle=A;x.globalAlpha*=1-p;x.lineWidth=2;x.beginPath();x.arc(ax,ay,30+p*40,0,7);x.stroke();x.globalAlpha=pr.alpha}
     if(pr.anchor){x.fillStyle=col;x.beginPath();x.arc(ax,ay,o.hl?3.5:2.5,0,7);x.fill()}
     const ly=bb?Math.min(bb.y1+6,s.h-s.bot-30):ay+28;
-    chip(x,o.label,(s.detail==='debug'?Math.round((o.confidence??0)*100)+'% ±'+Math.round(o.uncertainty_deg??0)+'°':o.hl?Math.round(Math.hypot(dx,dy))+'°':''),Math.min(w-50,Math.max(50,bb?(bb.x0+bb.x1)/2:ax)),Math.max(s.top,ly),col===G?G:col);
+    chip(x,o.name||o.label,(s.detail==='debug'?Math.round((o.confidence??0)*100)+'% ±'+Math.round(o.uncertainty_deg??0)+'°':o.hl?Math.round(Math.hypot(dx,dy))+'°':''),Math.min(w-50,Math.max(50,bb?(bb.x0+bb.x1)/2:ax)),Math.max(s.top,ly),col===G?G:col);
     x.restore();drawn++;
   }
   return{drawn,hidden};
@@ -162,7 +162,7 @@ function askedWorld(x,w,s,cur,fitv,t){
     if(pr.outline){x.save();x.globalAlpha=pr.alpha;mark(x,s,pr,A,{fill:rgba(A,.14),lw:3});x.restore()}
     const[ax,ay]=pr.anchor,cx=Math.min(w-60,Math.max(60,ax)),ly=Math.min(ay+14,s.h-s.bot-CHIP_H-70);
     x.fillStyle=A;x.beginPath();x.arc(ax,ay,3.5,0,7);x.fill();
-    chip(x,o.label,'',cx,ly,A);if(reason)bubble(x,reason,cx,ly+CHIP_H+6,'rgba(138,164,255,.48)');
+    chip(x,o.name||o.label,'',cx,ly,A);if(reason)bubble(x,reason,cx,ly+CHIP_H+6,'rgba(138,164,255,.48)');
     drawn++}
   return{drawn,hidden:s.world.length-drawn,labels:drawn,asked:true}}
 

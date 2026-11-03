@@ -110,6 +110,11 @@ export const FIXTURES = {
   summary: {
     processing: () => ({ room: ref(R(1)), progress: { fraction: 0.6, text: "Reading frames: 18 of 30", level: "ok" } }),
     stalled: () => ({ room: ref(R(1)), progress: { fraction: 0.7, text: "No answer from the server for a while.", level: "stalled" } }),
+    checking: () => ({ lookalike: { found: 14, checking: [
+      { key: "1-2", label: "laptop", sep_deg: 11, verdict: "same", reason: "Same grey laptop with the same sticker, a few degrees apart." },
+      { key: "3-5", label: "bottle", sep_deg: 17, verdict: "different", reason: "One is green glass, the other clear plastic." },
+      { key: "7-9", label: "cable", sep_deg: 22, verdict: null, reason: "" },
+    ] } }),
     review: () => ({ summary: SUMMARY() }),
     empty: () => ({ summary: { ...SUMMARY(), objects: [], speech: "I did not find any objects." } }),
   },
