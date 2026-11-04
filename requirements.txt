@@ -9,6 +9,7 @@ meta-sam-parser>=0.1.0
 websockets
 python-dotenv
 mcp
+pillow
 # M0 scripts only
 sounddevice
 cryptography

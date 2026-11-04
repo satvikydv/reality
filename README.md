@@ -2,7 +2,7 @@
 
 **A phone camera gives a room a memory.** Turn around once; Reality OS remembers what is where, guides you back to it, notices what moved, holds notes in place for the next person, and lets a caregiver or another AI agent ask the room.
 
-**Demo video (2:54):** DEMO_VIDEO_URL_HERE
+**Demo video (2:54):** [youtu.be/7z2lf3IXyDg](https://youtu.be/7z2lf3IXyDg)
 
 ![Reality OS on the phone: remembered objects over the live camera, the guide arrow finding a cable, a search across every scanned room, a note left on the television](docs/img/reality-os.jpg)
 
@@ -110,6 +110,7 @@ All of the code, docs and tests in this repo were written between 2026-10-27 and
 | NumPy | BSD-3-Clause (and bundled permissive licences) | Geometry, colour histograms |
 | opencv-python | Apache-2.0 | SIFT alignment, mask outlines, JPEG resizing |
 | cryptography | Apache-2.0 or BSD-3-Clause | Self-signed certificate for HTTPS mode |
+| Pillow | MIT-CMU (HPND) | Drawing the app icons (`scripts/make_icons.py`) and checking them in a test |
 | sounddevice | MIT | M0 voice script only |
 | pytest | MIT | Tests |
 | Inter, JetBrains Mono (Google Fonts) | SIL Open Font License 1.1 | UI typefaces, loaded from Google Fonts |
