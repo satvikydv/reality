@@ -79,7 +79,7 @@ flowchart LR
 
 **How it works.** (1) **Scan:** the phone sends a keyframe whenever it has turned about 18° and is steady, with its yaw and pitch. (2) **Anchor:** Spark lists what is in view, SAM masks each named thing, and each detection's place in the frame is turned into a direction through the phone's pose and the camera's field of view (`backend/app/anchoring.py`). (3) **World Model:** sightings are merged into objects by angular footprint, with a colour check that can veto a merge but never force one; every decision is logged and every manual correction is replayed on each rebuild. After the scan, look-alikes are checked. (4) **Use:** Find resolves a description and returns where the object was last seen; Guide projects that direction through the live phone pose; Changes aligns two scans from their pictures before comparing them; Ask and the caregiver view read the same memory. (5) **MCP:** the same functions, exposed to other agents.
 
-Full manual (every screen, API and setting): [docs/guide.md](docs/guide.md). Why things are as they are: [docs/decisions.md](docs/decisions.md). Every screen and state: [docs/screens.md](docs/screens.md).
+Data flow and the trust fields every answer carries: [docs/architecture.md](docs/architecture.md). Full manual (every screen, API and setting): [docs/guide.md](docs/guide.md). Why things are as they are: [docs/decisions.md](docs/decisions.md). Every screen and state: [docs/screens.md](docs/screens.md).
 
 ## Built during the hackathon
 
@@ -118,21 +118,21 @@ Demo video: footage is screen recordings of this app on our own phone and of the
 
 ## Measured results
 
-All numbers below are copied from [docs/measurements.md](docs/measurements.md), which also says how each was measured. Small samples; nothing is rounded up.
+All numbers below are copied from [docs/measurements.md](docs/measurements.md), which also says how each was measured. Each row says whether it was measured on the phone, on real data on the laptop, or in simulation. Small samples; nothing is rounded up.
 
 | What | Result | How, and how much |
 |---|---|---|
-| AR overlay frame rate on the phone | **60 fps** (95th-percentile frame 16.7 ms) without backdrop blur, 34-35 fps (49.9 ms) with it | Explore on the demo phone, alternating in one session, 6 s each, twice each |
-| Orientation drift | mean \|Δyaw\| **0.29°** after a full 360° turn | 3 turns on the spot, 18-21 s each, 5,625 sensor samples per source |
-| Semantic find (Spark) | **14 / 14** descriptions resolved; p50 2.1-2.3 s, p95 3.0-4.1 s | 14 queries × 2 conditions, 1 run each; a small, easy set with a lenient acceptance list |
-| Scan pipeline per keyframe | Spark listing p50 **4.4 s**, SAM stage p50 **2.7 s**, about **$0.012** per frame | 4 real desk frames at 540×960 |
-| SAM 3.1 concept prompt | p50 **2,040 ms**, p95 2,852 ms | 28 calls on 4 phone frames |
-| Ask the room (real Spark) | **9 / 10** right on the first run; 10 / 10 after a one-sentence prompt fix | 10 questions on a real 48-object scan, scored by the author; the second run is not an independent test |
-| Change detection, synthetic desk with real parallax | **0 false moves in 152** objects compared, 0 false new, 0 false gone; 11 of 15 true moves called *moved*, 1 *moved (low confidence)*, 2 *possibly moved* | 25 scenario runs (5 seeds × same spot, mouse moved, 20 cm sideways, heading +90°, two objects moved) |
-| Change detection, real desk rescans | the moved mouse found as *moved, low confidence*; **0 false moves among 13** objects | One desk, one moved object, re-run after a fix found on these same scans, so a repaired failure, not an independent test |
-| Memory on simulated rooms | find success **100%** in 5 of 6 conditions (98% with 60° steps); wrong merges between look-alike twins **17% → 2%** with the colour veto | 5 rooms × 16 known objects per condition, 7 frame orders each |
-| Calm AR overlay | labels per view mean **5.4 → 1.8**, overlapping labels per view **2.9 → 0** | 108 viewpoints over a real 35-object scan, the phone's own projection code |
-| Live rescan guidance | about **70 ms** per camera frame | laptop CPU, 480×640 frame against a stored keyframe |
+| **[phone]** AR overlay frame rate | **60 fps** (95th-percentile frame 16.7 ms) without backdrop blur, 34-35 fps (49.9 ms) with it | Explore on the demo phone, alternating in one session, 6 s each, twice each |
+| **[phone]** Orientation drift | mean \|Δyaw\| **0.29°** after a full 360° turn | 3 turns on the spot, 18-21 s each, 5,625 sensor samples per source |
+| **[real Spark]** Semantic find | **14 / 14** descriptions resolved; p50 2.1-2.3 s, p95 3.0-4.1 s | 14 queries × 2 conditions, 1 run each; a small, easy set with a lenient acceptance list |
+| **[real frames]** Scan pipeline per keyframe | Spark listing p50 **4.4 s**, SAM stage p50 **2.7 s**, about **$0.012** per frame | 4 real desk frames at 540×960 |
+| **[real frames]** SAM 3.1 concept prompt | p50 **2,040 ms**, p95 2,852 ms | 28 calls on 4 phone frames |
+| **[real scan]** Ask the room | **9 / 10** right on the first run; 10 / 10 after a one-sentence prompt fix | 10 questions on a real 48-object scan, scored by the author; the second run is not an independent test |
+| **[simulated]** Change detection, rendered desk with parallax | **0 false moves in 152** objects compared, 0 false new, 0 false gone; 11 of 15 true moves called *moved*, 1 *moved (low confidence)*, 2 *possibly moved* | 25 scenario runs (5 seeds × same spot, mouse moved, 20 cm sideways, heading +90°, two objects moved) |
+| **[real scans]** Change detection, desk rescans | the moved mouse found as *moved, low confidence*; **0 false moves among 13** objects | One desk, one moved object, re-run after a fix found on these same scans, so a repaired failure, not an independent test |
+| **[simulated]** Memory on synthetic rooms | find success **100%** in 5 of 6 conditions (98% with 60° steps); wrong merges between look-alike twins **17% → 2%** with the colour veto | 5 rooms × 16 known objects per condition, 7 frame orders each |
+| **[real scan]** Calm AR overlay | labels per view mean **5.4 → 1.8**, overlapping labels per view **2.9 → 0** | 108 viewpoints over a real 35-object scan, the phone's own projection code |
+| **[laptop]** Live rescan guidance | about **70 ms** per camera frame | laptop CPU, 480×640 frame against a stored keyframe |
 
 **Not measured on a real phone:** the controlled change protocol (same spot, 20 cm sideways, heading rotated, two objects moved), Spark's recall when listing objects, the look-alike threshold (0.7, set by reasoning), heading error mid-turn from magnetic distortion, and the field-of-view calibration on the demo phone.
 

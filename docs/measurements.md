@@ -1,6 +1,8 @@
 # Measurements
 
-Every number here comes from a script in `scripts/` run on real data. Raw JSON lands in `data/results/` (gitignored); paste the printed tables below with the date and setup.
+Every number here comes from a script in `scripts/` or a recorded manual run, with the date and setup. Raw JSON lands in `data/results/` (gitignored).
+
+**Where each result comes from** (also in every heading): **[phone]** measured on the real test phone (a Realme 6, Android, Chrome); **[real data, laptop]** real phone frames or saved real scans, processed on the laptop; **[simulated]** synthetic rooms or rendered scenes, which test the code, not the camera. Items that were never run on the phone stay listed as such.
 
 Status legend: **TODO** not run yet · **DONE** measured.
 
@@ -128,7 +130,7 @@ Record: device ______ · browser and version ______ · date ______
 **Demo**
 - [ ] `/?demo` and `/?demo&screen=<id>&state=<state>` for any pair in `docs/screens.md` open with no prompt of any kind.
 
-## Calm overlay and objects inspector: measurements
+## Calm overlay and objects inspector: measurements [real data, laptop; headless Chrome, not the phone]
 
 Measured 2026-10-29. Label counts come from `scripts/export_overlay.py` (a copy of `data/world.sqlite`) and `node scripts/measure_overlay.mjs`, which run the phone's own projection and selection code over 108 viewpoints (yaw every 10 degrees at pitch -15, 0 and 15, FOV 60 degrees, a 390x844 screen with the HUD bands kept free). Before is Normal (the old overlay: every reliable object on screen gets a label and an outline); after is Calm. Object ages are taken relative to the end of the scan, as if viewed right after scanning.
 
@@ -188,7 +190,7 @@ Yaw-offset error ____ ; false-move rate ____ ; true-move recall ____ ; possibly 
 
 What to expect, from the synthetic desk (not a promise for the phone): (a) good alignment, nothing moved, new or removed; a 3-shot rescan may come out weak (then everything that is not clearly unchanged is "can't compare", which is correct). (b) good, no moved; near objects may be "possibly moved", and the alignment card's viewpoint should read about 20 cm (`viewpoint_cm_used`; measured from the objects that stayed put). (c) offset within a few degrees of 90 (synthetic: 0.3 to 2.4 degrees off; the per-shot compass noise shows here), nothing moved. (d) both objects moved, or "moved, low confidence" when the alignment is weak; nothing else moved. Take at least 5 shots per scan, keep the wall behind the desk in view, and check the review's scan quality card before saving. Anything under Moved in (a) to (c) is a false move: note the object, its "local" numbers in `alignment_eval.json`, and whether its box was cut by the frame edge or hidden behind something in one scan.
 
-## Alignment: synthetic check (not the phone)
+## Alignment: synthetic check [simulated, not the phone]
 
 `python scripts/eval_alignment.py --synthetic` runs two synthetic worlds from `tests/synthetic_world.py`. It checks the code, not the camera: the poses are exact, the objects are rendered boxes, and the boxes are their visible pixels, which is kinder than SAM.
 
@@ -258,9 +260,9 @@ The mirror of the real case (desk 0.2, "mouse moved", 10 seeds): before, 9 weak 
 
 What changed and why: `docs/decisions.md`, 2026-10-31. How the static and moved objects separate in the local evidence (80 static object comparisons: at most 0.62 of the object's own size; moved: 2.05 or more) is in the same entry.
 
-## Near-field and room scans on the phone (as reported by the owner; re-run on the laptop below)
+## Near-field and room scans [phone scans as reported by the author; re-run on the laptop below: real data, laptop]
 
-The scans are in the owner's `data/` (a person's room), not in the repo, so these numbers are as reported on 2026-10-30/31 and could not be reproduced here; the synthetic desk above was built to mirror them.
+The scans are in the author's local `data/` (a private room), not in the repo, so these numbers are as reported on 2026-10-30/31 and could not be reproduced here; the synthetic desk above was built to mirror them.
 
 - **Desk, three scans** (phone, water bottle, paper cup, laptop, mouse, cables at about 40 to 60 cm; 3 to 4 frames of 540x960 each at an assumed 60 degree FOV; tilted down 35 to 45 degrees; mean pitch -42, -37, -34 per scan). Reference against an unmoved rescan: 1 of 12 candidate frame pairs matched, 84 inliers, offset -0.49 degrees (truth 0), parallax 0.35 degrees, quality weak. Reference against a rescan with the mouse moved (yaw/pitch 39/-43 to 23/-16): 1 of 12 pairs, 85 inliers, offset -0.69, weak; the mouse was not reported (true-move recall 0 of 1), no false moves.
 - **Office room, two scans** (27 and 34 objects): good alignment, 555 inliers from 11 pairs, offset -4 degrees, median parallax about 9.4 degrees; 11 possibly moved, 0 moved, 10 removed and 3 new that are very probably detector variance (one scan listed three paper cups, the other one).
@@ -273,7 +275,7 @@ The scans are in the owner's `data/` (a person's room), not in the repo, so thes
 - **Office room, 27 and 34 objects:** weak (19 pairs, 1654 matches, standard error 2.6 degrees, over the 1.5 limit), offset -0.74 (the code of 2026-10-30 gave good and -4.09); no claims: 22 unchanged, 15 can't compare, nothing moved, new or gone. At a 3 degree limit it comes out good but then says "the laptop is gone" and flags three cables as possibly moved; what really changed in that room is not known, so that is not adopted.
 - **What this does not show.** One desk, one phone, one moved object. The fix was found by looking at these same scans, so this is a repaired failure, not an independent test: the controlled protocol above (same spot, 20 cm sideways, heading rotated 90, two objects moved) is still the test.
 
-## Ask the room on a real scan (2026-11-02, real Muse Spark, the Bedroom scan: 48 objects)
+## Ask the room on a real scan [real data, laptop] (2026-11-02, real Muse Spark, the Bedroom scan: 48 objects)
 
 Ten questions asked through `POST /api/rooms/3/ask` of the real Bedroom scan (scan 10: 1 laptop, 1 phone, 2 phone chargers, 4 suitcases, 4 water bottles, 11 cables, 18 clothing, 1 television, no keys, no piano). Labels and directions only: no image is sent. The pass rule for each question was written before the run (the ids it must match, what the answer must say); I scored the answers myself.
 
@@ -292,14 +294,22 @@ Ten questions asked through `POST /api/rooms/3/ask` of the real Bedroom scan (sc
 
 First run 9 of 10; after the fix 10 of 10. The fix was one sentence in the prompt ("pitch is up positive, so a more negative pitch is lower, compare the numbers before you say above or below, and say near when they differ by less than 10 degrees"), written after seeing the failure, so the second run is not an independent test. Wall time per question 2 to 11 seconds (the model's own time 1.8 to 10.8 s), about 2,800 input and 200 to 1,500 output tokens each. Limits: one room, ten questions, one run each, scored by the author; "in the same direction as a backpack" for the laptop is loose (they are about 40 degrees apart) and was passed.
 
+## AR frame rate on the phone [phone] (2026-11-03)
+
+Explore on the test phone (installed app, Chrome 156, 423 x 941 CSS px at 2.55x), read through Chrome DevTools over USB, alternating in one session, 6 s per run, two runs each: backdrop blur off **60.1 fps**, 95th-percentile frame 16.7 ms; blur on **34-35 fps**, 49.9 ms. Since then camera screens draw no backdrop blur (`docs/decisions.md`, 2026-11-03). An earlier single reading of 48 fps with blur came from a run that was not alternated and is not used.
+
+## Look-alike check on real scans [phone] (2026-11-04)
+
+Two scans of an office desk recorded for the demo video. The first found 22 objects and 1 look-alike pair to check, the second 12 objects and 3 pairs. Every check ended "Can't tell, kept as two: the check failed", so nothing was merged and the objects kept numbered names ("water bottle 1", "water bottle 2"). The model call failed rather than answered unsure; the cause (API error, timeout or the request) is not investigated yet. The 0.7 confidence threshold is therefore still unmeasured.
+
 ## Results
 
-### Phone camera / HTTPS
+### Phone camera / HTTPS [phone]
 _not yet measured on a phone_
 
-### Android Chrome over USB (`adb reverse`, `http://localhost:8000`)
+### Android Chrome over USB (`adb reverse`, `http://localhost:8000`) [phone]
 
-Measured 2026-10-27 on a Realme RMX2001 (Android 11, Chrome 155), USB cable to the laptop, server started with `PLAIN_HTTP=1`, port forwarded with `scripts/usb_connect.ps1`, page `http://localhost:8000/probe`. Report text was read from the phone over Chrome DevTools (`adb forward`), after the sensor and camera buttons were tapped on the phone.
+Measured 2026-10-27 on the test phone, a Realme 6 (Android 11, Chrome 155), USB cable to the laptop, server started with `PLAIN_HTTP=1`, port forwarded with `scripts/usb_connect.ps1`, page `http://localhost:8000/probe`. Report text was read from the phone over Chrome DevTools (`adb forward`), after the sensor and camera buttons were tapped on the phone.
 
 | Check | Result |
 |---|---|
@@ -319,9 +329,9 @@ USB reliability: during the test `adb devices` repeatedly dropped to empty for a
 
 Note: the app itself does not use orientation sensors yet; `/probe` only checks availability.
 
-### Orientation drift (absolute vs relative source)
+### Orientation drift (absolute vs relative source) [phone]
 
-2026-10-28, Realme RMX2001 over USB (`http://localhost:8000/orientation`), 3 full turns on the spot, phone upright in portrait, roughly level, 18 to 21 s each. Results read from the page over DevTools (`window.__orientation.trials`). Both sources reported `sensor:AbsoluteOrientationSensor` / `sensor:RelativeOrientationSensor` (Generic Sensor API, not the event fallback), 5625 samples each.
+2026-10-28, the test phone over USB (`http://localhost:8000/orientation`), 3 full turns on the spot, phone upright in portrait, roughly level, 18 to 21 s each. Results read from the page over DevTools (`window.__orientation.trials`). Both sources reported `sensor:AbsoluteOrientationSensor` / `sensor:RelativeOrientationSensor` (Generic Sensor API, not the event fallback), 5625 samples each.
 
 Procedure: tap **Start sensors**, point the camera at a fixed target, **Mark START**, turn a full 360 degrees back to the same target, hold still 2 s, **Mark END**. The page averages 0.5 s around each mark and reports the signed yaw/pitch/roll difference per source, and flags trials whose net turn is not within 45 degrees of 360.
 
@@ -344,7 +354,7 @@ Mean |dYaw|: absolute 0.29 deg, relative 0.30 deg.
 - **What this does not show.** Returning to the start only shows the net error over a loop in one place; magnetic distortion that varies with heading (steel desk, speakers, the laptop) can still bend yaw in the middle of the turn and cancel at the end. Pitch moved up to 1.8 degrees between marks and roll up to 1.1, which is mostly my hand. Measure heading error against known bearings (for example door, window, wall corner at 90 degree steps) before trusting angles below about 10 degrees; `MOVE_DEG` 15 and `merge_deg` 8 stay as placeholders for that reason.
 - Yaw drift over a 20 s turn is far below the anchor error expected from FOV error, so FOV calibration matters more than the sensor choice.
 
-### Semantic resolution (F11), Spark `muse-spark-1.3`, effort low
+### Semantic resolution (F11), Spark `muse-spark-1.3`, effort low [laptop, real Spark, text only]
 
 2026-10-28, `scripts/resolve_queries.py`, 14 queries x 2 conditions, 1 run each, 0 API errors. Queries are functional descriptions ("the thing I charge my laptop with"), Hindi/English mixes ("mera charger kahan hai", "kuch kaatne ke liye kainchi") and one unanswerable query. A hit means the concept or an alternate is in a hand-written acceptable set (or empty for the unanswerable one).
 
@@ -359,7 +369,7 @@ Mean |dYaw|: absolute 0.29 deg, relative 0.30 deg.
 - Latency is the weak point: about 2 to 5 s per query at effort low, before speech recognition and TTS. Next to try: `minimal` effort and a shorter prompt.
 - Cost: $0.063 for 28 calls (about $0.002 each; reasoning tokens count as output).
 
-### Scan pipeline (F10), Spark names -> SAM concept prompts -> World Model
+### Scan pipeline (F10), Spark names -> SAM concept prompts -> World Model [real data, laptop]
 
 2026-10-28, `scripts/scan_frames.py` on the same four clean frames as the SAM run (yaw 3.6, 14.7, 25.7, 25.9 degrees, pitch -11 to -14, absolute source, frames resized to 540x960, `min_conf` 0.5, default FOV 60 degrees). Spark `effort=low` lists the object types, SAM runs one concept prompt per name concurrently (up to 4).
 
@@ -376,9 +386,9 @@ Mean |dYaw|: absolute 0.29 deg, relative 0.30 deg.
 - **Not measured**: recall (objects Spark forgot to list), precision (no labels file), and behaviour over a full 360 degree scan.
 - Raw results in `data/results/scan_frames-*.json`.
 
-**Room scan attempt, 2026-10-28 13:01** (35 frames, one pass of about 346 degrees at about 8 degree steps, tapped about once a second, 280 to 530 KB each; yaw 158 to 179 degrees left uncovered by a 63 degree jump between two shots). Only 11 frames were sent to the APIs: the other 24 show people (faces in frames 4 to 7, coworkers behind the desk in 15 to 29) or the laptop screen, and the user has not cleared them. Of the 11: 6 were windows or a blank wall and Spark listed no objects (no false positives, no SAM calls, $0.004 each, still 3.2 to 5.5 s per Spark call); 2 had the desk objects and produced 8 objects (mouse, phone, 4 "water bottle" boxes that are 2 to 3 real bottles, cable, laptop). Coverage and merging across a full scan are therefore still unmeasured. Cost $0.076.
+**Room scan attempt, 2026-10-28 13:01** (35 frames, one pass of about 346 degrees at about 8 degree steps, tapped about once a second, 280 to 530 KB each; yaw 158 to 179 degrees left uncovered by a 63 degree jump between two shots). Only 11 frames were sent to the APIs: the other 24 show people (faces in frames 4 to 7, people behind the desk in 15 to 29) or the laptop screen, and the user has not cleared them. Of the 11: 6 were windows or a blank wall and Spark listed no objects (no false positives, no SAM calls, $0.004 each, still 3.2 to 5.5 s per Spark call); 2 had the desk objects and produced 8 objects (mouse, phone, 4 "water bottle" boxes that are 2 to 3 real bottles, cable, laptop). Coverage and merging across a full scan are therefore still unmeasured. Cost $0.076.
 
-### SAM latency
+### SAM latency [real data, laptop]
 
 2026-10-28, `scripts/sam_latency.py --max-sides 960 --repeat 1 --concurrency 1`, `sam-3.1`, 4 phone frames (1080x1920 resized to 540x960) of a desk with a metal bottle, black bottle, laptops, a phone, cables. I sent only four of the eight new frames, the ones with no person in view; laptop screens with small text are still visible in them. 7 concepts, 1 run each, then a box-prompt pass seeded from the concept boxes. 0 errors.
 
@@ -418,7 +428,7 @@ _TODO_
 |---|---|---|---|
 
 <!-- eval_memory:start -->
-## Spatial memory evaluation
+## Spatial memory evaluation [simulated; the last table: real data, laptop]
 
 Run 2026-10-28 with `python scripts/eval_memory.py --real`: 5 synthetic rooms of 16 known objects per condition, each swept in 15 degree steps; the memory assumes a 60 degree FOV; frames reach the memory in a random order (the scored run) and in 6 further random orders (order stable). Match tolerance 12 degrees. Detections are simulated (jitter, misses, clipping, colour noise), so this measures the memory, not SAM.
 
