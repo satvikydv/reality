@@ -1,207 +1,209 @@
 # Reality OS
 
-A phone camera pans around a room; Muse Spark and SAM 3.1 turn what it sees into objects, each remembered as a compass direction (never a distance). On that memory: find something and be guided to it, see what changed between two scans, rewind a room, ask it questions, leave notes in places, a caregiver view on a laptop, and a Reality API (MCP) so other agents can ask about the room.
+**A phone camera gives a room a memory.** Turn around once; Reality OS remembers what is where, guides you back to it, notices what moved, holds notes in place for the next person, and lets a caregiver or another AI agent ask the room.
 
-Entry for the Meta Global AI Developer Hackathon (Indie track, solo). Experimental prototype; no medical or safety-critical claims. It is a memory of what the last scans saw, not live tracking, and never a safety check.
+**Demo video (2:54):** DEMO_VIDEO_URL_HERE
 
-> Status: built and tested in code and on synthetic scenes; partly tried on one Android phone. What is measured, and what is not, is in `docs/measurements.md`; why things are as they are, in `docs/decisions.md`. Task planning and verification (`backend/app/programs/`) is not built.
+![Reality OS on the phone: remembered objects over the live camera, the guide arrow finding a cable, a search across every scanned room, a note left on the television](docs/img/reality-os.jpg)
 
-## What was built when
+Solo entry, Meta hackathon, Indie track. MIT licensed ([LICENSE](LICENSE)). An experimental prototype, not a medical or safety device.
 
-| Date | Built |
+## The problem
+
+"Where did I put it?" For most people it is a lost minute. For someone living with memory loss it comes back all day, and the person who looks after them cannot always be in the room to answer. Photos do not answer it, and a camera that watches a home all day is not something most people want. Reality OS needs one scan of a room from an ordinary phone, keeps the memory on your own computer, and shares nothing with a caregiver until the person turns sharing on.
+
+## What it does
+
+- **Scan a room once, anchored by orientation.** You pan the phone around; every object is stored as a compass direction (yaw and pitch from the phone's orientation sensor) from where you stood, never as a guessed distance. No LiDAR or depth sensor needed.
+- **Find by meaning, in one room or all of them.** "The thing I charge my laptop with" resolves to *charger*; "where did I leave my glasses?" searches every scanned room and says which one, with the photo it was seen in.
+- **Guided retrieval.** An arrow over the live camera turns you toward the object, step by step, until it says *Found it*.
+- **What changed, with honest uncertainty.** Two scans are lined up from their pictures, and each object is judged against how far a different standing spot alone could shift it: *moved*, *possibly moved*, *moved (low confidence)*, *new*, *gone* or *can't compare*, with the reason. When the scans line up badly it says "check it" instead of guessing.
+- **Notes in places, and a caregiver view.** Leave a note on the TV ("turn it off when leaving"); it shows over the camera to anyone who looks there. With the person's consent, a caregiver's laptop dashboard watches the things that matter (glasses, keys, pills), asks where they are, and leaves notes on objects for them.
+- **The Reality API (MCP)** so any AI agent can ask a room where things are, what changed, ask it a question, or leave a note.
+
+## How it uses Meta's AI tooling
+
+Every call goes through the Meta Model API in **standard mode**: `backend/app/reasoner/meta.py` refuses a `-contributor` model name, so camera frames are not offered for training.
+
+| Model | What it does here | Where |
+|---|---|---|
+| **Muse Spark 1.3** (vision) | Looks at each scan keyframe and lists the object types in view; names are reused across frames of a scan | `backend/app/scan.py` |
+| **Muse Spark 1.3** (vision, strict JSON schema) | Look-alike check after a scan: gets crops of the two nearest same-name objects, their directions and a wider photo, and answers *same / different / unsure* with a confidence; only a sure "same" merges | `backend/app/lookalike.py` |
+| **Muse Spark 1.3** (strict JSON schema) | Semantic find: turns a description in any wording (including Hindi/English mixes) into one short object concept plus alternates, preferring labels the room already has | `backend/app/resolver.py`, used by Find, the caregiver Ask (`backend/app/care.py`) and MCP `where_is` |
+| **Muse Spark 1.3** (strict JSON schema) | Ask the room: reasons over the remembered names, directions and neighbours (text only, never a photo) and returns an answer plus the object ids it is about, which the phone then draws | `backend/app/ask.py` |
+| **SAM 3.1** (concept prompts) | One concept prompt per name Spark listed, run concurrently; boxes, confidences and masks (parsed with `meta-sam-parser`) become the objects, their AR outlines and their colour signatures | `backend/app/sam_client.py`, `backend/app/scan.py` |
+
+Also in the code but **not run for this submission**: an OpenAI-compatible backend for open-weight reasoners (`backend/app/reasoner/openai_compat.py`, `REASONER_BACKEND`), a SAM box-prompt builder (`box_prompt` in `sam_client.py`, measured in `scripts/sam_latency.py` but not called by the app), and Muse Voice Transcribe (only the M0 script `scripts/voice_ws.py`; the phone uses the browser's own speech).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph PHONE["Phone: Chrome / installed web app (web/)"]
+    CAM["Camera + orientation sensor<br/>keyframe every ~18° turn"]
+    UI["Rooms · Find · Guide · Changes<br/>Explore AR · Notes · Ask · Settings"]
+    AR["AR overlay (canvas)<br/>project direction through live pose"]
+  end
+
+  subgraph SERVER["Laptop: FastAPI server (backend/app/)"]
+    SCAN["scan.py<br/>resize → Spark names → SAM masks"]
+    MEM["memory.py + world_model.py<br/>objects as yaw/pitch, merge by footprint,<br/>colour veto, decision log"]
+    LOOK["lookalike.py<br/>geometry first, nearest pair to Spark"]
+    ALIGN["align.py + changes.py<br/>SIFT alignment of two scans,<br/>parallax-aware change classes"]
+    Q["resolver.py · ask.py · guidance.py<br/>care.py · rewind.py"]
+    MCP["mcp_server.py<br/>Reality API at /mcp"]
+    DB[("SQLite + keyframes<br/>data/ (local only)")]
+  end
+
+  subgraph META["Meta Model API (standard mode)"]
+    SPARK["Muse Spark 1.3"]
+    SAM["SAM 3.1"]
+  end
+
+  DASH["Laptop dashboard (web/dashboard.html)<br/>live map, compare scans, Care view"]
+  AGENT["Any MCP client / AI agent"]
+
+  CAM -- "WebSocket: JPEG + yaw/pitch" --> SCAN
+  SCAN <--> SPARK
+  SCAN <--> SAM
+  SCAN --> MEM --> DB
+  MEM --> LOOK <--> SPARK
+  DB --> ALIGN
+  DB --> Q
+  Q <--> SPARK
+  UI <-- "REST + WebSocket" --> Q
+  AR <-- "/api/overlay" --> DB
+  DASH <-- "REST + event feed" --> Q
+  AGENT <-- "Streamable HTTP" --> MCP --> Q
+```
+
+**How it works.** (1) **Scan:** the phone sends a keyframe whenever it has turned about 18° and is steady, with its yaw and pitch. (2) **Anchor:** Spark lists what is in view, SAM masks each named thing, and each detection's place in the frame is turned into a direction through the phone's pose and the camera's field of view (`backend/app/anchoring.py`). (3) **World Model:** sightings are merged into objects by angular footprint, with a colour check that can veto a merge but never force one; every decision is logged and every manual correction is replayed on each rebuild. After the scan, look-alikes are checked. (4) **Use:** Find resolves a description and returns where the object was last seen; Guide projects that direction through the live phone pose; Changes aligns two scans from their pictures before comparing them; Ask and the caregiver view read the same memory. (5) **MCP:** the same functions, exposed to other agents.
+
+Full manual (every screen, API and setting): [docs/guide.md](docs/guide.md). Why things are as they are: [docs/decisions.md](docs/decisions.md). Every screen and state: [docs/screens.md](docs/screens.md).
+
+## Built during the hackathon
+
+All of the code, docs and tests in this repo were written between 2026-10-27 and 2026-11-04 (dates from `git log`):
+
+| Dates | Component |
 |---|---|
-| 2026-10-27 | Repo skeleton, FastAPI HTTPS server with phone camera page + WebSocket frame echo, M0 measurement scripts |
-| 2026-10-28 | Room scan (Spark names, SAM masks, World Model of directions), find and guide, what changed, laptop dashboard, Reality API (MCP) |
-| 2026-10-29 | Rooms, first run and camera lifecycle, objects inspector and corrections, the calm overlay, the visual system |
-| 2026-10-30 | Notes in places, Ask the room, Rewind, caregiver view; scans aligned from their pictures, parallax-aware change classes, rescan assist |
-| 2026-10-31 | Near-field (desk) alignment, local evidence for moves, evidence rules for gone and new, "moved, low confidence", scan quality advice, the caregiver demo in demo mode |
+| Oct 27 | Repo skeleton, FastAPI server with the phone camera page and WebSocket, M0 measurement scripts (SAM latency, Spark resolution, orientation drift) |
+| Oct 28 | Scan pipeline (Spark names, SAM masks, World Model of directions), semantic find, guidance, what-changed, laptop dashboard, Reality API (MCP), world-locked AR overlay, memory evaluation on simulated rooms |
+| Oct 29 | Rooms, first-run intro and camera lifecycle, objects inspector and corrections log, calm overlay, visual system |
+| Oct 30 | Notes in places, Ask the room, Rewind, caregiver view; scan alignment from images, parallax-aware change classes, rescan assist |
+| Oct 31 | Near-field (desk) alignment with local evidence, "moved, low confidence", scan quality advice, synthetic desk rendered with depth for testing |
+| Nov 2 | Caregiver dashboard summary and quick-add, Ask prompt fix after a real-scan failure, frosted-glass restyle |
+| Nov 3 | Look-alike check with Spark, installable app (manifest, generated icons), tap an object to leave a note, design system enforced by tests at the phone's real size |
+| Nov 4 | Caregiver notes from the dashboard (add, reword, done, delete), demo video credits |
 
-## Run (Windows)
+**Not original, and credited:** the first phone and dashboard screens were generated with Claude Design (Anthropic) from the brief in `docs/claude-design-brief.md` and then rewritten and wired up by hand (commit `3a6ffb7`, Oct 28); code was written with the help of Claude Code. No code was copied from other projects or from Meta's cookbook. The app icons are drawn by our own `scripts/make_icons.py`.
 
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-copy .env.example .env        # then set MODEL_API_KEY
+### Third-party code and licences
 
-.\.venv\Scripts\python.exe scripts\make_cert.py   # self-signed cert for localhost + LAN IPs
-.\.venv\Scripts\python.exe backend\run.py         # https://0.0.0.0:8443
-```
+| Dependency | Licence | Used for |
+|---|---|---|
+| FastAPI, Pydantic | MIT | HTTP/WebSocket server, request and schema models |
+| Uvicorn, httpx, websockets, python-dotenv | BSD-3-Clause | ASGI server, HTTP client, WebSocket client, `.env` loading |
+| openai (Python SDK) | Apache-2.0 | Client for the Meta Model API's OpenAI-compatible Responses endpoint |
+| meta-sam-parser | SAM License (Meta) | Parsing SAM 3.1 stream events (boxes, masks); installed from PyPI, not vendored |
+| mcp (Python SDK) | MIT | The Reality API server |
+| NumPy | BSD-3-Clause (and bundled permissive licences) | Geometry, colour histograms |
+| opencv-python | Apache-2.0 | SIFT alignment, mask outlines, JPEG resizing |
+| cryptography | Apache-2.0 or BSD-3-Clause | Self-signed certificate for HTTPS mode |
+| sounddevice | MIT | M0 voice script only |
+| pytest | MIT | Tests |
+| Inter, JetBrains Mono (Google Fonts) | SIL Open Font License 1.1 | UI typefaces, loaded from Google Fonts |
 
-HTTPS mode binds `0.0.0.0`, so it needs `ACCESS_TOKEN` in `.env` (the server refuses to start without it). Phone (same Wi-Fi): open `https://<laptop-LAN-IP>:8443/?token=<ACCESS_TOKEN>` once (it is then kept in a cookie), accept the certificate warning, allow the camera. The Windows Wi-Fi profile must be **Private**, or allow inbound TCP 8443 (admin PowerShell):
+Demo video: footage is screen recordings of this app on our own phone and of the laptop dashboard, with our own data; narration is synthesised with Kokoro-82M (Apache-2.0, voice `af_heart`) run locally through the HyperFrames CLI; the music is original, generated for the video by our own Python script (numpy sine pads, a plucked arpeggio, a noise-tail reverb), with no samples or third-party audio; edited and rendered with HyperFrames.
 
-```powershell
-New-NetFirewallRule -DisplayName "RealityOS dev 8443" -Direction Inbound -Protocol TCP -LocalPort 8443 -Action Allow -Profile Any
-```
+## Measured results
 
-Use **Save sample** on the phone page to drop full-size frames into `data/frames/`.
+All numbers below are copied from [docs/measurements.md](docs/measurements.md), which also says how each was measured. Small samples; nothing is rounded up.
 
-## Phone over USB
+| What | Result | How, and how much |
+|---|---|---|
+| AR overlay frame rate on the phone | **60 fps** (95th-percentile frame 16.7 ms) without backdrop blur, 34-35 fps (49.9 ms) with it | Explore on the demo phone, alternating in one session, 6 s each, twice each |
+| Orientation drift | mean \|Δyaw\| **0.29°** after a full 360° turn | 3 turns on the spot, 18-21 s each, 5,625 sensor samples per source |
+| Semantic find (Spark) | **14 / 14** descriptions resolved; p50 2.1-2.3 s, p95 3.0-4.1 s | 14 queries × 2 conditions, 1 run each; a small, easy set with a lenient acceptance list |
+| Scan pipeline per keyframe | Spark listing p50 **4.4 s**, SAM stage p50 **2.7 s**, about **$0.012** per frame | 4 real desk frames at 540×960 |
+| SAM 3.1 concept prompt | p50 **2,040 ms**, p95 2,852 ms | 28 calls on 4 phone frames |
+| Ask the room (real Spark) | **9 / 10** right on the first run; 10 / 10 after a one-sentence prompt fix | 10 questions on a real 48-object scan, scored by the author; the second run is not an independent test |
+| Change detection, synthetic desk with real parallax | **0 false moves in 152** objects compared, 0 false new, 0 false gone; 11 of 15 true moves called *moved*, 1 *moved (low confidence)*, 2 *possibly moved* | 25 scenario runs (5 seeds × same spot, mouse moved, 20 cm sideways, heading +90°, two objects moved) |
+| Change detection, real desk rescans | the moved mouse found as *moved, low confidence*; **0 false moves among 13** objects | One desk, one moved object, re-run after a fix found on these same scans, so a repaired failure, not an independent test |
+| Memory on simulated rooms | find success **100%** in 5 of 6 conditions (98% with 60° steps); wrong merges between look-alike twins **17% → 2%** with the colour veto | 5 rooms × 16 known objects per condition, 7 frame orders each |
+| Calm AR overlay | labels per view mean **5.4 → 1.8**, overlapping labels per view **2.9 → 0** | 108 viewpoints over a real 35-object scan, the phone's own projection code |
+| Live rescan guidance | about **70 ms** per camera frame | laptop CPU, 480×640 frame against a stored keyframe |
 
-Android only. No Wi-Fi, firewall rules, certificates or tunnels: `adb reverse` makes the phone's `localhost:8000` reach the server on your machine, and `http://localhost` counts as a secure context in Chrome, so the camera works over plain HTTP. In this mode the server binds `127.0.0.1` only and needs no `ACCESS_TOKEN`.
+**Not measured on a real phone:** the controlled change protocol (same spot, 20 cm sideways, heading rotated, two objects moved), Spark's recall when listing objects, the look-alike threshold (0.7, set by reasoning), heading error mid-turn from magnetic distortion, and the field-of-view calibration on the demo phone.
 
-1. On the phone: Settings, About phone, tap **Build number** 7 times to enable Developer options. Then Settings, System, Developer options, turn on **USB debugging**.
-2. On your computer, install [Android platform-tools](https://developer.android.com/tools/releases/platform-tools) and add the extracted folder to `PATH`. Check with `adb version`.
-3. Connect the phone with a data-capable USB cable. Unlock it and accept the **Allow USB debugging?** prompt.
-4. Start the server in plain HTTP mode:
-   ```powershell
-   $env:PLAIN_HTTP = "1"; .\.venv\Scripts\python.exe backend\run.py   # http://127.0.0.1:8000
-   ```
-   (bash: `PLAIN_HTTP=1 python backend/run.py`)
-5. Forward the port (the script checks that `adb` exists and that an authorized device is listed):
-   ```powershell
-   .\scripts\usb_connect.ps1        # bash: scripts/usb_connect.sh
-   ```
-   With several devices attached, pass `-Serial <id>` (bash: the serial as the first argument).
-6. On the phone, open Chrome and go to **http://localhost:8000**. The page opens on Home without touching the camera. The first time, a three-card intro explains the app and leads to a permission primer; only then does the browser ask for the camera and motion sensors. `http://localhost:8000/probe` shows whether the camera and motion sensors work (results go in `docs/measurements.md`).
+## Limitations
 
-7. Optional: Chrome menu, **Install app**. The installed Reality OS opens full screen in portrait (the portrait lock only holds in an installed app) with its own icon. It has no service worker: it needs the server, and it is tied to the address it was installed from, so install it from the one you use (`http://127.0.0.1:8000` works too, and is cached separately from `localhost`). Icons: `python scripts/make_icons.py`.
+- **Directions, not positions.** With no depth sensor, everything is a direction from roughly where the scan was made. Notes, guidance and ghosts are right from about there; from across the room they are off.
+- **Parallax for nearby objects.** A desk 40-60 cm away shifts a lot when you stand 20 cm to the side; the change detector models this and says *possibly moved* or *can't compare* rather than inventing moves, but it means near things are judged conservatively.
+- **Rescan from the same spot.** The rescan assist shows the first scan's keyframe as an outline to line up with; it does not force it.
+- **Calibration.** The field of view defaults to 60° until `scripts/calibrate_fov.py` is run for the phone; object anchors are only as good as that number.
+- **Latency.** A keyframe takes about 7 s (Spark, then SAM), so the scan keeps going while results arrive; Find and Ask take 2-11 s per question.
+- **Look-alikes on the demo scans.** On the two real scans recorded for the demo video, the look-alike calls reported "the check failed", so nothing was merged; the cause has not been investigated yet.
+- **One phone.** Tested on one Android phone (Chrome, installed web app). iOS Safari is not tested.
 
-If the port is already in use, set `PLAIN_HTTP_PORT` and change the port in `scripts/usb_connect.*` to match.
+## Quick start
 
-## Scan a room
-
-Needs `MODEL_API_KEY` in `.env`. On the phone tap **Scan** in the bottom bar, pick the room to rescan (the active one is preselected) or name a new one (suggestions include Desk, Shelf and Wardrobe), then **Continue to scan**. Check the pre-scan list (a lit, empty room), tap **Start scanning**, then pan slowly one way, about 20 to 30 s for a full circle, holding the phone upright and roughly level. The page sends a frame whenever you have turned about 18 degrees and the phone is steady. The coverage compass shows which compass directions and which pitch bands (floor, eye level, ceiling) have been looked at, with the camera's view cone, and the hint names the next gap; it shows coverage, not where things are. It finishes by itself at 97% coverage, or tap **Done**. The review groups what was found by kind with thumbnails: **Save** makes it the room's memory, **Discard** deletes it, **View in room** opens the room (an unsaved scan stays there, marked UNSAVED, until you save or discard it).
-
-Server progress goes to the uvicorn log. To keep a log file while the server runs in the background:
-
-```powershell
-$env:PLAIN_HTTP = "1"; Start-Process .\.venv\Scripts\python.exe -ArgumentList "backend\run.py" -RedirectStandardError data\server.err.log -RedirectStandardOutput data\server.log -WindowStyle Hidden
-Get-Content data\server.err.log -Wait -Tail 20          # one line per scan frame: names, objects, wait, cost
-.\.venv\Scripts\python.exe scripts\replay_scan.py --only 1301   # replay saved frames through the same WebSocket (no phone)
-```
-
-Tests: `pytest tests` (server, plus the phone page in headless Chrome or Edge when one is installed: `tests/test_entry_flow.py`; set `CHROME_BIN` if it is not found), `node --test tests/js/*.test.mjs` (auto-capture, guidance and projection maths checked against the Python versions, and the first-run, permission and camera-lifecycle logic). On Linux or macOS with Python 3.11:
+Prerequisites: Python 3.11, Node 18+ (for the JS tests), a Meta Model API key for real scans, and for the phone: Android with USB debugging and [platform-tools](https://developer.android.com/tools/releases/platform-tools) (`adb`).
 
 ```bash
-python3.11 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m pytest -q
-node --test tests/js/*.test.mjs
-.venv/bin/python scripts/eval_alignment.py --synthetic      # alignment and change classes on the synthetic room and desk, about a minute
+git clone https://github.com/satvikydv/reality.git && cd reality
+python -m venv .venv
+.venv/bin/pip install -r requirements.txt          # Windows: .venv\Scripts\pip install -r requirements.txt
+cp .env.example .env                                # then set MODEL_API_KEY
+PLAIN_HTTP=1 .venv/bin/python backend/run.py        # http://127.0.0.1:8000 (Windows PowerShell: $env:PLAIN_HTTP="1"; .venv\Scripts\python backend\run.py)
+adb reverse tcp:8000 tcp:8000                       # then open http://localhost:8000 in Chrome on the phone
 ```
 
-No test calls the network or the model API: Spark is replaced by a stand-in.
+`adb reverse` makes the phone's `localhost:8000` reach the laptop, and `http://localhost` counts as a secure context, so the camera works over plain HTTP; in this mode the server binds `127.0.0.1` only. Same Wi-Fi instead of USB: HTTPS mode with a self-signed certificate and an `ACCESS_TOKEN`, see [docs/guide.md](docs/guide.md#run-windows). The laptop dashboard is at `http://127.0.0.1:8000/dashboard`.
 
-The phone UI also runs without the backend: open `/?demo` for mock data, or `/?demo&screen=<id>&state=<state>` to jump to any state of any screen (for example `/?demo&screen=find&state=all-results`; the screens and states are in `docs/screens.md`). It falls back to demo mode by itself when the server is not reachable.
+**No key, no camera:** with the server running, `http://127.0.0.1:8000/?demo` runs the whole phone UI on made-up data (`/?demo&screen=find&state=all-results` jumps to any state; the list is in `docs/screens.md`), and `http://127.0.0.1:8000/dashboard?demo` plays the dashboard and its Care view.
 
-**World-locked overlay.** On the scan, guide and Explore screens the camera view shows the room's remembered objects where they are: each one's stored direction is projected through the live phone pose and the server's field of view, with its label and an outline. The outline is the stored SAM mask carried into the current view by the rotation-only homography `H = K R K^-1`; objects stored without a mask (or from before masks were kept) get their angular footprint instead, drawn dashed. Objects whose sightings disagree by more than 12 degrees are not drawn, and opacity fades with the time since the object was last seen. Nothing is shown as a distance, because only directions are known. The AR toggle on the Explore and guide screens turns the objects off, and Settings, Overlay detail chooses **Calm** (the default: at most five labels scored by confidence x centrality x recency, duplicates grouped as "3 bottles", labels kept apart, one outline for the Find / Guide target or the object under the reticle, mask outlines simplified and rounded, background classes and unsure objects hidden, the compass tape only on Guide), **Normal** (everything, as before) or **Debug** (Normal plus confidence and uncertainty). All thresholds are in `web/js/overlay-config.js`; the compass tape, horizon and guide arrow stay. The server serves the data at `/api/overlay` (the field of view is the calibrated one, or 60 degrees as a placeholder: see "Calibrate the camera"). The projection math has a Python reference in `backend/app/anchoring.py` and `tests/js/project.test.mjs` checks the phone's JavaScript against it. The dev menu (the dots, only when the page is opened with `?debug`) shows the live frame rate and draw time.
+**Tests** (no test calls the network or the model API; Spark and SAM are replaced by stand-ins):
 
-**Changes** in the bottom bar compares two saved scans of the active room (by default the latest against the room's baseline, else the one before it; pick any two from the lists) and shows what moved, is new or is gone, with before and after photos, the move as an angle only, and Confirm or Dismiss per change. Scans of different rooms are never compared. Directions that were not scanned both times are listed as not checked rather than reported as changes.
-
-### Rooms, first run and the camera
-
-**Rooms.** A room (a "space": Living Room, Desk, Wardrobe...) is a place you scan. A room's memory is its **latest saved scan**; older saved scans are kept only for Changes. Rooms never share objects, overlay, guidance or comparison: a scan in one room is not found from another, and two scans of different rooms cannot be compared (the API answers 400). The room you choose is the **active room**, the default for Find, Explore, Changes and the Reality API; creating a room does not make it active. Existing scans from before rooms moved into a room called "Unassigned" (not active) on first start.
-
-**Screens.** The bottom bar is Rooms, Find, Scan, Changes, Settings; the room switcher pill in the top bar changes the active room from anywhere. Home lists the rooms (search with room filter chips, recent objects, a card per room with objects, coverage, when it was last scanned and an ACTIVE badge). A room opens to its details: Find in this room, Rescan, View changes, Explore (AR), Room settings, recent objects and the scan history (which scan is the memory, which is the baseline, unsaved drafts, Save / Discard / Set baseline / Delete). Find searches the active room, or all rooms read-only with results grouped per room; opening a result from another room asks to switch to that room first, and guidance only ever works inside the active room. Settings holds the global options (voice language, keyframe rate, overlay detail, delete all data, replay intro) and each room's rename and delete (which erases its scans, photos and objects, with a warning). Every screen and state is listed in `docs/screens.md`, which is also the brief for restyling.
-
-**First run and the camera.** Opening `/` never touches the camera, the motion sensors or the microphone. Home shows the server and model API key state (a cheap check on `/api/status`, never a frame or a prompt). The camera starts only from a tap that opens a camera screen: Continue to scan (after the wizard), **Explore (AR)** or **Guide me**; it stops when that screen is left, when the tab is hidden or closed, and when the browser takes it away. While it is on, a red "Camera on · STOP" pill shows, the screen is kept awake and portrait is requested where the browser allows it (Chrome usually only allows that in fullscreen or an installed app). The first visit shows a three-card intro (what it does, how to scan, what happens to your data) and a primer that explains the camera and motion prompts before the browser asks; a refusal gets a plain explanation and Try again. `tests/test_entry_flow.py` fails if the page ever calls `getUserMedia`, the motion APIs, the microphone APIs, the wake lock or the orientation lock on load. The manual phone checklist is in `docs/measurements.md`.
-
-**Server API for rooms.** `GET/POST /api/rooms`, `PATCH/DELETE /api/rooms/{id}`, `GET /api/rooms/{id}/scans`, `POST /api/rooms/{id}/baseline`, `POST /api/rooms/{id}/scans/{scan}/save` and `/discard`, `DELETE /api/rooms/{id}/scans/{scan}`, `GET /api/rooms/{id}/changes`, `POST /api/rooms/{id}/changes/review`, `GET /api/search`, `GET /api/overlay?room_id=`, `POST /api/guide`, `DELETE /api/data`. The phone's scan and find messages carry `room_id`.
-
-### Objects inspector and corrections
-
-The memory can be wrong (two bottles that are one, a wall that is not an object), so it can be reviewed and corrected. On the laptop, **Objects** in the dashboard header opens the inspector: pick a room and a scan, see the objects grouped by label (instances, sightings, mean confidence), open an instance to see every sighting at a large size with its mask and box, the SAM confidence, the camera pose and the decisions that joined or separated it. From there: merge instances, detach a sighting into its own object, delete an object, mark a label as "not an object" for the room, review the possible-duplicates list, and read the corrections log. On the phone, **Review objects** (on a scan's review or in a room's history) goes label, instances, sightings with the same corrections.
-
-Every correction is recorded (`GET /api/corrections`, with who made it) and is applied again by every later rebuild, so the next frame does not undo it. API: `GET /api/scans/{id}/objects`, `GET /api/scans/{id}/duplicates`, `GET /api/objects/{id}`, `POST /api/objects/merge`, `POST /api/sightings/{id}/detach`, `DELETE /api/objects/{id}`, `GET/POST /api/rooms/{id}/not-objects`, `DELETE /api/rooms/{id}/not-objects/{label}`, `GET /api/corrections`. A sighting's id is its detection's id.
-
-### Notes, Ask the room, Rewind and the caregiver view
-
-Four things built on the same memory (directions seen from where the scans were made; nothing here claims world-locked tracking). On the phone they live in **Explore** (the camera over a room), as **Note**, **Ask** and **Rewind**.
-
-- **Notes in places.** Point at the fridge, tap Note, type or say "milk expires Friday". The note stays on the object under the reticle (or the direction you face) and shows over the camera for anyone using that room. Notes belong to one room, can be marked done or deleted, and are served in `/api/overlay` so a second phone sees them. API: `GET/POST /api/rooms/{id}/notes`, `PATCH/DELETE /api/notes/{id}`.
-- **Ask the room.** "What is charging?", "What here is fragile?", "When did something last move?" Spark reasons over the names, directions and neighbours the room remembers, plus what changed between its earlier saved scans, and names the objects the answer is about; the phone draws only those, with a reason each (an arrow points to one that is off screen). It never sees a photo and may only name objects that exist in the room. API: `POST /api/rooms/{id}/ask`.
-- **Rewind.** Pick an earlier saved scan and see, as dashed "was here" rings in today's directions, what it had that the room's memory does not. A direction today's scan never looked at is shown as "was here?", not as gone. API: `GET /api/rooms/{id}/rewind?scan=`.
-- **Caregiver view.** On the dashboard, **Care** lists the things a caregiver watches (pills, glasses, keys) with the room, photo and time each was last seen, and alerts for: not seen in any room's last scan (with the rooms' coverage), last seen somewhere other than its usual room, last seen more than 3 days ago (`CARE_STALE_DAYS`). It asks "where did Mum put her pills?" in plain words. It is memory as of the last scan, not live tracking, and says so. **Notes for them**: pick one of their rooms, pick something the last scan found in it, and leave a note on it; it hangs at that object's direction and shows over the camera on their phone when they look there. Notes can be edited, marked done or deleted from the same list (`PATCH /api/notes/{id}` takes `text` or `done`). Nothing shows until the person turns on **Settings, Caregiver sharing** on their phone. API: `GET /api/care`, `POST /api/care/consent`, `POST/DELETE /api/care/watch`, `POST /api/care/ask`.
-
-The Reality API (MCP) gains `ask_room`, `list_notes` and `leave_note`, so another agent can ask a room a question or leave a note where it will be seen.
-
-### Scanning the same place twice
-
-Two scans of a room made from slightly different spots, or with a different start heading, used to look like moved objects. Now:
-
-1. **The scans are aligned from their pictures** (`app/align.py`): SIFT features (kept on detected objects too, but a pair carried by one object is refitted without it, so a moved thing cannot pull the result), every frame pair for small scans, a rotation fit and the essential matrix, combined by an inlier-weighted median. Quality is good, weak or failed; the standard error counts distinct frames, not pairs. Each frame of the later scan also gets its pose in the earlier scan's frame from the images, which removes its compass noise and a tilt bias.
-2. **Each object is judged two ways** (`app/changes.py`). The texture right around it, at about its depth, says where it should appear from the new viewpoint: that is a measurement in pixels, with no sensor pose (local evidence). And a viewpoint model (`app/scale.py`): Spark gives a typical size per label, the box a distance, and a change of viewpoint (15 cm assumed, `VIEWPOINT_ERROR_CM`, or what the objects that stayed put show, if more) can shift it by so much. The classes are **unchanged**, **possibly moved**, **moved**, **new**, **removed** and **can't compare** (with the reason). A move is called only when both agree.
-3. **Gone and new need evidence**: the object seen in at least two frames, and the other scan having looked at that spot. One missed detection is "can't compare: seen only once", not "gone".
-4. **When the alignment is weak or failed nothing is called moved, new or removed**, with one exception the owner can switch off (`MOVED_LOW_CONFIDENCE=0`): **moved, low confidence**, its own amber group, for a unique object that moved far beyond anything the viewpoint explains while the images agree with the compass.
-
-Before a rescan the phone shows the first scan's keyframe as a faded outline over the camera and says how to line up ("Turn left 8 degrees, move slightly right."). **Start anyway** is always there. After a scan, the review shows a **scan quality** card: take at least 5 shots, keep each thing in two shots, tilt up so the wall behind the desk is in view, hold still; it never blocks Save. Changes and the dashboard show the alignment and keep Moved, Moved (low confidence), Possibly moved and Can't compare apart. `python scripts/eval_alignment.py --synthetic` measures all of it on a rendered room and on a desk rendered with depth (real parallax); the protocol for real scans is in `docs/measurements.md`.
-
-### Honest limits
-
-- **Not verified on a phone**: the near-field alignment, the local evidence, "moved, low confidence" and the scan quality thresholds were set and measured on synthetic scenes only (rendered boxes, exact poses, boxes from visible pixels). Real SAM boxes jitter more; the controlled protocol in `docs/measurements.md` (same spot, 20 cm sideways, heading rotated 90 degrees, two objects moved) has not been run.
-- **Real desk scans aligned only weakly before this change** (1 of 12 frame pairs matched); they have not been re-run with it.
-- **Ask** has not been measured against real Spark (target: 8 of 10 questions judged right). Its answers come from object names and directions only; it cannot know whether a stove is on or a blade exposed, and says so.
-- **Directions, not positions**: everything is a direction from roughly where the scans were made. Notes and ghosts are right from about there. The memory can split a near object into two when the hand drifts between shots.
-- **The caregiver view** shows what each room's last scan saw, when, and a photo. It is not tracking, and the consent switch is a gate in this app, not a login.
-
-### Calibrate the camera
-
-The field of view depends on the camera mode (resolution, lens, zoom), so it is measured in the exact state the app scans in, and any later change is refused.
-
-1. Open the app on the phone with `?debug`, open Explore (AR) on a room (or start a scan) and, in the dots menu, press **Save sample** while holding a ruler or A4 sheet flat and square to the camera. Do it at two distances (say 40 and 70 cm). Do not touch zoom or switch lenses. The photos and a `.json` sidecar that records the camera state land in `data/frames/`.
-2. Measure the sheet's width in pixels in each photo, then run `python scripts/calibrate_fov.py --object-cm 29.7 --shot 40 612 data/frames/<first>.json --shot 70 352 data/frames/<second>.json`. It refuses shots taken in different camera states and writes `data/fov_calibration.json` with the angle and the resolution and zoom it holds for.
-3. Restart the server. From then on the server refuses any frame from a camera in another state, and the phone stops the scan with a message naming what changed (zoom, resolution, lens, rotation). `HFOV_DEG=66` sets an angle without recording a camera state, so nothing can be checked.
-
-The app locks zoom at 1x where the camera allows it and checks the camera settings before and after every frame.
-
-### How the memory decides what is one object
-
-Objects are recomputed from every stored detection after each frame, in capture-time order, so the result does not depend on the order frames finished processing (`backend/app/memory.py`). A detection joins the object whose angular footprint it overlaps most, unless two detections of one frame would share it or the colours of the two masks differ too much; edge-clipped fragments join an object when one matches and become objects of their own when seen in two frames. Every decision is logged (`memory` logger, `WorldModel.decisions()`). Each object keeps its confidence, last-seen time, the number of frames that saw it and an anchor uncertainty (disagreement between sightings combined with the field-of-view error), which the API returns and the guide arrow shows as a cone.
-
-Coverage (the ring on the phone, the scan summary, the "not seen" answer) is one definition in `backend/app/coverage.py` and `web/js/coverage.js`, checked against each other by a golden test, and includes three pitch bands (floor, eye level, ceiling).
-
-`python scripts/eval_memory.py` scores the memory on synthetic rooms with known contents (duplicate rate, wrong merges, id switches, find success, order independence) and writes the table to `docs/measurements.md`.
-
-## Laptop dashboard
-
-Open `http://127.0.0.1:8000/dashboard` on the laptop while the phone scans. It shows the room map filling in (compass, north up; with no scan running it shows the active room's last saved scan, with the frame and object counts of that scan and the time it was made, and a name that would land on another is left out), counters (frames, objects, seconds, cost), a log of everything the phone and any agent does, the last Reality API call with the photo it was shown, and a compare panel (pick two scans, "What changed?") with before and after photos. A dashboard opened mid-scan catches up from the last 200 events. `/dashboard?demo` plays scripted data without the backend, and its **Care** button shows the caregiver view with made-up data (pills last seen in the kitchen, keys not seen). The caregiver view opens with how many things need attention, says "all clear" only when sharing is on and every watched thing was seen where it usually is, and adds common things to watch in one click. The page needs the same `MODEL_API_KEY` setup as scanning, because it reads the same server state.
-
-## Reality API (for other agents)
-
-The scanned room is also an MCP server, so another agent can ask about it. It is mounted on the same server at `http://127.0.0.1:8000/mcp` (Streamable HTTP; needs `MODEL_API_KEY` in `.env`, like scanning).
-
-| tool | what it answers |
-|---|---|
-| `list_rooms()` | the rooms, which one is active, how many objects each remembers, when it was last scanned |
-| `where_is(query, room?)` | where something is, from a name or a description ("the thing I charge my laptop with"): compass direction, direction from the scan start, neighbours, a photo reference, last seen, confidence. `status` is `found`, `not_seen` (with how much of the room the latest scan covered) or `unresolved` |
-| `list_objects(label?, scan_id?, room?)`, `scan_summary(scan_id?, room?)` | what a scan found, counts per kind, coverage and gaps |
-| `what_changed(scan_before?, scan_after?, room?)` | moved, possibly moved, added and removed objects between two scans, how well the scans lined up, `moved_low_confidence` (check it), and `cant_compare` with a reason each (also served as `unverified`) |
-| `guide_user_to(query, room?)` | the one action: the connected phone shows the answer and starts the direction arrow |
-| `get_frame(frame_id)` | the stored photo (may show people: turn it off with `REALITY_API_FRAMES=0`) |
-
-Every tool takes an optional `room` (an id or a name) and defaults to the active room. With no active room and none named, the answer is `no_active_room` with the list of rooms. Scans of different rooms are refused (`wrong_room`), and `guide_user_to` only guides inside the active room.
-
-```powershell
-claude mcp add --transport http reality-os http://127.0.0.1:8000/mcp     # Claude Code as the second agent
-.\.venv\Scripts\python.exe scripts
-eality_client.py where_is "the thing I drink water from"   # or ask from the command line
-.\.venv\Scripts\python.exe scripts
-eality_client.py tools
+```bash
+.venv/bin/python -m pytest -q                       # server, world model, alignment, MCP, and the phone page in headless Chrome/Edge if installed
+node --test tests/js/*.test.mjs                     # projection, guidance, coverage and first-run logic, checked against the Python versions
+.venv/bin/python scripts/eval_alignment.py --synthetic   # change detection on the synthetic room and desk, about a minute
 ```
 
-It listens on loopback only, and the host header is checked (DNS-rebinding guard); on a LAN bind add your host with `MCP_ALLOWED_HOSTS="192.168.1.5:8443"` and use `ACCESS_TOKEN`. `cd backend; python -m app.mcp_server` runs the same tools over stdio for clients that start their own subprocess (read-only; no live phone or dashboard in that mode). Every agent call is also published on the event feed (`/ws/events`) for the laptop dashboard.
+## Reality API (MCP)
 
-## M0 scripts
+Mounted on the same server at **`http://127.0.0.1:8000/mcp`** (Streamable HTTP). Tools: `list_rooms`, `where_is(query, room?)`, `list_objects`, `scan_summary`, `what_changed`, `guide_user_to(query)` (the connected phone shows the answer and starts the arrow), `get_frame` (turn off with `REALITY_API_FRAMES=0`), `ask_room`, `list_notes`, `leave_note`. Every tool takes an optional room and defaults to the active one.
 
-```powershell
-$py = ".\.venv\Scripts\python.exe"
-& $py scripts\sam_latency.py --images data\frames --concepts "red brick,black wheel" --max-sides 640,960,1280 --repeat 3
-& $py scripts\spark_grounding.py --images data\frames --concepts "red brick,black wheel"
-& $py scripts\spark_plan.py --repeat 5
-& $py scripts\voice_ws.py --seconds 30 --lang English,Hindi
+**Access.** It listens on loopback only and checks the Host header (DNS-rebinding guard). On a LAN bind, set `ACCESS_TOKEN` (the server refuses to start without it) and add the host with `MCP_ALLOWED_HOSTS`. Covered by `tests/test_mcp_server.py` and `tests/test_http_integration.py`.
+
+Example client config (any MCP client that speaks Streamable HTTP):
+
+```json
+{ "mcpServers": { "reality-os": { "type": "streamable_http", "url": "http://127.0.0.1:8000/mcp" } } }
 ```
 
-Each prints markdown tables to paste into `docs/measurements.md` and logs estimated spend to `data/cost_log.jsonl`.
+Or from the command line: `python scripts/reality_client.py where_is "the thing I drink water from"`. Every agent call shows up live on the dashboard's event feed.
 
-## Models used
+## Privacy and safety
 
-Muse Spark 1.3 (Standard mode only), SAM 3.1, Muse Voice Transcribe via the Meta Model API. Open-weight models planned for M4.
+- **Sent to Meta's API:** scan keyframes (resized to 960 px on the long side) for Spark and SAM; after a scan, crops of look-alike objects and one wider photo; Find and Ask send text only (the question plus the room's object names and directions), never a photo.
+- **Stored locally only:** the SQLite memory and the keyframes, under `data/` on the computer running the server (ignored by git). Nothing is uploaded anywhere else.
+- **Deleting:** a scan or a room from its settings on the phone (erases its scans, photos and objects), or everything with Settings → **Delete all data** (`DELETE /api/data`).
+- **Do not scan people.** Scan an empty room; the pre-scan checklist asks for one. The camera never starts on page load, only from a tap, and stops when you leave the screen.
+- **Caregiver sharing is off by default** and is turned on by the person on their own phone. The dashboard shows the last scan, never a live view, and says so.
+- **Not a safety device.** Ask answers "might need a look", never "safe", and adds that it is not a safety check. This is a prototype; do not rely on it for medication, safety or emergencies.
 
-## Attribution
+## Project structure
 
-No third-party code adapted so far. `meta-sam-parser` is used as a dependency.
+```text
+backend/app/      FastAPI server: scan pipeline, World Model, alignment and changes, Find/Ask/Care, MCP server, Meta API clients
+web/              phone app (index.html, js/, css/) and the laptop dashboard (dashboard.html); no build step
+tests/            pytest suite (incl. headless-browser tests of every screen) and tests/js/ (node --test)
+scripts/          measurement and evaluation scripts, USB helpers, icon generator
+docs/             guide.md (full manual), decisions.md, measurements.md, screens.md, architecture.md
+```
 
-Demo video:
-- Footage: screen recordings of this app on our own phone (Realme 6) and of the laptop dashboard, with our own data.
-- Narration: synthesised with Kokoro-82M (Apache-2.0), voice `af_heart`, run locally through the HyperFrames CLI.
-- Music: original, generated for this video by our own Python script (numpy sine pads, a plucked arpeggio and a noise-tail reverb). No samples or third-party audio.
-- Edited and rendered with HyperFrames.
+## Acknowledgements and licence
+
+Built on the Meta Model API (Muse Spark 1.3, SAM 3.1) with `meta-sam-parser`. Thanks to the hackathon organizers for the API credits. Released under the [MIT License](LICENSE).
