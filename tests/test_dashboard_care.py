@@ -114,3 +114,37 @@ def test_the_idle_dashboard_shows_the_active_rooms_last_scan_and_how_to_connect_
     p.wait("document.getElementById('co').textContent==='1'", what="the room's objects on the map")
     assert "Study" in p.text("#phase") and "last scan" in p.text("#phase") and p.text("#cs") == "–" and p.text("#cu") == "–"
     assert "claude mcp add" in p.text("#prev") and "Scan a room twice" in p.text("#chsum") and p.errors == []
+
+
+def test_notes_need_sharing_then_go_on_the_object_picked_and_can_be_edited_done_and_deleted(site, clean):
+    rid = site.room("Kitchen", active=True, label="mug", yaw=40.0, ts=time.time())
+    wm = site.svc_.wm
+    p = dashboard(site)
+    p.wait("!document.getElementById('cnoff').hidden", what="the sharing-off message")
+    assert p.eval("document.getElementById('cnon').hidden") is True        # nothing about their rooms before they say yes
+    care.set_consent(site.svc_, True)
+    p.wait("!document.getElementById('cnon').hidden && document.querySelectorAll('#cnobjs .cnobj').length===1", timeout=15, what="the room's things")
+    assert p.text("#cnobjs .cnobj") == "mug"
+    p.tap("#cnobjs .cnobj")
+    assert "On the mug in Kitchen" in p.text("#cnat")
+    p.eval("document.getElementById('cntext').value='Take the evening pills after dinner';document.getElementById('cnfrom').value='Maya'")
+    p.tap("#cnadd")
+    p.wait("document.querySelectorAll('#cnlist .cnote').length===1", what="the note in the list")
+    n = wm.list_notes(rid)[0]
+    obj = wm.list_objects(wm.latest_scan_id(rid))[0]
+    assert (n["text"], n["author"], n["label"]) == ("Take the evening pills after dinner", "Maya", "mug")
+    assert abs(((n["yaw"] - obj["yaw"] + 180) % 360) - 180) < 0.5 and abs(n["pitch"] - obj["pitch"]) < 0.5  # it hangs on the mug
+    p.tap("#cnlist .cnote .acts button")                                    # Edit
+    p.eval("document.querySelector('#cnlist .cnote textarea').value='Take the pills at 8'")
+    p.tap("#cnlist .cnote .acts .go")                                       # Save
+    p.wait("document.querySelector('#cnlist .cnote p')?.textContent==='Take the pills at 8'", what="the edited note")
+    assert wm.get_note(n["id"])["text"] == "Take the pills at 8"
+    p.eval("[...document.querySelectorAll('#cnlist .cnote .acts button')].find(b=>b.textContent==='Done').click()")
+    p.wait("!document.querySelector('#cnlist .cnote')", what="the done note gone from the list")
+    assert wm.get_note(n["id"])["done_at"] is not None
+    wm.set_note_done(n["id"], False)
+    p.eval("document.getElementById('cnroom').dispatchEvent(new Event('change'))")
+    p.wait("document.querySelectorAll('#cnlist .cnote').length===1")
+    p.eval("window.confirm=()=>true;[...document.querySelectorAll('#cnlist .cnote .acts button')].find(b=>b.textContent==='Delete').click()")
+    p.wait("!document.querySelector('#cnlist .cnote')", what="the deleted note gone")
+    assert wm.get_note(n["id"]) is None and p.errors == []

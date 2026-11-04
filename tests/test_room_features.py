@@ -286,3 +286,16 @@ def test_the_reality_api_can_ask_a_room_and_leave_and_list_notes(client):
     assert n["status"] == "ok" and n["note"]["author"] == "agent" and n["note"]["label"] == "laptop"
     assert api.leave_note(svc, " ", 0, 0, "Study")["status"] == "bad_request"
     assert [x["text"] for x in api.list_notes(svc, "Study")["notes"]] == ["bring this to the meeting"]
+
+
+def test_a_note_can_be_reworded_and_the_rules_still_hold(client):
+    rid = client.svc.wm.create_room("A")["id"]
+    n = client.post(f"/api/rooms/{rid}/notes", json={"text": "pills in the drawer", "yaw": 10, "pitch": -5, "label": "drawer", "author": "Maya"}).json()
+    e = client.patch(f"/api/notes/{n['id']}", json={"text": "  pills moved to the   shelf "})
+    assert e.status_code == 200 and e.json()["text"] == "pills moved to the shelf"
+    assert (e.json()["yaw"], e.json()["label"], e.json()["author"], e.json()["done_at"]) == (10, "drawer", "Maya", None)  # only the words change
+    assert client.patch(f"/api/notes/{n['id']}", json={"text": "   "}).status_code == 400
+    assert client.patch(f"/api/notes/{n['id']}", json={"text": "x" * 281}).status_code == 400
+    assert client.patch(f"/api/notes/{n['id']}", json={}).status_code == 400
+    assert client.patch("/api/notes/999", json={"text": "hi"}).status_code == 404
+    assert client.patch(f"/api/notes/{n['id']}", json={"done": True}).json()["done_at"] is not None  # the phone's call is unchanged

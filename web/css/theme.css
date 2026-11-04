@@ -22,12 +22,14 @@
   /* radius, space, sizes */
   --r-xs:8px;--r-sm:12px;--r-md:14px;--r-lg:20px;--r-xl:28px;--r-pill:999px;
   --s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-5:24px;--s-6:32px;--s-7:48px;
-  --tap:48px;--tap-min:44px;--btn-h:56px;--field-h:56px;--bar-h:92px;--top-h:56px;--blur:30px;
+  --tap:48px;--tap-min:44px;--btn-h:52px;--field-h:52px;--field-h:56px;--bar-h:92px;--top-h:56px;--blur:30px;
   /* motion: never decorative */
   --ease:cubic-bezier(.22,.9,.28,1);--spring:cubic-bezier(.2,1.12,.3,1);--ease-inout:cubic-bezier(.6,0,.2,1);--dur-1:120ms;--dur-2:240ms;--dur-3:450ms;--dur-ring:600ms;
   /* names used before the visual system, mapped onto it */
   --on-accent:var(--accent-ink);--danger-fill:var(--red-fill);--danger-line:var(--red-line);--warn-line:var(--amber-line);
-  --r-btn:16px;--r-card:var(--r-lg);--r-ctl:var(--r-md);
+  --r-btn:16px;
+  --ctl:#24272D;--ctl-press:#2E3239;--ctl-edge:inset 0 .5px 0 rgba(255,255,255,.10),0 0 0 .5px rgba(255,255,255,.06);
+  --lit:linear-gradient(180deg,#A9BCFF 0%,#8AA4FF 52%,#7D97F2 100%);--r-card:var(--r-lg);--r-ctl:var(--r-md);
   --pad:var(--s-4);--gap:var(--s-3);--gap-lg:var(--s-4);
   --fs-xs:var(--t-label);--fs-sm:var(--t-xs);--fs-md:var(--t-sm);--fs-lg:var(--t-md);--fs-xl:var(--t-xl);
   --nav-h:var(--bar-h);

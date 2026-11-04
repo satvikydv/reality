@@ -54,6 +54,8 @@ Android only. No Wi-Fi, firewall rules, certificates or tunnels: `adb reverse` m
    With several devices attached, pass `-Serial <id>` (bash: the serial as the first argument).
 6. On the phone, open Chrome and go to **http://localhost:8000**. The page opens on Home without touching the camera. The first time, a three-card intro explains the app and leads to a permission primer; only then does the browser ask for the camera and motion sensors. `http://localhost:8000/probe` shows whether the camera and motion sensors work (results go in `docs/measurements.md`).
 
+7. Optional: Chrome menu, **Install app**. The installed Reality OS opens full screen in portrait (the portrait lock only holds in an installed app) with its own icon. It has no service worker: it needs the server, and it is tied to the address it was installed from, so install it from the one you use (`http://127.0.0.1:8000` works too, and is cached separately from `localhost`). Icons: `python scripts/make_icons.py`.
+
 If the port is already in use, set `PLAIN_HTTP_PORT` and change the port in `scripts/usb_connect.*` to match.
 
 ## Scan a room
@@ -108,7 +110,7 @@ Four things built on the same memory (directions seen from where the scans were 
 - **Notes in places.** Point at the fridge, tap Note, type or say "milk expires Friday". The note stays on the object under the reticle (or the direction you face) and shows over the camera for anyone using that room. Notes belong to one room, can be marked done or deleted, and are served in `/api/overlay` so a second phone sees them. API: `GET/POST /api/rooms/{id}/notes`, `PATCH/DELETE /api/notes/{id}`.
 - **Ask the room.** "What is charging?", "What here is fragile?", "When did something last move?" Spark reasons over the names, directions and neighbours the room remembers, plus what changed between its earlier saved scans, and names the objects the answer is about; the phone draws only those, with a reason each (an arrow points to one that is off screen). It never sees a photo and may only name objects that exist in the room. API: `POST /api/rooms/{id}/ask`.
 - **Rewind.** Pick an earlier saved scan and see, as dashed "was here" rings in today's directions, what it had that the room's memory does not. A direction today's scan never looked at is shown as "was here?", not as gone. API: `GET /api/rooms/{id}/rewind?scan=`.
-- **Caregiver view.** On the dashboard, **Care** lists the things a caregiver watches (pills, glasses, keys) with the room, photo and time each was last seen, and alerts for: not seen in any room's last scan (with the rooms' coverage), last seen somewhere other than its usual room, last seen more than 3 days ago (`CARE_STALE_DAYS`). It asks "where did Mum put her pills?" in plain words. It is memory as of the last scan, not live tracking, and says so. Nothing shows until the person turns on **Settings, Caregiver sharing** on their phone. API: `GET /api/care`, `POST /api/care/consent`, `POST/DELETE /api/care/watch`, `POST /api/care/ask`.
+- **Caregiver view.** On the dashboard, **Care** lists the things a caregiver watches (pills, glasses, keys) with the room, photo and time each was last seen, and alerts for: not seen in any room's last scan (with the rooms' coverage), last seen somewhere other than its usual room, last seen more than 3 days ago (`CARE_STALE_DAYS`). It asks "where did Mum put her pills?" in plain words. It is memory as of the last scan, not live tracking, and says so. **Notes for them**: pick one of their rooms, pick something the last scan found in it, and leave a note on it; it hangs at that object's direction and shows over the camera on their phone when they look there. Notes can be edited, marked done or deleted from the same list (`PATCH /api/notes/{id}` takes `text` or `done`). Nothing shows until the person turns on **Settings, Caregiver sharing** on their phone. API: `GET /api/care`, `POST /api/care/consent`, `POST/DELETE /api/care/watch`, `POST /api/care/ask`.
 
 The Reality API (MCP) gains `ask_room`, `list_notes` and `leave_note`, so another agent can ask a room a question or leave a note where it will be seen.
 
@@ -197,3 +199,9 @@ Muse Spark 1.3 (Standard mode only), SAM 3.1, Muse Voice Transcribe via the Meta
 ## Attribution
 
 No third-party code adapted so far. `meta-sam-parser` is used as a dependency.
+
+Demo video:
+- Footage: screen recordings of this app on our own phone (Realme 6) and of the laptop dashboard, with our own data.
+- Narration: synthesised with Kokoro-82M (Apache-2.0), voice `af_heart`, run locally through the HyperFrames CLI.
+- Music: original, generated for this video by our own Python script (numpy sine pads, a plucked arpeggio and a noise-tail reverb). No samples or third-party audio.
+- Edited and rendered with HyperFrames.

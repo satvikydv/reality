@@ -20,7 +20,8 @@ function chip(x,t,sub,cx,y,col){const tg=col===A,dot=tg?16:0;x.font=`600 13px ${
   rr(x,cx-W/2,y,W,CHIP_H,CHIP_H/2);x.fillStyle='rgba(7,9,11,.82)';x.fill();x.lineWidth=1;x.strokeStyle=tg?'rgba(138,164,255,.48)':'rgba(255,255,255,.24)';x.stroke();
   const L=cx-W/2+12;if(tg){x.fillStyle=A;x.beginPath();x.arc(L+4,y+CHIP_H/2,4,0,7);x.fill()}
   x.textBaseline='middle';x.textAlign='left';x.font=`600 13px ${SANS}`;x.fillStyle='#f2f4f3';x.fillText(t,L+dot,y+CHIP_H/2+.5);
-  if(sub){x.font=`500 11px ${MONO}`;x.fillStyle='rgba(242,244,243,.68)';x.fillText(sub,L+dot+a+8,y+CHIP_H/2+.5)}}
+  if(sub){x.font=`500 11px ${MONO}`;x.fillStyle='rgba(242,244,243,.68)';x.fillText(sub,L+dot+a+8,y+CHIP_H/2+.5)}
+  return{x0:cx-W/2,y0:y,x1:cx+W/2,y1:y+CHIP_H}}
 const AMBER='#FFD54F';
 // Text in a rounded bubble, wrapped to at most three lines. `above`: y is where the bubble ends, not where it starts.
 function bubble(x,text,cx,y,col,{above=false,maxW=210}={}){
@@ -34,6 +35,10 @@ function bubble(x,text,cx,y,col,{above=false,maxW=210}={}){
 // Notes people left in the room, drawn as paper sticky notes (see-through, so the room shows behind them) pinned above the
 // direction they were left in, or the object they were left on. Each note's screen box goes in noteHits so a tap can open it.
 export const noteHits=[];
+// What a tap on a remembered object can hit: its box and its label, with each object's anchor so a grouped label ("3 cables")
+// resolves to the member nearest the tap. Refilled every frame.
+export const objHits=[];
+const grow=(r,p=8)=>({x0:r.x0-p,y0:r.y0-p,x1:r.x1+p,y1:r.y1+p});
 const NOTE_W=148,NOTE_PAD=11,NOTE_LH=17;
 function wrap(x,text,maxW,maxLines){const lines=[];let line='';
   for(const w of String(text).split(/\s+/)){const t=line?line+' '+w:w;if(x.measureText(t).width>maxW&&line){lines.push(line);line=w}else line=t}
@@ -104,7 +109,7 @@ function mark(x,s,pr,col,{fill,lw=2,shadow=true}={}){
   x.moveTo(X+W-L,Y);x.arcTo(X+W,Y,X+W,Y+L,r);x.lineTo(X+W,Y+L);
   x.moveTo(X+W,Y+H-L);x.arcTo(X+W,Y+H,X+W-L,Y+H,r);x.lineTo(X+W-L,Y+H);
   x.moveTo(X+L,Y+H);x.arcTo(X,Y+H,X,Y+H-L,r);x.lineTo(X,Y+H-L);
-  x.stroke();x.shadowBlur=0}
+  x.stroke();x.shadowBlur=0;return{x0:X,y0:Y,x1:X+W,y1:Y+H}}
 
 // Outlines of the remembered objects, locked to the world. Returns how many were drawn and how many were hidden.
 function world(x,w,s,cur,fitv,t){
@@ -120,12 +125,14 @@ function world(x,w,s,cur,fitv,t){
     const col=o.hl||fresh?A:(s.mode==='scan'?G:'rgba(255,255,255,.92)');
     x.save();x.globalAlpha=pr.alpha*(fresh?.4+.6*ease(born):(o.hl?1:hasHl?.45:1));
     if(pr.outline&&s.detail!=='labels'){ // "labels only" (Settings, overlay detail) skips the outlines
-      mark(x,s,pr,col,{fill:col===A?rgba(A,fresh?.16*(1-born):.10):'rgba(255,255,255,.07)',lw:o.hl?3:2,shadow:soft});
+      const bx=mark(x,s,pr,col,{fill:col===A?rgba(A,fresh?.16*(1-born):.10):'rgba(255,255,255,.07)',lw:o.hl?3:2,shadow:soft});
+      if(bx)objHits.push({...bx,pts:[[o.id,ax,ay]]});
     }
     if(o.hl){const p=(t*1.4)%1;x.strokeStyle=A;x.globalAlpha*=1-p;x.lineWidth=2;x.beginPath();x.arc(ax,ay,30+p*40,0,7);x.stroke();x.globalAlpha=pr.alpha}
     if(pr.anchor){x.fillStyle=col;x.beginPath();x.arc(ax,ay,o.hl?3.5:2.5,0,7);x.fill()}
     const ly=bb?Math.min(bb.y1+6,s.h-s.bot-30):ay+28;
-    chip(x,o.name||o.label,(s.detail==='debug'?Math.round((o.confidence??0)*100)+'% ±'+Math.round(o.uncertainty_deg??0)+'°':o.hl?Math.round(Math.hypot(dx,dy))+'°':''),Math.min(w-50,Math.max(50,bb?(bb.x0+bb.x1)/2:ax)),Math.max(s.top,ly),col===G?G:col);
+    const cr=chip(x,o.name||o.label,(s.detail==='debug'?Math.round((o.confidence??0)*100)+'% ±'+Math.round(o.uncertainty_deg??0)+'°':o.hl?Math.round(Math.hypot(dx,dy))+'°':''),Math.min(w-50,Math.max(50,bb?(bb.x0+bb.x1)/2:ax)),Math.max(s.top,ly),col===G?G:col);
+    objHits.push({...grow(cr),pts:[[o.id,ax,ay]]});if(!bb)objHits.push({x0:ax-24,y0:ay-24,x1:ax+24,y1:ay+24,pts:[[o.id,ax,ay]]});
     x.restore();drawn++;
   }
   return{drawn,hidden};
@@ -141,12 +148,15 @@ function calmWorld(x,w,s,cur,fitv,t){
   for(const l of r.labels){
     x.save();x.globalAlpha=l.target?1:.92;
     x.fillStyle=l.target?A:'rgba(255,255,255,.9)';x.beginPath();x.arc(l.at[0],l.at[1],l.target?3.5:2.5,0,7);x.fill(); // what the label belongs to
-    chip(x,l.text,'',l.x+l.w/2,l.y,l.target?A:'rgba(255,255,255,.92)');x.restore()}
+    const cr=chip(x,l.text,'',l.x+l.w/2,l.y,l.target?A:'rgba(255,255,255,.92)');x.restore();
+    const pts=l.ids.map(id=>{const it=items.find(q=>q.o.id===id);return it&&it.at?[id,it.at[0],it.at[1]]:null}).filter(Boolean);
+    objHits.push({...grow(cr),pts});for(const p of pts)objHits.push({x0:p[1]-24,y0:p[2]-24,x1:p[1]+24,y1:p[2]+24,pts:[p]})}
   if(r.outlineId!=null){
     const o=s.world.find(q=>q.id===r.outlineId);
     if(o){const o2=o.mask&&o.mask.poly?{...o,mask:{...o.mask,poly:cachedOutline(o.id,o.mask.poly,cfg.outline)}}:o,pr=projectObject(o2,cur,fitv,{maxUncertainty:999});
       if(pr&&pr.outline){const col=o.hl?A:'rgba(255,255,255,.95)';
-        x.save();x.globalAlpha=pr.alpha;mark(x,s,pr,col,{fill:o.hl?rgba(A,.12):'rgba(255,255,255,.06)',lw:o.hl?3:2});x.restore()}
+        x.save();x.globalAlpha=pr.alpha;const bx=mark(x,s,pr,col,{fill:o.hl?rgba(A,.12):'rgba(255,255,255,.06)',lw:o.hl?3:2});x.restore();
+        if(bx&&pr.anchor)objHits.push({...bx,pts:[[o.id,pr.anchor[0],pr.anchor[1]]]})}
       if(o.hl&&pr&&pr.anchor){const p=(t*1.4)%1;x.save();x.strokeStyle=A;x.globalAlpha=1-p;x.lineWidth=2;x.beginPath();x.arc(pr.anchor[0],pr.anchor[1],30+p*40,0,7);x.stroke();x.restore()}}}
   return{drawn:r.shown,hidden:s.world.length-r.shown,labels:r.labels.length,hiddenBy:r.hidden,calm:r};
 }
@@ -159,10 +169,10 @@ function askedWorld(x,w,s,cur,fitv,t){
     const pr=projectObject(o,cur,fitv,{maxUncertainty:999}),dx=nd(o.yaw-s.yaw),dy=o.pitch-s.pitch;
     const on=pr&&pr.anchor&&pr.anchor[0]>0&&pr.anchor[0]<w&&pr.anchor[1]>s.top&&pr.anchor[1]<s.h-s.bot;
     if(!on){edge(x,w,s,dx,dy,A,o.label,Math.hypot(dx,dy),t);continue}
-    if(pr.outline){x.save();x.globalAlpha=pr.alpha;mark(x,s,pr,A,{fill:rgba(A,.14),lw:3});x.restore()}
+    if(pr.outline){x.save();x.globalAlpha=pr.alpha;const bx=mark(x,s,pr,A,{fill:rgba(A,.14),lw:3});x.restore();if(bx)objHits.push({...bx,pts:[[o.id,pr.anchor[0],pr.anchor[1]]]})}
     const[ax,ay]=pr.anchor,cx=Math.min(w-60,Math.max(60,ax)),ly=Math.min(ay+14,s.h-s.bot-CHIP_H-70);
     x.fillStyle=A;x.beginPath();x.arc(ax,ay,3.5,0,7);x.fill();
-    chip(x,o.name||o.label,'',cx,ly,A);if(reason)bubble(x,reason,cx,ly+CHIP_H+6,'rgba(138,164,255,.48)');
+    objHits.push({...grow(chip(x,o.name||o.label,'',cx,ly,A)),pts:[[o.id,ax,ay]]});if(reason)bubble(x,reason,cx,ly+CHIP_H+6,'rgba(138,164,255,.48)');
     drawn++}
   return{drawn,hidden:s.world.length-drawn,labels:drawn,asked:true}}
 
@@ -179,6 +189,7 @@ export function drawAR(c,s){
   const h1=hud&&at(s.yaw-35,0),h2=hud&&at(s.yaw+35,0);
   if(h1&&h2){x.setLineDash([3,7]);x.strokeStyle='rgba(255,255,255,.28)';x.lineWidth=1;x.beginPath();x.moveTo(h1[0],h1[1]);x.lineTo(h2[0],h2[1]);x.stroke();x.setLineDash([])}
   if(hud)ladder(x,w,s);
+  objHits.length=0;if(!s.showWorld)noteHits.length=0;
   s.stats=s.showWorld?(s.asked&&s.asked.size?askedWorld(x,w,s,cur,fitv,t):s.detail==='calm'?calmWorld(x,w,s,cur,fitv,t):world(x,w,s,cur,fitv,t)):{drawn:0,hidden:0};
   s.stats.hud=hud;
   if(s.showWorld){ghosts(x,w,s,at);notes(x,w,s,at)}

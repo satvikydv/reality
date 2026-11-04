@@ -235,3 +235,19 @@ Asked for a sleeker, iOS-like, premium look. Done in the stylesheets and the tok
 - **Phone:** a `checking` step in the summary shows each pair while it is compared; "same" slides the two pictures into one.
 
 **Not done / not known yet.** It cannot split one object that merged two real ones (two laptops side by side whose footprints overlap). The 0.7 threshold and the radius are set by reasoning, not measured; no real scan with look-alikes has been run through it yet. Each call sends two crops and maybe one wider photo of the room to the model API, like the scan itself does.
+
+## 2026-11-03: a design system the tests enforce, measured on the demo phone
+
+**Reference device.** Realme 6 (RMX2001), Chrome 156, installed app: the page is 423 x 941 CSS px at 2.55x, not the 390 px the earlier screenshots used. Read off the phone through Chrome's remote DevTools over USB.
+
+**Rules** (`tests/test_design_system.py`, 19 screens and states in headless Chrome at 423 x 941):
+- What you press is a capsule, or a circle when it is an icon alone. Heights 44 or 52 (48 for the top bar's back button and camera pill).
+- What holds content is a rounded rectangle: 12/14 (photos, rows), 20 (cards), 28 (sheets).
+- Every gap and padding inside the screens is on the 4 px grid. Nothing is wider than the screen.
+- Before the change the same check found 9 corner radii and 3 heights on controls and failed every screen; it now passes all 19.
+
+**Material.** Controls are solid graphite (`--ctl #24272D`) with a hairline of light on the top edge; the primary action is lit from above (`--lit`). Over the live camera there is no backdrop blur: measured on the phone in Explore, alternating in one session (6 s each), blur off 60.1 fps / 95th-percentile frame 16.7 ms, blur on 34-35 fps / 49.9 ms (twice each). Camera screens use dark tinted glass instead; static screens keep the blur.
+
+**Identity.** Room cards show the photo of their last scan in which the most objects were seen, and a compass ring of 36 ticks (one per 10 degrees around where the scan stood) with the directions the scan covered lit, the same ring as the app icon. `GET /api/rooms` now carries `coverage_bins` and `cover_frame_id`. The room screen has one primary action and four round actions (Rescan, Changes, Ask, Explore); room settings moved to a gear.
+
+**Not done.** Transitions between screens, hiding developer details (cost, frames) from the consumer path, and a five-second test with people who have not seen the app.

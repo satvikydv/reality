@@ -453,6 +453,16 @@ class WorldModel:
             self.db.commit()
             return self.get_note(note_id)
 
+    def edit_note(self, note_id: int, text: str) -> dict | None:
+        """Change a note's words (the same rules as when it was left); where it hangs and who left it stay. None if there is no such note."""
+        text = self._clean_text(text, NOTE_MAX, "the note")
+        with self.lock:
+            if self.get_note(note_id) is None:
+                return None
+            self.db.execute("UPDATE notes SET text=? WHERE id=?", (text, note_id))
+            self.db.commit()
+            return self.get_note(note_id)
+
     def delete_note(self, note_id: int) -> bool:
         with self.lock:
             n = self.db.execute("DELETE FROM notes WHERE id=?", (note_id,)).rowcount
@@ -536,11 +546,16 @@ class WorldModel:
             sid = self.latest_scan_id(room["id"])
             n = self.db.execute("SELECT COUNT(*) AS n FROM scans WHERE room_id=? AND status='saved'", (room["id"],)).fetchone()["n"]
             drafts = self.db.execute("SELECT COUNT(*) AS n FROM scans WHERE room_id=? AND status='draft'", (room["id"],)).fetchone()["n"]
-            out = {**room, "n_scans": n, "n_drafts": drafts, "scan_id": sid, "n_objects": 0, "coverage_pct": 0, "last_scanned": None}
+            out = {**room, "n_scans": n, "n_drafts": drafts, "scan_id": sid, "n_objects": 0, "coverage_pct": 0, "last_scanned": None,
+                   "coverage_bins": None, "cover_frame_id": None}
             if sid is not None:
                 s = self.get_scan(sid)
-                out.update(n_objects=s["n_objects"], last_scanned=s["ended_at"] or s["started_at"],
-                           coverage_pct=round(coverage(self.list_frames(sid))["fraction"] * 100))
+                cov = coverage(self.list_frames(sid))
+                # the room card's picture: the photo of this scan in which the most objects were seen
+                best = self.db.execute("SELECT o.frame_id FROM observations o JOIN objects ob ON ob.id=o.object_id WHERE ob.scan_id=?"
+                                       " GROUP BY o.frame_id ORDER BY COUNT(*) DESC, o.frame_id LIMIT 1", (sid,)).fetchone()
+                out.update(n_objects=s["n_objects"], last_scanned=s["ended_at"] or s["started_at"], coverage_pct=round(cov["fraction"] * 100),
+                           coverage_bins=[bool(b) for b in cov["bins"]], cover_frame_id=best["frame_id"] if best else None)
             return out
 
     def list_rooms(self) -> list[dict]:

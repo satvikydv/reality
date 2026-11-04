@@ -6,8 +6,8 @@ const t = (agoS) => Date.now() / 1000 - agoS;
 export const SHOT = { frame_id: 1, box: [180, 190, 330, 300], width: 640, height: 480 };
 
 const rooms = () => [
-  { id: 1, name: "Living Room", active: true, n_objects: 14, n_scans: 3, n_drafts: 0, last_scanned: t(7200), coverage_pct: 97, scan_id: 3 },
-  { id: 2, name: "Desk", active: false, n_objects: 6, n_scans: 1, n_drafts: 0, last_scanned: t(90000), coverage_pct: 62, scan_id: 5 },
+  { id: 1, name: "Living Room", active: true, n_objects: 14, n_scans: 3, n_drafts: 0, last_scanned: t(7200), coverage_pct: 97, scan_id: 3, cover_frame_id: SHOT.frame_id, coverage_bins: Array.from({ length: 36 }, (_, i) => i !== 20) },
+  { id: 2, name: "Desk", active: false, n_objects: 6, n_scans: 1, n_drafts: 0, last_scanned: t(90000), coverage_pct: 62, scan_id: 5, cover_frame_id: SHOT.frame_id, coverage_bins: Array.from({ length: 36 }, (_, i) => i < 22) },
   { id: 3, name: "Wardrobe", active: false, n_objects: 0, n_scans: 0, n_drafts: 0, last_scanned: null, coverage_pct: 0, scan_id: null },
 ];
 

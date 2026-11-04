@@ -68,7 +68,7 @@
 #care .ih h1:before{content:"";width:12px;height:12px;border-radius:50%;background:var(--accent);box-shadow:0 0 14px var(--accent)}
 #care .grow{margin-left:auto}
 #care .hide{color:var(--dim);font:400 var(--t-xs) var(--sans)}
-#care .cm{display:grid;grid-template-columns:420px minmax(0,1fr);min-height:0}
+#care .cm{display:grid;grid-template-columns:380px minmax(0,1fr) 400px;min-height:0}
 #care .pane{padding:20px 24px;display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto;border-right:1px solid var(--line)}
 #care .pane:last-child{border-right:0}
 #care h2{margin:10px 0 0;font:600 var(--t-md)/1.2 var(--sans);letter-spacing:-.01em;color:var(--ink)}
@@ -95,3 +95,21 @@
 #care .csug button{min-height:36px;padding:0 12px;border-radius:var(--r-pill);font:500 var(--t-sm) var(--sans)}
 #care .calert.clear{background:var(--green-fill);border-color:var(--green-line);color:var(--green)}
 #care .ih .hide#caresum{color:var(--ink);font:500 var(--t-sm) var(--sans)}
+/* Care: notes for the person, left on things in their rooms */
+#cnon{display:flex;flex-direction:column;gap:12px}
+#care textarea{width:100%;resize:vertical;min-height:84px;padding:12px;border-radius:var(--r-sm);background:var(--fill-1);color:var(--ink);border:1px solid var(--line-strong);font:500 var(--t-sm)/1.45 var(--sans);box-sizing:border-box}
+#care textarea:focus,#care input:focus,#care select:focus{outline:2px solid var(--accent);outline-offset:1px}
+.cnobjs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:300px;overflow:auto}
+.cnobj{display:flex;flex-direction:column;gap:6px;padding:6px;border-radius:var(--r-sm);background:var(--card);border:1px solid var(--line);color:var(--ink);text-align:left;cursor:pointer;font:500 var(--t-xs) var(--sans)}
+.cnobj canvas{width:100%;aspect-ratio:4/3;border-radius:8px;background:var(--surface);display:block}
+.cnobj[aria-selected=true]{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.cnobj .n{color:var(--dim);font-size:11px}
+.cncompose{display:flex;flex-direction:column;gap:8px;padding:12px;border-radius:var(--r-md);background:var(--card);border:1px solid var(--accent-line)}
+.cncompose b{font:600 var(--t-sm) var(--sans)}
+.cnlist{display:flex;flex-direction:column;gap:8px}
+.cnote{display:flex;flex-direction:column;gap:6px;padding:12px;border-radius:var(--r-md);background:rgba(255,213,79,.10);border:1px solid rgba(255,213,79,.35)}
+.cnote p{margin:0;font:600 var(--t-sm)/1.4 var(--sans);color:var(--ink);overflow-wrap:anywhere}
+.cnote .m{font:400 var(--t-xs) var(--sans);color:var(--dim)}
+.cnote .acts{display:flex;gap:6px}
+.cnote .acts button.del{color:var(--red)}
+.cnph{width:100%;aspect-ratio:4/3;border-radius:8px;background:var(--surface) radial-gradient(circle at 50% 45%,rgba(138,164,255,.16),transparent 60%)}

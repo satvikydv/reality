@@ -88,6 +88,13 @@ async def index():
     return FileResponse(WEB / "index.html", headers=NO_CACHE)
 
 
+@app.get("/manifest.webmanifest")
+async def manifest():
+    """What makes the phone app installable (Chrome's "Install app"): full screen, portrait, the icons. There is no service
+    worker on purpose: the app needs the server for everything, and a cache of its files would bring back stale code."""
+    return FileResponse(WEB / "manifest.webmanifest", media_type="application/manifest+json", headers=NO_CACHE)
+
+
 @app.get("/dashboard")
 async def dashboard():
     return FileResponse(WEB / "dashboard.html", headers=NO_CACHE)
@@ -204,7 +211,8 @@ class NoteIn(BaseModel):
 
 
 class NotePatch(BaseModel):
-    done: bool
+    done: bool | None = None   # mark done (or open again)
+    text: str | None = None    # new words for the note
 
 
 class AskIn(BaseModel):
@@ -327,10 +335,19 @@ async def api_add_note(room_id: int, body: NoteIn):
 
 
 @app.patch("/api/notes/{note_id}")
-async def api_note_done(note_id: int, body: NotePatch):
-    n = _svc().wm.set_note_done(note_id, body.done)
-    if n is None:
+async def api_note_patch(note_id: int, body: NotePatch):
+    """Mark a note done (or open again), or change its words. The phone, the caregiver's dashboard and agents use the same call."""
+    if body.done is None and body.text is None:
+        raise HTTPException(400, "nothing to change: send done or text")
+    wm = _svc().wm
+    if wm.get_note(note_id) is None:
         raise HTTPException(404, f"no note {note_id}")
+    try:
+        n = wm.edit_note(note_id, body.text) if body.text is not None else wm.get_note(note_id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    if body.done is not None:
+        n = wm.set_note_done(note_id, body.done)
     return n
 
 
@@ -777,3 +794,4 @@ class _Revalidated(StaticFiles):
 
 app.mount("/js", _Revalidated(directory=WEB / "js"), name="js")
 app.mount("/css", _Revalidated(directory=WEB / "css"), name="css")
+app.mount("/icons", StaticFiles(directory=WEB / "icons"), name="icons")
