@@ -57,7 +57,7 @@ Changes     {status, room, scan_before, scan_after, scans: [{id, started_at, bas
                          uncertainty_deg, distance_cm, local: {residual_deg, tolerance_deg, size_deg, views} | null}],
              removed / added: [{label, key, review, speech, replay}], cant_compare: [{label, key, was, reason}]  (also served as "unverified"), unchanged_count}
              review: "confirmed" | "dismissed" | null. When alignment.quality is not "good" nothing is in moved, possibly_moved, removed or added; moved_low_confidence
-             is only ever filled when it is "weak" (and the owner's switch MOVED_LOW_CONFIDENCE is on). removed / added need the object seen in two frames.
+             is only ever filled when it is "weak" (and the switch MOVED_LOW_CONFIDENCE is on). removed / added need the object seen in two frames.
 ```
 
 Every list screen has the same set of non-happy states: `loading`, `error` (the server answered with an error), `offline` (not reachable, reconnecting by itself) and `slow` (no answer yet). Where a state would add nothing (a sheet, a form), it is left out.
@@ -211,7 +211,7 @@ Guided search, camera on. An arrow toward the stored direction with a cone for h
 
 What changed in one room: a Before and an After picker over the room's saved scans (default: the latest against its baseline, else the one before), an **alignment** card (how well the two scans lined up from their pictures: good, weak or failed, with the matches, the start-heading difference and how much viewpoint change a move must beat), then moved / possibly moved / new / removed with before and after pictures and an angular shift ("moved 40° to the right"), a "Can't compare" list with a reason each (direction not rescanned, seen only once, the scans did not line up), and Confirm / Dismiss per change. Scans of different rooms are never compared.
 
-**Moved, low confidence** (amber, "↔?") is its own group, never mixed into Moved: it appears only when the alignment is weak (never failed) and an object with a unique label moved far beyond anything the viewpoint explains. Its card says "seems to have moved … so check it". The owner can switch it off (`MOVED_LOW_CONFIDENCE=0`); the alignment card then says nothing is called moved.
+**Moved, low confidence** (amber, "↔?") is its own group, never mixed into Moved: it appears only when the alignment is weak (never failed) and an object with a unique label moved far beyond anything the viewpoint explains. Its card says "seems to have moved … so check it". It can be switched off (`MOVED_LOW_CONFIDENCE=0`); the alignment card then says nothing is called moved.
 
 | State | Shows |
 |---|---|

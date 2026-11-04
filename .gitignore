@@ -10,3 +10,16 @@ node_modules/
 
 # local-only notes, not part of the submission
 docs/demo-script.md
+
+# keys and certificates
+*.pem
+*.key
+
+# local working files, never part of the repo
+PRD.md
+implementation-tracking.md
+FINAL_TOUCHUPS.md
+docs/submission-draft.md
+clips/
+.handoff/
+video/

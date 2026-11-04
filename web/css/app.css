@@ -563,7 +563,7 @@ button{padding-block:0}input{padding-block:0}
 .body,.sheet,.sheet2,.thumbs{scrollbar-width:none}
 .body::-webkit-scrollbar,.sheet::-webkit-scrollbar{display:none}
 /* Over the live camera, no backdrop blur: the video changes every frame, so a blurred panel is re-blurred every frame. Measured
-   on the demo phone (Realme 6, Explore, 10 s each): blur on 48 fps, 95th-percentile frame 33 ms; blur off 60 fps, 16.7 ms.
+   on the demo phone (Explore, alternating in one session, 6 s each): blur on 34-35 fps, 95th-percentile frame 49.9 ms; blur off 60 fps, 16.7 ms.
    Camera screens get the same panels as dark tinted glass instead; static screens keep the blur, where it costs nothing. */
 body.cam .panel,body.cam .sheet,body.cam .sheet2,body.cam .pill,body.cam .back,body.cam .camstop,body.cam .tog,body.cam .askbar,body.cam .toast,body.cam #cap,body.cam .btn.ghost{
   -webkit-backdrop-filter:none!important;backdrop-filter:none!important}
