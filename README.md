@@ -199,3 +199,9 @@ Muse Spark 1.3 (Standard mode only), SAM 3.1, Muse Voice Transcribe via the Meta
 ## Attribution
 
 No third-party code adapted so far. `meta-sam-parser` is used as a dependency.
+
+Demo video:
+- Footage: screen recordings of this app on our own phone (Realme 6) and of the laptop dashboard, with our own data.
+- Narration: synthesised with Kokoro-82M (Apache-2.0), voice `af_heart`, run locally through the HyperFrames CLI.
+- Music: original, generated for this video by our own Python script (numpy sine pads, a plucked arpeggio and a noise-tail reverb). No samples or third-party audio.
+- Edited and rendered with HyperFrames.
