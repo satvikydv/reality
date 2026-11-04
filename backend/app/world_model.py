@@ -453,6 +453,16 @@ class WorldModel:
             self.db.commit()
             return self.get_note(note_id)
 
+    def edit_note(self, note_id: int, text: str) -> dict | None:
+        """Change a note's words (the same rules as when it was left); where it hangs and who left it stay. None if there is no such note."""
+        text = self._clean_text(text, NOTE_MAX, "the note")
+        with self.lock:
+            if self.get_note(note_id) is None:
+                return None
+            self.db.execute("UPDATE notes SET text=? WHERE id=?", (text, note_id))
+            self.db.commit()
+            return self.get_note(note_id)
+
     def delete_note(self, note_id: int) -> bool:
         with self.lock:
             n = self.db.execute("DELETE FROM notes WHERE id=?", (note_id,)).rowcount

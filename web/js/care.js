@@ -19,7 +19,11 @@ const send = (method, url, body) => j(url, { method, headers: { "content-type": 
 const DEMO = new URLSearchParams(location.search).has("demo");
 const now = () => Date.now() / 1000;
 const demoState = {
-  rooms: [{ id: 1, name: "Kitchen" }, { id: 2, name: "Bedroom" }, { id: 3, name: "Living Room" }],
+  rooms: [{ id: 1, name: "Kitchen", scan_id: 11 }, { id: 2, name: "Bedroom", scan_id: 12 }, { id: 3, name: "Living Room", scan_id: 13 }],
+  objects: { 11: [["pills", 40, -20], ["mug", 10, -15], ["stove", -30, -25], ["kettle", -45, -10]], 12: [["bed", 0, -30], ["lamp", 60, 5], ["glasses", 55, -10]],
+             13: [["sofa", 0, -20], ["tv", 90, 5], ["lamp", -70, 0], ["lamp", 120, 0]] },
+  notes: { 1: [{ id: 1, text: "Turn the stove off after cooking", author: "Maya", label: "stove", yaw: 330, pitch: -25, created_at: now() - 7200 }], 2: [], 3: [] },
+  nextNote: 2,
   items: [
     { id: 1, label: "pills", usual_room: { id: 2, name: "Bedroom" }, status: "alert",
       seen: [{ room: { id: 1, name: "Kitchen" }, age_seconds: 7200, where: "The pills were last seen about 40° to the right of where the scan started, near the stove.", replay: null }],
@@ -31,6 +35,27 @@ const demoState = {
 };
 async function demoApi(method, url, body) {
   if (url === "/api/rooms") return { rooms: demoState.rooms };
+  let m = url.match(/^\/api\/scans\/(\d+)\/objects$/);
+  if (m) {
+    const objs = (demoState.objects[m[1]] || []).map(([label, yaw, pitch], i) => ({ id: +m[1] * 100 + i, label, yaw, pitch, first_seen: i, thumb: null }));
+    const labels = [...new Set(objs.map((o) => o.label))].map((label) => ({ label, objects: objs.filter((o) => o.label === label) }));
+    return { labels };
+  }
+  if ((m = url.match(/^\/api\/rooms\/(\d+)\/notes/))) {
+    const list = (demoState.notes[m[1]] ||= []);
+    if (method === "POST") { const n = { id: demoState.nextNote++, ...body, created_at: now() }; list.unshift(n); return n; }
+    return { notes: list.filter((n) => !n.done_at) };
+  }
+  if ((m = url.match(/^\/api\/notes\/(\d+)$/))) {
+    for (const list of Object.values(demoState.notes)) {
+      const i = list.findIndex((n) => n.id === +m[1]);
+      if (i < 0) continue;
+      if (method === "DELETE") { list.splice(i, 1); return { deleted: +m[1] }; }
+      if (body.text != null) list[i].text = body.text.trim();
+      if (body.done) list[i].done_at = now();
+      return list[i];
+    }
+  }
   if (url === "/api/care") return { status: "ok", consent: { on: true, since: now() - 86400 }, items: demoState.items, as_of: "the last scan of each room",
     alerts: demoState.items.flatMap((i) => i.alerts.map((a) => ({ item_id: i.id, label: i.label, ...a }))) };
   if (url === "/api/care/watch" && method === "POST") {
@@ -87,7 +112,7 @@ async function load() {
   let d;
   try { d = await get("/api/care"); } catch (e) { msg("Cannot load the caregiver view: " + e.message + ". Check that the server is running."); return; }
   const on = d.consent.on;
-  $("careconsent").textContent = on ? `Sharing is ON since ${new Date(d.consent.since * 1000).toLocaleString()}` : "Sharing is OFF. The person turns it on in Settings on their phone.";
+  $("careconsent").textContent = on ? `Sharing is ON since ${new Date(d.consent.since * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}` : "Sharing is OFF. The person turns it on in Settings on their phone.";
   $("careconsent").className = "badge2 " + (on ? "on" : "off");
   const alerts = d.alerts || [];
   // "all clear" is only said when places could be checked: with sharing off nothing is known, which is not the same as nothing wrong
@@ -100,6 +125,95 @@ async function load() {
   $("careitems").replaceChildren(...(d.items.length ? d.items.map((it) => card(it, !on)) : [el("p", "empty", "Nothing on the list yet. Add the things you want to keep an eye on: pills, glasses, keys.")]));
   $("careask").disabled = !on;
   $("careasked").hidden = !on;
+  $("cnoff").hidden = on;
+  $("cnon").hidden = !on;
+  if (on && !notesReady) { notesReady = true; notesRooms(); }
+  else if (on && !editing && !document.activeElement?.closest?.("#cnotes")) loadNotes(); // keep the list fresh, never under someone typing
+}
+
+/* Notes for them: pick a room, pick something in it, leave a note on it. The note hangs at that object's direction, so it shows over
+   the camera on their phone when they look at it (the phone's overlay refreshes every few seconds). Same notes API as the phone. */
+let notesReady = false, nRoom = null, nObj = null, editing = false;
+function nameObjects(labels) { // "lamp 1", "lamp 2" when a room has more than one, in the order the scan first saw them
+  const out = [];
+  for (const g of labels) {
+    const objs = [...g.objects].sort((a, b) => (a.first_seen ?? 0) - (b.first_seen ?? 0) || a.id - b.id);
+    objs.forEach((o, i) => out.push({ ...o, name: objs.length > 1 ? `${g.label} ${i + 1}` : g.label }));
+  }
+  return out;
+}
+function notesRooms() {
+  const scanned = rooms.filter((r) => r.scan_id);
+  const sel = $("cnroom");
+  sel.replaceChildren(...(scanned.length ? scanned.map((r) => new Option(r.name, r.id)) : [new Option("No room has been scanned yet", "")]));
+  sel.disabled = !scanned.length;
+  nRoom = scanned.find((r) => r.id === nRoom)?.id ?? scanned.find((r) => r.active)?.id ?? scanned[0]?.id ?? null;
+  if (nRoom != null) sel.value = String(nRoom);
+  loadObjects();
+  loadNotes();
+}
+async function loadObjects() {
+  nObj = null; $("cncompose").hidden = true;
+  const r = rooms.find((x) => x.id === nRoom);
+  if (!r?.scan_id) { $("cnobjs").replaceChildren(el("p", "hide", "Scan this room on the phone first.")); return; }
+  let d;
+  try { d = await get(`/api/scans/${r.scan_id}/objects`); } catch (e) { $("cnobjs").replaceChildren(el("p", "hide", "Cannot load the room's things: " + e.message)); return; }
+  const objs = nameObjects(d.labels || []);
+  $("cnobjs").replaceChildren(...(objs.length ? objs.map((o) => {
+    const b = el("button", "cnobj");
+    b.setAttribute("role", "option"); b.setAttribute("aria-selected", "false"); b.dataset.id = o.id;
+    b.append(o.thumb ? photo(o.thumb) : el("div", "cnph"), el("span", null, o.name)); // no photo: a quiet placeholder, never an empty box
+    b.onclick = () => {
+      nObj = o;
+      for (const x of $("cnobjs").children) x.setAttribute("aria-selected", String(x === b));
+      $("cnat").textContent = `On the ${o.name} in ${r.name}`;
+      $("cncompose").hidden = false; $("cntext").focus();
+    };
+    return b;
+  }) : [el("p", "hide", "The last scan of this room found nothing to leave a note on.")]));
+}
+async function loadNotes() {
+  if (nRoom == null) { $("cnlist").replaceChildren(); return; }
+  let d;
+  try { d = await get(`/api/rooms/${nRoom}/notes`); } catch (e) { $("cnlist").replaceChildren(el("p", "hide", "Cannot load the notes: " + e.message)); return; }
+  $("cnlisthead").textContent = d.notes.length ? `In this room (${d.notes.length})` : "In this room";
+  $("cnlist").replaceChildren(...(d.notes.length ? d.notes.map(noteCard) : [el("p", "hide", "No notes in this room yet.")]));
+}
+function noteCard(n) {
+  const c = el("div", "cnote");
+  const p = el("p", null, n.text);
+  const meta = el("div", "m", [n.label ? `on the ${n.label}` : "in the direction it was left", n.author ? `from ${n.author}` : null, ago(now() - n.created_at)].filter(Boolean).join(" · "));
+  const acts = el("div", "acts");
+  const edit = el("button", "small", "Edit"), done = el("button", "small", "Done"), del = el("button", "small del", "Delete");
+  edit.onclick = () => {
+    editing = true;
+    const t = el("textarea"); t.maxLength = 280; t.rows = 3; t.value = n.text; t.setAttribute("aria-label", "Note");
+    const save = el("button", "small go", "Save"), cancel = el("button", "small", "Cancel");
+    save.onclick = async () => { try { await call("PATCH", `/api/notes/${n.id}`, { text: t.value }); msg("Note changed."); } catch (e) { return msg(e.message); } editing = false; loadNotes(); };
+    cancel.onclick = () => { editing = false; loadNotes(); };
+    t.onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); save.onclick(); } if (e.key === "Escape") cancel.onclick(); };
+    p.replaceWith(t); acts.replaceChildren(save, cancel); t.focus();
+  };
+  done.onclick = async () => { try { await call("PATCH", `/api/notes/${n.id}`, { done: true }); msg("Marked done. It no longer shows on their phone."); } catch (e) { return msg(e.message); } loadNotes(); };
+  del.onclick = async () => {
+    if (!confirm(`Delete the note “${n.text}”? It disappears from their phone too.`)) return;
+    try { await call("DELETE", `/api/notes/${n.id}`); msg("Note deleted."); } catch (e) { return msg(e.message); }
+    loadNotes();
+  };
+  acts.append(edit, done, del);
+  c.append(p, meta, acts);
+  return c;
+}
+async function addNote() {
+  const text = $("cntext").value.trim(), author = $("cnfrom").value.trim();
+  if (!nObj) return msg("Pick the thing to leave the note on.");
+  if (!text) return msg("Write the note first.");
+  try { localStorage.setItem("care.author", author); } catch { /* private window: the name is not remembered */ }
+  try {
+    await call("POST", `/api/rooms/${nRoom}/notes`, { text, yaw: nObj.yaw, pitch: nObj.pitch, label: nObj.name, author: author || "Caregiver" });
+  } catch (e) { return msg(e.message); }
+  $("cntext").value = ""; msg(`Note left on the ${nObj.name}. It shows on their phone when they look there.`);
+  loadNotes();
 }
 
 async function loadRooms() {
@@ -138,5 +252,9 @@ $("careadd").onclick = add;
 $("carelabel").onkeydown = (e) => { if (e.key === "Enter") add(); }; // returning false would cancel every other key
 $("careask").onclick = ask;
 $("careq").onkeydown = (e) => { if (e.key === "Enter") ask(); };
+$("cnroom").onchange = () => { nRoom = +$("cnroom").value; loadObjects(); loadNotes(); };
+$("cnadd").onclick = addNote;
+$("cntext").onkeydown = (e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addNote(); } };
+try { $("cnfrom").value = localStorage.getItem("care.author") || ""; } catch { /* no storage */ }
 addEventListener("keydown", (e) => { if (e.key === "Escape" && $("care").classList.contains("on")) close(); });
 window.__care = { open, close, load };

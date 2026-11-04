@@ -152,7 +152,7 @@ button.small:hover{background:var(--fill-3)}button.small.go,button.small.go:hove
 </section>
 <section id="care" role="dialog" aria-modal="true" aria-label="Caregiver view">
   <div class="ih"><h1>Care</h1><span class="badge2 off" id="careconsent">…</span><span class="hide">What the last scan of each room saw, not live.</span><span id="caresum" class="hide" role="status"></span>
-    <span id="caremsg" role="status" style="font:500 13px var(--mono);color:var(--accent)"></span><button class="small grow" id="careclose">Close ✕</button></div>
+    <span id="caremsg" role="status" style="font:500 13px var(--sans);color:var(--accent)"></span><button class="small grow" id="careclose">Close ✕</button></div>
   <div class="cm">
     <div class="pane">
       <h2>Needs attention</h2>
@@ -165,6 +165,22 @@ button.small:hover{background:var(--fill-3)}button.small.go,button.small.go:hove
       <div id="careans"></div>
     </div>
     <div class="pane"><h2>Their things</h2><div id="careitems" class="citems"></div></div>
+    <div class="pane" id="cnotes" aria-label="Notes for them">
+      <h2>Notes for them</h2>
+      <p class="hide">Pick something in one of their rooms and leave a note on it. They see it over the camera when they look at it.</p>
+      <div id="cnoff" class="calert" hidden>Notes can be left once sharing is on: the person turns it on in Settings on their phone.</div>
+      <div id="cnon">
+        <select id="cnroom" aria-label="Room"></select>
+        <div id="cnobjs" class="cnobjs" role="listbox" aria-label="Things in this room"></div>
+        <div id="cncompose" class="cncompose" hidden>
+          <b id="cnat"></b>
+          <textarea id="cntext" maxlength="280" rows="3" placeholder="Take the evening pills after dinner" aria-label="Note"></textarea>
+          <div class="cadd"><input id="cnfrom" type="text" maxlength="40" placeholder="Your name" aria-label="From"><button class="small go" id="cnadd">Leave note</button></div>
+        </div>
+        <h2 id="cnlisthead">In this room</h2>
+        <div id="cnlist" class="cnlist"></div>
+      </div>
+    </div>
   </div>
 </section>
 <script type="module" src="js/dashboard.js"></script>
